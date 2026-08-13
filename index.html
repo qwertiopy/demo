@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Expandable 2D Shooter</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <canvas id="gameCanvas" width="1280" height="720"></canvas>
+
+    <div id="editorUI" style="position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.8); color: white; padding: 15px; z-index: 10;">
+        <h3>Level Editor & Debug</h3>
+        <label>
+            <input type="checkbox" id="godModeToggle"> Toggle Invincibility (God Mode)
+        </label>
+        <br><br>
+        <textarea id="levelData" rows="10" cols="50">
+        {
+        "seed": 12345,
+        "playerSpawn": { "x": 3, "y": 5 },
+        "enemySpawns": [],
+        "enemySpawnRate": 0.5, 
+        "walls": []
+        }
+        </textarea>
+        <br>
+        <button id="loadLevelBtn">Load Level / Apply</button>
+        <button id="hideUIBtn" style="margin-left: 10px;">Toggle UI (H)</button>
+    </div>
+
+    <script type="module" src="game.js"></script>
+
+</body>
+</html>
