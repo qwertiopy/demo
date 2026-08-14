@@ -161,7 +161,6 @@ function spawnEnemyPoint(x, y, type = "g-bot") {
 // DYNAMIC PROCEDURAL GENERATION
 // ==========================================
 function updateProceduralGeneration(playerX) {
-    // Clamp startX to 0 so it never generates negative coordinates
     const startX = Math.max(0, Math.floor(playerX) - RENDER_DISTANCE_BACK);
     const endX = Math.floor(playerX) + RENDER_DISTANCE_FRONT;
     const ceilingY = 2; 
@@ -170,29 +169,34 @@ function updateProceduralGeneration(playerX) {
 
     // A. Create Left Border Wall explicitly at column 0
     if (!generatedColumns.has(0) && startX <= 0 && endX >= 0) {
-        // Capping the start of the corridor cleanly, no protrusion above the ceiling
         spawnWall(0, ceilingY, 1, corridorWidthBlocks + 1, "slategray");
     }
 
     // B. Generate blocks dynamically based on camera/player position
     for (let blockX = startX; blockX <= endX; blockX++) {
-        if (generatedColumns.has(blockX)) continue; // Skip if already loaded
+        if (generatedColumns.has(blockX)) continue; 
         generatedColumns.add(blockX);
 
-        // Standard ceiling and floor blocks
         spawnWall(blockX, ceilingY, 1, 1, "slategray");
         spawnWall(blockX, floorY, 1, 1, "slategray");
 
-        // Start spawning structures/enemies from block 1 onwards
         if (blockX >= 1) {
-            // Seed the generator based on the X coordinate so regeneration is consistent
-            currentSeed = Math.abs(levelSeed + (blockX * 374761393)) % 233280;
+            // BUGFIX 1: Use a bitwise hash with a prime multiplier to completely scramble the seed per column. 
+            // This prevents adjacent chunks from sharing similar PRNG sequences.
+            currentSeed = ((levelSeed ^ (blockX * 2654435761)) >>> 0) % 233280;
 
             let roll = seededRandom();
             if (roll > 0.5) {
                 let template = STRUCTURE_LIBRARY[Math.floor(seededRandom() * STRUCTURE_LIBRARY.length)];
                 let structX = blockX;
-                let structY = floorY - template.heightBlocks;
+                
+                // BUGFIX 2: Calculate a random Y position between the ceiling and the floor
+                // + 1 keeps it below the ceiling wall, - height keeps it above the floor wall
+                let minY = ceilingY + 1;
+                let maxY = floorY - template.heightBlocks;
+                
+                // seededRandom() gives 0-1, so we multiply by our range and add our minimum height
+                let structY = Math.floor(seededRandom() * (maxY - minY + 1)) + minY;
 
                 let canSpawn = true;
                 for (let s of placedStructures) {
@@ -218,6 +222,7 @@ function updateProceduralGeneration(playerX) {
                         }
                     }
 
+                    // Spawn the enemy on top of the newly placed structure
                     let enemyTypeRoll = seededRandom();
                     let botType = enemyTypeRoll > 0.7 ? "h-bot" : (enemyTypeRoll > 0.3 ? "j-bot" : "g-bot");
                     spawnEnemyPoint(structX, structY - ENEMY_TYPES[botType].sizeBlocks, botType);
