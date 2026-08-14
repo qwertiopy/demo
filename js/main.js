@@ -65,6 +65,10 @@ export function update(currentTime, dt) {
 	processBullets(GameState.bullets, true, currentTime, dt);
 
 	processBullets(GameState.enemyBullets, false, currentTime, dt);
+
+	if (player.x > GameState.MaxDistance) {
+		GameState.MaxDistance = player.x;
+	}
 }
 
 let lastFrameTime = null;
