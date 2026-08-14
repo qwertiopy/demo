@@ -95,7 +95,7 @@ const GameState = {
 const player = { 
     x: 0, y: 0, 
     size: Config.PLAYER_SIZE_BLOCKS, speed: Config.PLAYER_SPEED, 
-    color: "royalblue", hp: 10, maxHp: 10 
+    color: "royalblue", hp: 100, maxHp: 100 
 }; 
 
 const camera = { 

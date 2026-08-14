@@ -1,48 +1,48 @@
 {
     "CONFIG_SCHEMA_VERSION": 3,
-    "PLAYER_SPEED": 6.0,
-    "PLAYER_BULLET_SPEED": 12.0,
+    "PLAYER_SPEED": 5,
+    "PLAYER_BULLET_SPEED": 10,
     "PLAYER_SHOOT_COOLDOWN": 0,
     "STRUCTURE_DENSITY_BLOCKS": 5,
     "ENEMY_TYPES": {
         "g-bot": {
             "sizeBlocks": 0.5,
-            "speed": 5.4,
-            "hp": 1,
+            "speed": 5,
+            "hp": 5,
             "color": "orange",
-            "shootCooldown": 250,
-            "bulletSpeed": 15.0,
+            "shootCooldown": 100,
+            "bulletSpeed": 8,
             "bulletRadiusBlocks": 0.08,
             "bulletColor": "gold",
             "bulletDamage": 1,
             "ai": "aggressive",
-            "spread": 0.2
+            "spread": 0.625
         },
         "j-bot": {
             "sizeBlocks": 0.75,
-            "speed": 3.0,
-            "hp": 3,
+            "speed": 2.5,
+            "hp": 10,
             "color": "darkred",
-            "shootCooldown": 100,
-            "bulletSpeed": 12.0,
+            "shootCooldown": 250,
+            "bulletSpeed": 10,
             "bulletRadiusBlocks": 0.12,
             "bulletColor": "red",
-            "bulletDamage": 3,
+            "bulletDamage": 1,
             "ai": "aggressive",
-            "spread": 0.6
+            "spread": 0.5
         },
         "h-bot": {
             "sizeBlocks": 0.375,
-            "speed": 2.4,
-            "hp": 1,
+            "speed": 2.5,
+            "hp": 3,
             "color": "purple",
-            "shootCooldown": 500,
-            "bulletSpeed": 30.0,
+            "shootCooldown": 1000,
+            "bulletSpeed": 15,
             "bulletRadiusBlocks": 0.06,
             "bulletColor": "fuchsia",
-            "bulletDamage": 3,
+            "bulletDamage": 1,
             "ai": "passive",
-            "spread": 0.02
+            "spread": 0.34
         }
     },
     "STRUCTURE_LIBRARY": [
