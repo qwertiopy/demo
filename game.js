@@ -232,24 +232,6 @@ function updateProceduralGeneration(playerX) {
                     let enemySpawnX = structX + template.widthBlocks;
                     let enemySpawnY = structY + Math.floor(template.heightBlocks / 2);
 
-                    // 2. Collision Check: Push right if clipping inside any placed structure
-                    // let isClipping = false;
-                    // while (isClipping) {
-                    //     isClipping = false;
-                    //     for (let s of placedStructures) {
-                    //         // Simple bounding box check
-                    //         if (enemySpawnX >= s.origin.x && 
-                    //             enemySpawnX < s.origin.x + s.size.width && 
-                    //             enemySpawnY >= s.origin.y && 
-                    //             enemySpawnY < s.origin.y + s.size.height) {
-                                
-                    //             isClipping = true;
-                    //             enemySpawnX++; // Push to the right
-                    //             break; // Break the inner loop to restart the check with the new X
-                    //         }
-                    //     }
-                    // }
-
                     spawnEnemyPoint(enemySpawnX, enemySpawnY, botType);
                 }
             }
