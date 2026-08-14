@@ -2,8 +2,8 @@
 // 1. CONFIGURATION & STATE
 // ========================================== 
 const Config = {
-    PLAYER_SPEED: 0,
-    PLAYER_BULLET_SPEED: 0,
+    PLAYER_SPEED: 0,        // blocks/second
+    PLAYER_BULLET_SPEED: 0, // blocks/second
     PLAYER_SHOOT_COOLDOWN: 0,
     STRUCTURE_DENSITY_BLOCKS: 0,
     ENEMY_TYPES: {},
@@ -181,7 +181,7 @@ function shoot(shooter, targetX, targetY, bulletArray, stats) {
     const centerY = shooter.y + shooter.size / 2; 
     const spread = stats.spreadOffset || 0; 
     const angle = Math.atan2(targetY - centerY, targetX - centerX) + spread; 
-    const speed = stats.speed || 0.2; 
+    const speed = stats.speed ?? 12; // blocks/second 
 
     if (bulletArray === GameState.bullets && GameState.bullets.length >= 100) GameState.bullets.shift(); 
 
@@ -215,7 +215,7 @@ function hasLineOfSight(x1, y1, x2, y2) {
     );
 } 
 
-function updateEnemies(currentTime) { 
+function updateEnemies(currentTime, dt) { 
     if (GameState.enemySpawnRate > 0 && GameState.enemySpawns.length > 0) { 
         const spawnIntervalMs = 1000 / GameState.enemySpawnRate; 
         if (currentTime - GameState.lastSpawnTime > spawnIntervalMs) { 
@@ -234,10 +234,11 @@ function updateEnemies(currentTime) {
 
                 GameState.enemies.push({ 
                     x: spawnPoint.x, y: spawnPoint.y, 
-                    size: stats.sizeBlocks, speed: stats.speed, 
+                    size: stats.sizeBlocks, speed: stats.speed, // blocks/second
                     hp: stats.hp, maxHp: stats.hp, color: stats.color, 
                     lastShot: 0, shootCooldown: stats.shootCooldown, typeStats: stats, 
-                    ai: stats.ai, lastSeenX: null, lastSeenY: null, vx: 0, vy: 0 
+                    ai: stats.ai, lastSeenX: null, lastSeenY: null, vx: 0, vy: 0,
+                    moveX: 0, moveY: 0
                 }); 
             } 
             GameState.lastSpawnTime = currentTime; 
@@ -253,16 +254,24 @@ function updateEnemies(currentTime) {
         const pCenterY = player.y + player.size / 2; 
         const los = hasLineOfSight(eCenterX, eCenterY, pCenterX, pCenterY); 
 
-        e.vx = 0; e.vy = 0; 
+        // Velocity is always stored in blocks/second.
+        e.vx = 0; 
+        e.vy = 0; 
 
         if (los) { 
-            e.lastSeenX = pCenterX; e.lastSeenY = pCenterY; 
+            e.lastSeenX = pCenterX; 
+            e.lastSeenY = pCenterY; 
+
+            // Cooldowns are already real time in milliseconds, so do not multiply by dt.
             if (currentTime - e.lastShot > e.shootCooldown) { 
                 const spreadOffset = (Math.random() - 0.5) * (e.typeStats.spread || 0);
                 shoot(e, pCenterX, pCenterY, GameState.enemyBullets, { 
-                    color: e.typeStats.bulletColor, speed: e.typeStats.bulletSpeed, 
-                    radiusBlocks: e.typeStats.bulletRadiusBlocks, damage: e.typeStats.bulletDamage, 
-                    maxBounces: 0, spreadOffset: spreadOffset 
+                    color: e.typeStats.bulletColor, 
+                    speed: e.typeStats.bulletSpeed, // blocks/second
+                    radiusBlocks: e.typeStats.bulletRadiusBlocks, 
+                    damage: e.typeStats.bulletDamage, 
+                    maxBounces: 0, 
+                    spreadOffset: spreadOffset 
                 }); 
                 e.lastShot = currentTime; 
             } 
@@ -273,28 +282,38 @@ function updateEnemies(currentTime) {
             let targetY = los ? pCenterY : e.lastSeenY;
 
             if (!los && targetX !== null) {
-                if (Math.hypot(targetX - eCenterX, targetY - eCenterY) < e.speed) { 
-                    e.lastSeenX = null; e.lastSeenY = null; targetX = null; 
+                // Compare against how far the enemy can actually move this frame.
+                if (Math.hypot(targetX - eCenterX, targetY - eCenterY) < e.speed * dt) { 
+                    e.lastSeenX = null; 
+                    e.lastSeenY = null; 
+                    targetX = null; 
                 } 
             }
 
             if (targetX !== null && targetY !== null) { 
                 const angle = Math.atan2(targetY - eCenterY, targetX - eCenterX); 
-                e.vx = Math.cos(angle) * e.speed; e.vy = Math.sin(angle) * e.speed; 
+                e.vx = Math.cos(angle) * e.speed; 
+                e.vy = Math.sin(angle) * e.speed; 
             } 
         } 
     });
 } 
 
-function resolveEnemyVectorCollisions() { 
+function resolveEnemyVectorCollisions(dt) { 
+    // Convert velocity (blocks/sec) into this frame's displacement (blocks).
+    GameState.enemies.forEach(e => {
+        e.moveX = e.vx * dt;
+        e.moveY = e.vy * dt;
+    });
+
     for (let i = 0; i < GameState.enemies.length; i++) { 
         for (let j = i + 1; j < GameState.enemies.length; j++) { 
             let e1 = GameState.enemies[i], e2 = GameState.enemies[j]; 
             if (e1.hp <= 0 || e2.hp <= 0) continue; 
 
             let r1 = e1.size / 2, r2 = e2.size / 2; 
-            let dx = (e2.x + r2 + e2.vx) - (e1.x + r1 + e1.vx); 
-            let dy = (e2.y + r2 + e2.vy) - (e1.y + r1 + e1.vy); 
+            let dx = (e2.x + r2 + e2.moveX) - (e1.x + r1 + e1.moveX); 
+            let dy = (e2.y + r2 + e2.moveY) - (e1.y + r1 + e1.moveY); 
             let distance = Math.hypot(dx, dy); 
             let minDist = r1 + r2; 
 
@@ -306,60 +325,87 @@ function resolveEnemyVectorCollisions() {
                 let weight1 = e2.size / (e1.size + e2.size); 
                 let weight2 = e1.size / (e1.size + e2.size); 
 
-                e1.vx -= nx * overlap * weight1 * 0.5; e1.vy -= ny * overlap * weight1 * 0.5; 
-                e2.vx += nx * overlap * weight2 * 0.5; e2.vy += ny * overlap * weight2 * 0.5; 
+                // These corrections are displacements in blocks, not velocities.
+                e1.moveX -= nx * overlap * weight1 * 0.5; 
+                e1.moveY -= ny * overlap * weight1 * 0.5; 
+                e2.moveX += nx * overlap * weight2 * 0.5; 
+                e2.moveY += ny * overlap * weight2 * 0.5; 
             } 
         } 
     } 
 } 
 
-function processBullets(bulletArray, isPlayerBullets, currentTime) { 
+const BULLET_MAX_STEP_BLOCKS = 0.2;
+
+function processBullets(bulletArray, isPlayerBullets, currentTime, dt) { 
     for (let i = bulletArray.length - 1; i >= 0; i--) { 
         let b = bulletArray[i]; 
-        
-        // Custom offset for AABB conversion
-        let mockRect = { x: b.x - b.radius, y: b.y - b.radius, size: b.radius * 2 };
-
-        // Move X
-        b.x += b.vx;
-        mockRect.x = b.x - b.radius;
-        mockRect.y = b.y - b.radius;
-
-        if (GameState.walls.some(w => isColliding(mockRect, w))) {
-            b.x -= b.vx;   // undo movement
-            b.vx *= -1;
-            b.bounces++;
-
-            mockRect.x = b.x - b.radius;
-        }
-
-        // Move Y
-        b.y += b.vy;
-        mockRect.x = b.x - b.radius;
-        mockRect.y = b.y - b.radius;
-
-        if (GameState.walls.some(w => isColliding(mockRect, w))) {
-            b.y -= b.vy;   // undo movement
-            b.vy *= -1;
-            b.bounces++;
-
-            mockRect.y = b.y - b.radius;
-        }
-
         const targets = isPlayerBullets ? GameState.enemies : [player];
-        
-        targets.forEach(t => { 
-            if (isColliding(mockRect, t)) { 
-                if (!b.hitTargets.has(t)) { 
-                    if (isPlayerBullets || !GameState.isInvincible) t.hp -= (b.damage || 1); 
-                    b.hitTargets.add(t); 
-                } 
-            } else { 
-                b.hitTargets.delete(t); 
-            } 
-        }); 
 
-        if (b.bounces > b.maxBounces || (currentTime - b.createdAt) > 60000) bulletArray.splice(i, 1); 
+        // Velocity is blocks/second. Substep fast bullets so a slow frame cannot
+        // tunnel through a one-block wall or a small target.
+        const frameDistance = Math.hypot(b.vx, b.vy) * dt;
+        const steps = Math.max(1, Math.ceil(frameDistance / BULLET_MAX_STEP_BLOCKS));
+        const stepDt = dt / steps;
+
+        let removeBullet = false;
+
+        for (let step = 0; step < steps; step++) {
+            let mockRect = {
+                x: b.x - b.radius,
+                y: b.y - b.radius,
+                size: b.radius * 2
+            };
+
+            // Move X using blocks/sec × seconds = blocks.
+            const moveX = b.vx * stepDt;
+            b.x += moveX;
+            mockRect.x = b.x - b.radius;
+            mockRect.y = b.y - b.radius;
+
+            if (GameState.walls.some(w => isColliding(mockRect, w))) {
+                b.x -= moveX;
+                b.vx *= -1;
+                b.bounces++;
+                mockRect.x = b.x - b.radius;
+            }
+
+            // Move Y separately so reflection happens on the correct axis.
+            const moveY = b.vy * stepDt;
+            b.y += moveY;
+            mockRect.x = b.x - b.radius;
+            mockRect.y = b.y - b.radius;
+
+            if (GameState.walls.some(w => isColliding(mockRect, w))) {
+                b.y -= moveY;
+                b.vy *= -1;
+                b.bounces++;
+                mockRect.y = b.y - b.radius;
+            }
+
+            // Check targets on every substep to prevent high-speed tunnelling.
+            targets.forEach(t => { 
+                if (isColliding(mockRect, t)) { 
+                    if (!b.hitTargets.has(t)) { 
+                        if (isPlayerBullets || !GameState.isInvincible) {
+                            t.hp -= (b.damage || 1); 
+                        }
+                        b.hitTargets.add(t); 
+                    } 
+                } else { 
+                    b.hitTargets.delete(t); 
+                } 
+            }); 
+
+            if (b.bounces > b.maxBounces) {
+                removeBullet = true;
+                break;
+            }
+        }
+
+        if (removeBullet || (currentTime - b.createdAt) > 60000) {
+            bulletArray.splice(i, 1);
+        }
     } 
 } 
 
@@ -426,27 +472,29 @@ function loadLevel() {
 // ========================================== 
 // 6. MAIN LOOP & RENDERING
 // ========================================== 
-function update(currentTime) { 
+function update(currentTime, dt) { 
     if (player.hp <= 0) return; 
 
     updateProceduralGeneration(player.x); 
     cleanupProceduralGeneration(player.x); 
 
+    // Every speed value is blocks/second.
+    // displacement = speed × dt, where dt is in seconds.
     let dx = 0, dy = 0; 
-    if (GameState.keys.w) dy -= player.speed; 
-    if (GameState.keys.s) dy += player.speed; 
-    if (GameState.keys.a) dx -= player.speed; 
-    if (GameState.keys.d) dx += player.speed; 
-    
+    if (GameState.keys.w) dy -= player.speed * dt; 
+    if (GameState.keys.s) dy += player.speed * dt; 
+    if (GameState.keys.a) dx -= player.speed * dt; 
+    if (GameState.keys.d) dx += player.speed * dt; 
+
     handleWallCollisions(player, dx, dy);
 
-    updateEnemies(currentTime);         
-    resolveEnemyVectorCollisions();     
-    
-    // Apply movement for enemies and filter out dead ones
+    updateEnemies(currentTime, dt);         
+    resolveEnemyVectorCollisions(dt);     
+
+    // Enemy moveX/moveY are this frame's displacements in blocks.
     GameState.enemies = GameState.enemies.filter(e => {
         if (e.hp <= 0) return false;
-        handleWallCollisions(e, e.vx, e.vy);
+        handleWallCollisions(e, e.moveX, e.moveY);
         return true;
     });
 
@@ -454,8 +502,8 @@ function update(currentTime) {
     camera.x = player.x - camera.widthBlocks / 2 + player.size / 2; 
     camera.y = player.y - camera.heightBlocks / 2 + player.size / 2; 
 
-    processBullets(GameState.bullets, true, currentTime); 
-    processBullets(GameState.enemyBullets, false, currentTime); 
+    processBullets(GameState.bullets, true, currentTime, dt); 
+    processBullets(GameState.enemyBullets, false, currentTime, dt); 
 } 
 
 function drawProceduralEnvironment() { 
@@ -533,8 +581,23 @@ function draw() {
     } 
 } 
 
+let lastFrameTime = null;
+const MAX_DT_SECONDS = 0.05; // cap simulation step to 50 ms after stalls/tab switches
+
 function gameLoop(currentTime) { 
-    update(currentTime); 
+    let dt = 0;
+
+    if (lastFrameTime !== null) {
+        dt = (currentTime - lastFrameTime) / 1000;
+        dt = Math.min(Math.max(dt, 0), MAX_DT_SECONDS);
+    }
+
+    lastFrameTime = currentTime;
+
+    if (dt > 0) {
+        update(currentTime, dt);
+    }
+
     draw(); 
     requestAnimationFrame(gameLoop); 
 } 
