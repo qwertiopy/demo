@@ -39,6 +39,36 @@ function mergeConfig(base, override) {
 }
 
 
+const VALID_STRUCTURE_FLAGS = new Set([0, 1, 2, 3, 4, 5]);
+
+function validateStructureLibrary(structures) {
+    if (!Array.isArray(structures)) {
+        throw new Error("STRUCTURE_LIBRARY must be an array.");
+    }
+
+    structures.forEach((structure, structureIndex) => {
+        if (!Array.isArray(structure.grid)) {
+            throw new Error(`Structure ${structureIndex} is missing a grid array.`);
+        }
+
+        structure.grid.forEach((row, rowIndex) => {
+            if (!Array.isArray(row)) {
+                throw new Error(`Structure ${structureIndex}, row ${rowIndex} must be an array.`);
+            }
+
+            row.forEach((cell, columnIndex) => {
+                if (!VALID_STRUCTURE_FLAGS.has(cell)) {
+                    throw new Error(
+                        `Invalid structure flag ${cell} at structure ${structureIndex}, row ${rowIndex}, column ${columnIndex}. ` +
+                        "Use 0=empty, 1=wall, 2=random, 3=g-bot, 4=j-bot, or 5=h-bot."
+                    );
+                }
+            });
+        });
+    });
+}
+
+
 function readLocalConfig() {
     try {
         const savedJson = localStorage.getItem(CONFIG_STORAGE_KEY);
@@ -83,8 +113,16 @@ document.addEventListener("DOMContentLoaded", async () => {
         const savedConfig = readLocalConfig();
 
         if (savedConfig) {
-            config = mergeConfig(defaultConfig, savedConfig);
-            showStatus("Locally saved configuration loaded.");
+            if (savedConfig.CONFIG_SCHEMA_VERSION !== defaultConfig.CONFIG_SCHEMA_VERSION) {
+                config = mergeConfig(defaultConfig, savedConfig);
+                config.CONFIG_SCHEMA_VERSION = defaultConfig.CONFIG_SCHEMA_VERSION;
+                config.STRUCTURE_LIBRARY = cloneConfig(defaultConfig.STRUCTURE_LIBRARY);
+                saveLocalConfig();
+                showStatus("Local config upgraded to type-specific enemy spawn flags.");
+            } else {
+                config = mergeConfig(defaultConfig, savedConfig);
+                showStatus("Locally saved configuration loaded.");
+            }
         } else {
             config = cloneConfig(defaultConfig);
             showStatus("config.json defaults loaded. No local save yet.");
@@ -188,6 +226,7 @@ function readConfigFromUI() {
     }
 
     if (advancedData.STRUCTURE_LIBRARY !== undefined) {
+        validateStructureLibrary(advancedData.STRUCTURE_LIBRARY);
         config.STRUCTURE_LIBRARY = advancedData.STRUCTURE_LIBRARY;
     }
 }

@@ -54,6 +54,18 @@ function loadLocalConfig(defaultConfig) {
             throw new Error("Saved config is not a JSON object.");
         }
 
+        // Schema v3 adds type-specific enemy spawn flags to STRUCTURE_LIBRARY grids.
+        // Preserve the user's other local settings, but upgrade stale structure
+        // data so an older local save cannot remove or reinterpret the new flags.
+        if (savedConfig.CONFIG_SCHEMA_VERSION !== defaultConfig.CONFIG_SCHEMA_VERSION) {
+            const migratedConfig = mergeConfig(defaultConfig, savedConfig);
+            migratedConfig.CONFIG_SCHEMA_VERSION = defaultConfig.CONFIG_SCHEMA_VERSION;
+            migratedConfig.STRUCTURE_LIBRARY = defaultConfig.STRUCTURE_LIBRARY;
+            localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(migratedConfig));
+            console.log("Local config migrated to type-specific structure-spawn schema v3.");
+            return migratedConfig;
+        }
+
         console.log("Using locally saved config.");
         return mergeConfig(defaultConfig, savedConfig);
     } catch (error) {
@@ -142,15 +154,55 @@ function spawnWall(x, y, widthBlocks, heightBlocks, color = "slategray") {
     GameState.walls.push({ x, y, width: widthBlocks, height: heightBlocks, color }); 
 } 
 
-function spawnEnemyPoint(x, y, type = "g-bot") { 
-    const stats = Config.ENEMY_TYPES[type] || Config.ENEMY_TYPES["g-bot"]; 
-    GameState.enemySpawns.push({ x, y, type, size: stats.sizeBlocks }); 
-} 
+function chooseEnemyType() {
+    const enemyTypeRoll = seededRandom();
+    return enemyTypeRoll > 0.7 ? "h-bot" : (enemyTypeRoll > 0.3 ? "j-bot" : "g-bot");
+}
+
+// Structure grid flags:
+//   0 = empty cell
+//   1 = wall cell
+//   2 = random enemy spawn
+//   3 = g-bot spawn
+//   4 = j-bot spawn
+//   5 = h-bot spawn
+//
+// Keeping flag 2 as a random spawn preserves the old structure-spawn behaviour,
+// while flags 3-5 let a structure explicitly choose its enemy type.
+const STRUCTURE_ENEMY_FLAGS = Object.freeze({
+    2: null,
+    3: "g-bot",
+    4: "j-bot",
+    5: "h-bot"
+});
+
+function enemyTypeFromStructureFlag(flag) {
+    if (!Object.prototype.hasOwnProperty.call(STRUCTURE_ENEMY_FLAGS, flag)) {
+        return undefined;
+    }
+
+    return STRUCTURE_ENEMY_FLAGS[flag] || chooseEnemyType();
+}
+
+// Spawn points are centered inside their structure cell. Because a cell can only
+// have one flag, an enemy spawn can never also be a wall cell in the same structure.
+function spawnEnemyPointFromCell(cellX, cellY, type) {
+    const resolvedType = Config.ENEMY_TYPES[type] ? type : "g-bot";
+    const stats = Config.ENEMY_TYPES[resolvedType];
+    const size = stats.sizeBlocks;
+
+    GameState.enemySpawns.push({
+        x: cellX + (1 - size) / 2,
+        y: cellY + (1 - size) / 2,
+        type: resolvedType,
+        size
+    });
+}
 
 function updateProceduralGeneration(playerX) { 
     const startX = Math.max(0, Math.floor(playerX) - Config.RENDER_DISTANCE_BACK); 
     const endX = Math.floor(playerX) + Config.RENDER_DISTANCE_FRONT; 
-    const ceilingY = 0; 
+    const ceilingY = 2; 
     const corridorWidthBlocks = 10; 
     const floorY = ceilingY + corridorWidthBlocks; 
 
@@ -185,19 +237,26 @@ function updateProceduralGeneration(playerX) {
                         type: template.type 
                     }); 
 
-                    // Build walls
-                    for (let r = 0; r < template.grid.length; r++) { 
-                        for (let c = 0; c < template.grid[r].length; c++) { 
-                            if (template.grid[r][c] === 1) { 
-                                spawnWall(blockX + c, structY + r, 1, 1, template.color); 
-                            } 
-                        } 
-                    } 
+                    // Build the structure directly from its grid flags.
+                    // 0 = empty, 1 = wall, 2 = random spawn,
+                    // 3 = g-bot, 4 = j-bot, 5 = h-bot.
+                    for (let r = 0; r < template.grid.length; r++) {
+                        for (let c = 0; c < template.grid[r].length; c++) {
+                            const cell = template.grid[r][c];
+                            const worldX = blockX + c;
+                            const worldY = structY + r;
 
-                    // Spawn Enemy
-                    let enemyTypeRoll = seededRandom(); 
-                    let botType = enemyTypeRoll > 0.7 ? "h-bot" : (enemyTypeRoll > 0.3 ? "j-bot" : "g-bot"); 
-                    spawnEnemyPoint(blockX + template.widthBlocks, structY + Math.floor(template.heightBlocks / 2), botType); 
+                            if (cell === 1) {
+                                spawnWall(worldX, worldY, 1, 1, template.color);
+                                continue;
+                            }
+
+                            const enemyType = enemyTypeFromStructureFlag(cell);
+                            if (enemyType !== undefined) {
+                                spawnEnemyPointFromCell(worldX, worldY, enemyType);
+                            }
+                        }
+                    }
                 } 
             } 
         } 
