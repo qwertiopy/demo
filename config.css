@@ -1,0 +1,232 @@
+/* ==========================================
+   1. RESET & LAYOUT
+   ========================================== */
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+
+    min-height: 100vh;
+
+    background: #111;
+
+    color: white;
+
+    font-family: sans-serif;
+}
+
+
+/* ==========================================
+   2. MAIN CONTAINER
+   ========================================== */
+
+.config-container {
+    width: min(900px, 95vw);
+
+    margin: 40px auto;
+
+    padding: 25px;
+
+    background: #181818;
+
+    border-radius: 10px;
+
+    box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
+}
+
+
+/* ==========================================
+   3. HEADER
+   ========================================== */
+
+.config-header {
+    display: flex;
+
+    justify-content: space-between;
+    align-items: center;
+
+    margin-bottom: 25px;
+}
+
+.config-header h1 {
+    margin: 0;
+
+    color: cyan;
+}
+
+.config-header a {
+    color: cyan;
+
+    text-decoration: none;
+}
+
+.config-header a:hover {
+    text-decoration: underline;
+}
+
+
+/* ==========================================
+   4. CONFIG SECTIONS
+   ========================================== */
+
+.config-section {
+    margin-bottom: 25px;
+
+    padding: 20px;
+
+    background: #222;
+
+    border: 1px solid #333;
+    border-radius: 8px;
+}
+
+.config-section h2 {
+    margin-top: 0;
+
+    color: cyan;
+
+    font-size: 18px;
+}
+
+
+/* ==========================================
+   5. CONFIG ROWS
+   ========================================== */
+
+.config-row {
+    margin-bottom: 15px;
+}
+
+.config-row:last-child {
+    margin-bottom: 0;
+}
+
+.config-row label {
+    display: block;
+
+    margin-bottom: 5px;
+
+    color: #ddd;
+}
+
+
+/* ==========================================
+   6. NUMBER INPUTS
+   ========================================== */
+
+.config-row input[type="number"] {
+    width: 100%;
+
+    padding: 8px;
+
+    background: #111;
+
+    color: white;
+
+    border: 1px solid #444;
+    border-radius: 4px;
+
+    font-size: 14px;
+}
+
+
+/* ==========================================
+   7. ADVANCED JSON EDITOR
+   ========================================== */
+
+#cfg_ADVANCED {
+    width: 100%;
+
+    min-height: 350px;
+
+    padding: 10px;
+
+    resize: vertical;
+
+    background: #111;
+
+    color: #0f0;
+
+    border: 1px solid #444;
+    border-radius: 4px;
+
+    font-family: monospace;
+    font-size: 13px;
+
+    line-height: 1.4;
+}
+
+
+/* ==========================================
+   8. ACTION BUTTONS
+   ========================================== */
+
+.config-actions {
+    display: flex;
+
+    gap: 10px;
+
+    flex-wrap: wrap;
+}
+
+.config-actions button {
+    padding: 10px 16px;
+
+    border: none;
+    border-radius: 5px;
+
+    color: white;
+
+    cursor: pointer;
+
+    font-size: 14px;
+}
+
+
+.apply-btn {
+    background: royalblue;
+}
+
+.apply-btn:hover {
+    background: #3a5cbf;
+}
+
+
+.export-btn {
+    background: darkgreen;
+}
+
+.export-btn:hover {
+    background: #005000;
+}
+
+
+.reset-btn {
+    background: #444;
+}
+
+.reset-btn:hover {
+    background: #666;
+}
+
+
+/* ==========================================
+   9. STATUS MESSAGE
+   ========================================== */
+
+#statusMessage {
+    margin-top: 15px;
+
+    color: #aaa;
+
+    font-family: monospace;
+}
+
+#statusMessage.error {
+    color: #ff6666;
+}

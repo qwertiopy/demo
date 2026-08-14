@@ -1,99 +1,113 @@
 /* ==========================================
    1. RESET & LAYOUT
    ========================================== */
-body, html {
+
+html,
+body {
     margin: 0;
     padding: 0;
+
     width: 100vw;
     height: 100vh;
+
     background-color: #111;
+
     display: flex;
     justify-content: center;
     align-items: center;
-    overflow: hidden; /* Prevents scrollbars */
+
+    overflow: hidden;
 }
+
 
 /* ==========================================
    2. GAME CANVAS
    ========================================== */
+
 canvas {
     background-color: #eee;
+
     max-width: 100%;
     max-height: 100%;
+
     aspect-ratio: 16 / 9;
-    image-rendering: pixelated; 
-    
+
+    image-rendering: pixelated;
+
     /* Prevent default browser interactions */
-    user-select: none;           
-    -webkit-user-drag: none;     
-    outline: none;               
-    touch-action: none;          
+    user-select: none;
+    -webkit-user-drag: none;
+
+    outline: none;
+    touch-action: none;
 }
 
+
 /* ==========================================
-   3. UI OVERLAYS (BASE)
+   3. GAME UI
    ========================================== */
+
 .ui-panel {
-    position: absolute; 
-    top: 10px; 
-    /* Removed left: 10px; so this class can be used on both sides */
-    background: rgba(0, 0, 0, 0.85); 
-    padding: 15px; 
-    border-radius: 8px; 
+    position: absolute;
+
+    top: 10px;
+    left: 10px;
+
+    background: rgba(0, 0, 0, 0.85);
+
+    padding: 15px;
+
+    border-radius: 8px;
+
     color: white;
+
     font-family: sans-serif;
     font-size: 14px;
+
     z-index: 10;
 }
 
-/* Panel-Specific Positioning */
-#editorUI {
-    left: 10px;
+
+/* ==========================================
+   4. EDITOR UI
+   ========================================== */
+
+.ui-panel h3 {
+    margin-top: 0;
+    color: cyan;
 }
 
-#configUI {
-    right: 10px;
-    width: 280px;
-    max-height: 90vh;
-    overflow-y: auto;
-}
 
-/* Headers */
-.ui-header {
-    display: flex; 
-    justify-content: space-between; 
-    align-items: center; 
-    margin-bottom: 10px;
-}
-
-.ui-header h3 {
-    margin: 0; 
-    font-family: sans-serif;
-}
-
-.ui-header button {
-    cursor: pointer;
-}
-
-/* Editor Textarea */
 #levelData {
-    font-family: monospace; 
-    background: #222; 
-    color: #0f0; 
+    font-family: monospace;
+
+    background: #222;
+    color: #0f0;
+
     padding: 5px;
+
     border: 1px solid #555;
     border-radius: 4px;
+
     width: 100%;
     box-sizing: border-box;
 }
 
-/* Base Buttons */
-.load-btn, .ui-panel button {
-    margin-top: 10px; 
-    padding: 8px 12px; 
+
+/* ==========================================
+   5. BUTTONS
+   ========================================== */
+
+.ui-panel button {
+    margin-top: 10px;
+
+    padding: 8px 12px;
+
     cursor: pointer;
+
     background: #444;
     color: white;
+
     border: none;
     border-radius: 4px;
 }
@@ -102,48 +116,21 @@ canvas {
     background: #666;
 }
 
+
 /* ==========================================
-   4. CONFIG EDITOR SPECIFICS
+   6. CONFIG LINK
    ========================================== */
-#configUI h3 {
-    margin-top: 0; 
+
+.config-link {
+    display: inline-block;
+
+    margin-top: 12px;
+
     color: cyan;
+
+    text-decoration: none;
 }
 
-.config-row {
-    margin-bottom: 12px;
-}
-
-.config-row input[type="number"], 
-.config-row textarea {
-    width: 100%;
-    background: #222;
-    color: white;
-    border: 1px solid #444;
-    padding: 6px;
-    margin-top: 5px;
-    box-sizing: border-box;
-    border-radius: 4px;
-}
-
-.config-row textarea {
-    font-family: monospace;
-    color: #0f0;
-}
-
-/* Specific Config Buttons */
-#applyConfigBtn {
-    background: royalblue;
-}
-
-#applyConfigBtn:hover {
-    background: #3a5cbf;
-}
-
-#exportConfigBtn {
-    background: darkgreen;
-}
-
-#exportConfigBtn:hover {
-    background: #005000;
+.config-link:hover {
+    text-decoration: underline;
 }
