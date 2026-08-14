@@ -1,798 +1,568 @@
-// ==========================================
-// 1. DOM ELEMENTS & SETUP
-// ==========================================
-const canvas = document.getElementById("gameCanvas");
-const ctx = canvas.getContext("2d");
-const editorUI = document.getElementById("editorUI");
-const hideUIBtn = document.getElementById("hideUIBtn");
-const levelDataInput = document.getElementById("levelData");
-const loadLevelBtn = document.getElementById("loadLevelBtn");
-
-// ==========================================
-// 2. GAME STATE & ENTITIES (Logic Units: Blocks)
-// ==========================================
-const keys = { w: false, a: false, s: false, d: false };
-const bullets = [];
-const enemyBullets = [];
-let enemies = [];
-let walls = [];
-
-// Base Unit Scale Configuration
-const BLOCK_SIZE_PX = 64; // Renderer base scale: 1 Block = 64 Pixels
-
-// Entity sizes measured in blocks (logical units)
-const PLAYER_SIZE_BLOCKS = 0.5;         // 32px equivalent (0.5 * 64)
-const MIN_SPAWN_DISTANCE_BLOCKS = 15;   // 640px equivalent
-const MAX_SPAWN_DISTANCE_BLOCKS = 25;   // 1280px equivalent
-const STRUCTURE_DENSITY_BLOCKS = 5;     // 320px equivalent
-
-// UI Visibility toggle state for editor helpers
-let showEditorHelpers = true;
-
-// Structure library with grid composition array 
-const STRUCTURE_LIBRARY = [
-    { 
-        type: "pillar", 
-        widthBlocks: 1, 
-        heightBlocks: 2, 
-        color: "dimgray",
-        grid: [
-            [1],
-            [1]
-        ]
-    },
-    { 
-        type: "archway", 
-        widthBlocks: 2, 
-        heightBlocks: 3, 
-        color: "slategray",
-        grid: [
-            [1, 1],
-            [1, 0],
-            [1, 1]
-        ]
-    },
-    { 
-        type: "platform", 
-        widthBlocks: 3, 
-        heightBlocks: 1, 
-        color: "darkslategray",
-        grid: [
-            [1, 1, 1]
-        ]
-    },
-    {
-        type: "stair",
-        widthBlocks: 2,
-        heightBlocks: 2,
-        color: "peru",
-        grid: [
-            [0, 1],
-            [1, 1]
-        ]
-    }
-];
-
-// Level variables (stored in logical blocks)
-let enemySpawns = [];
-let enemySpawnRate = 0; 
-let lastSpawnTime = 0;
-
-const player = {
-    x: 0, y: 0, // Logical block coordinates
-    size: PLAYER_SIZE_BLOCKS, speed: 0.1, color: "royalblue",
-    hp: 10, maxHp: 10
+// ========================================== 
+// 1. CONFIGURATION & STATE
+// ========================================== 
+const Config = {
+    PLAYER_SPEED: 0,
+    PLAYER_BULLET_SPEED: 0,
+    PLAYER_SHOOT_COOLDOWN: 0,
+    STRUCTURE_DENSITY_BLOCKS: 0,
+    ENEMY_TYPES: {},
+    STRUCTURE_LIBRARY: [],
+    BLOCK_SIZE_PX: 64,
+    PLAYER_SIZE_BLOCKS: 0.5,
+    MIN_SPAWN_DISTANCE_BLOCKS: 15,
+    MAX_SPAWN_DISTANCE_BLOCKS: 25,
+    RENDER_DISTANCE_FRONT: 35,
+    RENDER_DISTANCE_BACK: 12
 };
 
-let isInvincible = false;
-
-document.getElementById("godModeToggle").addEventListener("change", (e) => {
-    isInvincible = e.target.checked;
-});
-
-const ENEMY_TYPES = {
-    "g-bot": {
-        sizeBlocks: 0.5, speed: 0.09, hp: 1, color: "orange", // 32px
-        shootCooldown: 250, bulletSpeed: 0.25, bulletRadiusBlocks: 0.08, bulletColor: "gold", 
-        bulletDamage: 1, ai: "aggressive" 
-    },
-    "j-bot": {
-        sizeBlocks: 0.75, speed: 0.05, hp: 3, color: "darkred", // 48px
-        shootCooldown: 100, bulletSpeed: 0.2, bulletRadiusBlocks: 0.12, bulletColor: "red", 
-        bulletDamage: 3, ai: "aggressive" 
-    },
-    "h-bot": {
-        sizeBlocks: 0.375, speed: 0.04, hp: 1, color: "purple", // 24px
-        shootCooldown: 500, bulletSpeed: 0.5, bulletRadiusBlocks: 0.06, bulletColor: "fuchsia", 
-        bulletDamage: 3, ai: "passive" 
-    }
+const GameState = {
+    keys: { w: false, a: false, s: false, d: false },
+    bullets: [],
+    enemyBullets: [],
+    enemies: [],
+    walls: [],
+    enemySpawns: [],
+    enemySpawnRate: 0,
+    lastSpawnTime: 0,
+    generatedColumns: new Set(),
+    placedStructures: [],
+    levelSeed: 12345,
+    currentSeed: 12345,
+    playerLastShot: 0,
+    showEditorHelpers: true,
+    isInvincible: false
 };
 
-// ==========================================
-// CHUNK GENERATION TRACKING & CONFIG
-// ==========================================
-const RENDER_DISTANCE_FRONT = 35; // Blocks to generate ahead of the player
-const RENDER_DISTANCE_BACK = 12;   // Blocks to keep loaded behind the player
+const player = { 
+    x: 0, y: 0, 
+    size: Config.PLAYER_SIZE_BLOCKS, speed: Config.PLAYER_SPEED, 
+    color: "royalblue", hp: 10, maxHp: 10 
+}; 
 
-const generatedColumns = new Set();
-let placedStructures = [];
-let levelSeed = 12345;
+const camera = { 
+    x: 0, y: 0, 
+    widthBlocks: 20, heightBlocks: 11.25 
+}; 
 
-let currentSeed = 12345;
+// DOM Elements
+const canvas = document.getElementById("gameCanvas"); 
+const ctx = canvas.getContext("2d"); 
+const editorUI = document.getElementById("editorUI"); 
+const hideUIBtn = document.getElementById("hideUIBtn"); 
+const levelDataInput = document.getElementById("levelData"); 
+const loadLevelBtn = document.getElementById("loadLevelBtn"); 
+const godModeToggle = document.getElementById("godModeToggle");
 
-function seededRandom() {
-    currentSeed = (currentSeed * 9301 + 49297) % 233280;
-    return currentSeed / 233280;
+// ========================================== 
+// 2. UTILITY & HELPER FUNCTIONS
+// ========================================== 
+function seededRandom() { 
+    GameState.currentSeed = (GameState.currentSeed * 9301 + 49297) % 233280; 
+    return GameState.currentSeed / 233280; 
+} 
+
+// Unified AABB Collision detection
+function isColliding(rect1, rect2) {
+    return rect1.x < rect2.x + (rect2.width || rect2.size) &&
+           rect1.x + (rect1.width || rect1.size) > rect2.x &&
+           rect1.y < rect2.y + (rect2.height || rect2.size) &&
+           rect1.y + (rect1.height || rect1.size) > rect2.y;
 }
 
-// ==========================================
-// CAMERA / VIEWPORT SYSTEM (Logical Units)
-// ==========================================
-const camera = {
-    x: 0, 
-    y: 0,
-    widthBlocks: 20,  // 1280px / 64px
-    heightBlocks: 11.25 // 720px / 64px
-};
+// Unified Wall Collision & Sliding Response
+function handleWallCollisions(entity, dx, dy) {
+    entity.x += dx;
+    GameState.walls.forEach(w => {
+        if (isColliding(entity, w)) {
+            if (dx > 0) entity.x = w.x - entity.size; 
+            if (dx < 0) entity.x = w.x + w.width;
+        }
+    });
 
-function updateCamera() {
-    camera.x = player.x - camera.widthBlocks / 2 + player.size / 2;
-    camera.y = player.y - camera.heightBlocks / 2 + player.size / 2;
-}
-
-// ==========================================
-// PROCEDURAL GENERATION HELPERS
-// ==========================================
-function spawnWall(x, y, widthBlocks, heightBlocks, color = "slategray") {
-    walls.push({ x, y, width: widthBlocks, height: heightBlocks, color });
-}
-
-function spawnEnemyPoint(x, y, type = "g-bot") {
-    const stats = ENEMY_TYPES[type] || ENEMY_TYPES["g-bot"];
-    enemySpawns.push({
-        x: x, // Keep as block coordinate for safe tracking/cleanup
-        y: y,
-        type: type,
-        size: stats.sizeBlocks
+    entity.y += dy;
+    GameState.walls.forEach(w => {
+        if (isColliding(entity, w)) {
+            if (dy > 0) entity.y = w.y - entity.size; 
+            if (dy < 0) entity.y = w.y + w.height;
+        }
     });
 }
 
-// ==========================================
-// DYNAMIC PROCEDURAL GENERATION
-// ==========================================
-function updateProceduralGeneration(playerX) {
-    const startX = Math.max(0, Math.floor(playerX) - RENDER_DISTANCE_BACK);
-    const endX = Math.floor(playerX) + RENDER_DISTANCE_FRONT;
+// ========================================== 
+// 3. PROCEDURAL GENERATION
+// ========================================== 
+function spawnWall(x, y, widthBlocks, heightBlocks, color = "slategray") { 
+    GameState.walls.push({ x, y, width: widthBlocks, height: heightBlocks, color }); 
+} 
+
+function spawnEnemyPoint(x, y, type = "g-bot") { 
+    const stats = Config.ENEMY_TYPES[type] || Config.ENEMY_TYPES["g-bot"]; 
+    GameState.enemySpawns.push({ x, y, type, size: stats.sizeBlocks }); 
+} 
+
+function updateProceduralGeneration(playerX) { 
+    const startX = Math.max(0, Math.floor(playerX) - Config.RENDER_DISTANCE_BACK); 
+    const endX = Math.floor(playerX) + Config.RENDER_DISTANCE_FRONT; 
     const ceilingY = 2; 
-    const corridorWidthBlocks = 10;
-    const floorY = ceilingY + corridorWidthBlocks;
+    const corridorWidthBlocks = 10; 
+    const floorY = ceilingY + corridorWidthBlocks; 
 
-    // A. Create Left Border Wall explicitly at column 0
-    if (!generatedColumns.has(0) && startX <= 0 && endX >= 0) {
-        spawnWall(0, ceilingY, 1, corridorWidthBlocks + 1, "slategray");
-    }
+    if (!GameState.generatedColumns.has(0) && startX <= 0 && endX >= 0) { 
+        spawnWall(0, ceilingY, 1, corridorWidthBlocks + 1, "slategray"); 
+    } 
 
-    // B. Generate blocks dynamically based on camera/player position
-    for (let blockX = startX; blockX <= endX; blockX++) {
-        if (generatedColumns.has(blockX)) continue; 
-        generatedColumns.add(blockX);
+    for (let blockX = startX; blockX <= endX; blockX++) { 
+        if (GameState.generatedColumns.has(blockX)) continue; 
+        GameState.generatedColumns.add(blockX); 
 
-        spawnWall(blockX, ceilingY, 1, 1, "slategray");
-        spawnWall(blockX, floorY, 1, 1, "slategray");
+        spawnWall(blockX, ceilingY, 1, 1, "slategray"); 
+        spawnWall(blockX, floorY, 1, 1, "slategray"); 
 
-        if (blockX >= 1) {
-            // Seed scramble to prevent identical chunk generation
-            currentSeed = ((levelSeed ^ (blockX * 2654435761)) >>> 0) % 233280;
+        if (blockX >= 1) { 
+            GameState.currentSeed = ((GameState.levelSeed ^ (blockX * 2654435761)) >>> 0) % 233280; 
 
-            let roll = seededRandom();
-            if (roll > 0.5) {
-                let template = STRUCTURE_LIBRARY[Math.floor(seededRandom() * STRUCTURE_LIBRARY.length)];
-                let structX = blockX;
-                
-                // Allow structures to float anywhere between ceiling and floor
+            if (seededRandom() > 0.5) { 
+                let template = Config.STRUCTURE_LIBRARY[Math.floor(seededRandom() * Config.STRUCTURE_LIBRARY.length)]; 
                 let minY = ceilingY + 1; 
-                let maxY = floorY - template.heightBlocks;
-                let structY = Math.floor(seededRandom() * (maxY - minY + 1)) + minY;
-
-                let canSpawn = true;
+                let maxY = floorY - template.heightBlocks; 
+                let structY = Math.floor(seededRandom() * (maxY - minY + 1)) + minY; 
                 
-                // Note: We're keeping this density check to prevent total absolute chaos, 
-                // but you can lower STRUCTURE_DENSITY_BLOCKS if you want more overlapping walls.
-                for (let s of placedStructures) {
-                    let dist = Math.hypot(structX - s.origin.x, structY - s.origin.y);
-                    if (dist < STRUCTURE_DENSITY_BLOCKS) {
-                        canSpawn = false;
-                        break;
-                    }
-                }
+                let canSpawn = !GameState.placedStructures.some(s => 
+                    Math.hypot(blockX - s.origin.x, structY - s.origin.y) < Config.STRUCTURE_DENSITY_BLOCKS
+                );
 
-                if (canSpawn) {
-                    placedStructures.push({
-                        origin: { x: structX, y: structY },
-                        size: { width: template.widthBlocks, height: template.heightBlocks },
-                        type: template.type
-                    });
+                if (canSpawn) { 
+                    GameState.placedStructures.push({ 
+                        origin: { x: blockX, y: structY }, 
+                        size: { width: template.widthBlocks, height: template.heightBlocks }, 
+                        type: template.type 
+                    }); 
 
-                    // Build the structure walls
-                    for (let r = 0; r < template.grid.length; r++) {
-                        for (let c = 0; c < template.grid[r].length; c++) {
-                            if (template.grid[r][c] === 1) {
-                                spawnWall(structX + c, structY + r, 1, 1, template.color);
-                            }
-                        }
-                    }
+                    // Build walls
+                    for (let r = 0; r < template.grid.length; r++) { 
+                        for (let c = 0; c < template.grid[r].length; c++) { 
+                            if (template.grid[r][c] === 1) { 
+                                spawnWall(blockX + c, structY + r, 1, 1, template.color); 
+                            } 
+                        } 
+                    } 
 
-                    // ==========================================
-                    // ENEMY SPAWN LOGIC (Right side, push right on clip)
-                    // ==========================================
-                    let enemyTypeRoll = seededRandom();
-                    let botType = enemyTypeRoll > 0.7 ? "h-bot" : (enemyTypeRoll > 0.3 ? "j-bot" : "g-bot");
-                    
-                    // 1. Position: Right of structure, middle vertically
-                    let enemySpawnX = structX + template.widthBlocks;
-                    let enemySpawnY = structY + Math.floor(template.heightBlocks / 2);
+                    // Spawn Enemy
+                    let enemyTypeRoll = seededRandom(); 
+                    let botType = enemyTypeRoll > 0.7 ? "h-bot" : (enemyTypeRoll > 0.3 ? "j-bot" : "g-bot"); 
+                    spawnEnemyPoint(blockX + template.widthBlocks, structY + Math.floor(template.heightBlocks / 2), botType); 
+                } 
+            } 
+        } 
+    } 
+} 
 
-                    spawnEnemyPoint(enemySpawnX, enemySpawnY, botType);
-                }
-            }
-        }
-    }
-}
+function cleanupProceduralGeneration(playerX) { 
+    const startX = Math.max(0, Math.floor(playerX) - Config.RENDER_DISTANCE_BACK); 
+    const endX = Math.floor(playerX) + Config.RENDER_DISTANCE_FRONT; 
+    const SAFE_BUFFER = 0; 
+    const safeStartX = startX - SAFE_BUFFER; 
+    const safeEndX = endX + SAFE_BUFFER; 
 
-// ==========================================
-// CLEANUP PROCEDURAL GENERATION
-// ==========================================
-function cleanupProceduralGeneration(playerX) {
-    const startX = Math.max(0, Math.floor(playerX) - RENDER_DISTANCE_BACK);
-    const endX = Math.floor(playerX) + RENDER_DISTANCE_FRONT;
-    
-    // BUGFIX: Add a safety buffer so overhanging structures and right-pushed 
-    // enemies at the edge of the render distance aren't instantly deleted!
-    const SAFE_BUFFER = 0; // Blocks
-    const safeStartX = startX - SAFE_BUFFER;
-    const safeEndX = endX + SAFE_BUFFER;
-    
-    // 1. Unload block-coordinate data (using the SAFE bounds)
-    walls = walls.filter(w => w.x >= safeStartX && w.x <= safeEndX);
-    placedStructures = placedStructures.filter(s => s.origin.x >= safeStartX && s.origin.x <= safeEndX);
-    enemySpawns = enemySpawns.filter(s => s.x >= startX);
-    
-    // 3. Free up memory for regenerated chunks
-    // Note: We still use the STRICT startX/endX to clear generatedColumns 
-    // so the chunks actually trigger a rebuild when you move backwards.
-    const unloadedColumns = [];
-    generatedColumns.forEach(col => {
-        if (col < startX || col > endX) unloadedColumns.push(col);
-    });
-    unloadedColumns.forEach(col => generatedColumns.delete(col));
-}
+    GameState.walls = GameState.walls.filter(w => w.x >= safeStartX && w.x <= safeEndX); 
+    GameState.placedStructures = GameState.placedStructures.filter(s => s.origin.x >= safeStartX && s.origin.x <= safeEndX); 
+    GameState.enemySpawns = GameState.enemySpawns.filter(s => s.x >= startX); 
 
-// ==========================================
-// 3. INPUT HANDLING & EVENTS
-// ==========================================
-window.addEventListener("keydown", (e) => {
-    const key = e.key.toLowerCase();
-    if (keys.hasOwnProperty(key)) keys[key] = true;
-    if (key === 'h') toggleUI();
-});
+    const unloadedColumns = Array.from(GameState.generatedColumns).filter(col => col < startX || col > endX);
+    unloadedColumns.forEach(col => GameState.generatedColumns.delete(col)); 
+} 
 
-window.addEventListener("keyup", (e) => {
-    const key = e.key.toLowerCase();
-    if (keys.hasOwnProperty(key)) keys[key] = false;
-});
+// ========================================== 
+// 4. COMBAT & ENTITY LOGIC
+// ========================================== 
+function shoot(shooter, targetX, targetY, bulletArray, stats) { 
+    const centerX = shooter.x + shooter.size / 2; 
+    const centerY = shooter.y + shooter.size / 2; 
+    const spread = stats.spreadOffset || 0; 
+    const angle = Math.atan2(targetY - centerY, targetX - centerX) + spread; 
+    const speed = stats.speed || 0.2; 
 
-window.addEventListener("mousedown", (e) => {
-    e.preventDefault();
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    
-    const worldTargetX = ((e.clientX - rect.left) * scaleX) / BLOCK_SIZE_PX + camera.x;
-    const worldTargetY = ((e.clientY - rect.top) * scaleY) / BLOCK_SIZE_PX + camera.y;
+    if (bulletArray === GameState.bullets && GameState.bullets.length >= 100) GameState.bullets.shift(); 
 
-    shoot(
-        player, 
-        worldTargetX, 
-        worldTargetY, 
-        bullets, 
-        { color: "crimson", speed: 0.2, radiusBlocks: 0.08, maxBounces: 1 }
+    bulletArray.push({ 
+        x: centerX, y: centerY, 
+        radius: stats.radiusBlocks || 0.08, 
+        vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, 
+        color: stats.color || "white", damage: stats.damage || 1, 
+        bounces: 0, maxBounces: stats.maxBounces || 0, 
+        hitTargets: new Set(), createdAt: performance.now(),
+        // Map radius to width/height for standard collision check
+        get width() { return this.radius * 2; }, get height() { return this.radius * 2; },
+        get size() { return this.radius * 2; }
+    }); 
+} 
+
+function lineIntersects(a,b,c,d,p,q,r,s) { 
+    let det = (c - a) * (s - q) - (r - p) * (d - b); 
+    if (det === 0) return false; 
+    let lambda = ((s - q) * (r - a) + (p - r) * (s - b)) / det; 
+    let gamma = ((b - d) * (r - a) + (c - a) * (s - b)) / det; 
+    return (0 < lambda && lambda < 1) && (0 < gamma && gamma < 1); 
+} 
+
+function hasLineOfSight(x1, y1, x2, y2) { 
+    return !GameState.walls.some(w => 
+        lineIntersects(x1, y1, x2, y2, w.x, w.y, w.x + w.width, w.y) || 
+        lineIntersects(x1, y1, x2, y2, w.x, w.y + w.height, w.x + w.width, w.y + w.height) || 
+        lineIntersects(x1, y1, x2, y2, w.x, w.y, w.x, w.y + w.height) || 
+        lineIntersects(x1, y1, x2, y2, w.x + w.width, w.y, w.x + w.width, w.y + w.height)
     );
-});
+} 
 
-window.addEventListener("contextmenu", (e) => e.preventDefault());
-editorUI.addEventListener("mousedown", (e) => e.stopPropagation());
-hideUIBtn.addEventListener("click", toggleUI);
-loadLevelBtn.addEventListener("click", loadLevel);
+function updateEnemies(currentTime) { 
+    if (GameState.enemySpawnRate > 0 && GameState.enemySpawns.length > 0) { 
+        const spawnIntervalMs = 1000 / GameState.enemySpawnRate; 
+        if (currentTime - GameState.lastSpawnTime > spawnIntervalMs) { 
+            const pCenterX = player.x + player.size / 2; 
+            const pCenterY = player.y + player.size / 2; 
 
-// ==========================================
-// 4. UI & LEVEL MANAGEMENT
-// ==========================================
-function toggleUI() {
-    if (editorUI.style.display === "none") {
-        editorUI.style.display = "block";
-        showEditorHelpers = true;
-    } else {
-        editorUI.style.display = "none";
-        showEditorHelpers = false;
-    }
-}
+            const validSpawns = GameState.enemySpawns.filter(spawn => { 
+                const dist = Math.hypot(spawn.x - pCenterX, spawn.y - pCenterY); 
+                return dist >= Config.MIN_SPAWN_DISTANCE_BLOCKS && dist <= Config.MAX_SPAWN_DISTANCE_BLOCKS; 
+            }); 
 
-function loadLevel() {
-    try {
-        const data = JSON.parse(levelDataInput.value);
+            if (validSpawns.length > 0) { 
+                const spawnPoint = validSpawns[Math.floor(seededRandom() * validSpawns.length)]; 
+                const typeName = spawnPoint.type || "g-bot"; 
+                const stats = Config.ENEMY_TYPES[typeName] || Config.ENEMY_TYPES["g-bot"]; 
+
+                GameState.enemies.push({ 
+                    x: spawnPoint.x, y: spawnPoint.y, 
+                    size: stats.sizeBlocks, speed: stats.speed, 
+                    hp: stats.hp, maxHp: stats.hp, color: stats.color, 
+                    lastShot: 0, shootCooldown: stats.shootCooldown, typeStats: stats, 
+                    ai: stats.ai, lastSeenX: null, lastSeenY: null, vx: 0, vy: 0 
+                }); 
+            } 
+            GameState.lastSpawnTime = currentTime; 
+        } 
+    } 
+
+    GameState.enemies.forEach(e => {
+        if (e.hp <= 0) return; 
+
+        const eCenterX = e.x + e.size / 2; 
+        const pCenterX = player.x + player.size / 2; 
+        const eCenterY = e.y + e.size / 2; 
+        const pCenterY = player.y + player.size / 2; 
+        const los = hasLineOfSight(eCenterX, eCenterY, pCenterX, pCenterY); 
+
+        e.vx = 0; e.vy = 0; 
+
+        if (los) { 
+            e.lastSeenX = pCenterX; e.lastSeenY = pCenterY; 
+            if (currentTime - e.lastShot > e.shootCooldown) { 
+                const spreadOffset = (Math.random() - 0.5) * (e.typeStats.spread || 0);
+                shoot(e, pCenterX, pCenterY, GameState.enemyBullets, { 
+                    color: e.typeStats.bulletColor, speed: e.typeStats.bulletSpeed, 
+                    radiusBlocks: e.typeStats.bulletRadiusBlocks, damage: e.typeStats.bulletDamage, 
+                    maxBounces: 0, spreadOffset: spreadOffset 
+                }); 
+                e.lastShot = currentTime; 
+            } 
+        } 
+
+        if (e.ai === "aggressive") { 
+            let targetX = los ? pCenterX : e.lastSeenX;
+            let targetY = los ? pCenterY : e.lastSeenY;
+
+            if (!los && targetX !== null) {
+                if (Math.hypot(targetX - eCenterX, targetY - eCenterY) < e.speed) { 
+                    e.lastSeenX = null; e.lastSeenY = null; targetX = null; 
+                } 
+            }
+
+            if (targetX !== null && targetY !== null) { 
+                const angle = Math.atan2(targetY - eCenterY, targetX - eCenterX); 
+                e.vx = Math.cos(angle) * e.speed; e.vy = Math.sin(angle) * e.speed; 
+            } 
+        } 
+    });
+} 
+
+function resolveEnemyVectorCollisions() { 
+    for (let i = 0; i < GameState.enemies.length; i++) { 
+        for (let j = i + 1; j < GameState.enemies.length; j++) { 
+            let e1 = GameState.enemies[i], e2 = GameState.enemies[j]; 
+            if (e1.hp <= 0 || e2.hp <= 0) continue; 
+
+            let r1 = e1.size / 2, r2 = e2.size / 2; 
+            let dx = (e2.x + r2 + e2.vx) - (e1.x + r1 + e1.vx); 
+            let dy = (e2.y + r2 + e2.vy) - (e1.y + r1 + e1.vy); 
+            let distance = Math.hypot(dx, dy); 
+            let minDist = r1 + r2; 
+
+            if (distance < minDist) { 
+                let nx = distance === 0 ? Math.cos(Math.random() * Math.PI * 2) : dx / distance;
+                let ny = distance === 0 ? Math.sin(Math.random() * Math.PI * 2) : dy / distance;
+
+                let overlap = minDist - (distance === 0 ? 0.001 : distance); 
+                let weight1 = e2.size / (e1.size + e2.size); 
+                let weight2 = e1.size / (e1.size + e2.size); 
+
+                e1.vx -= nx * overlap * weight1 * 0.5; e1.vy -= ny * overlap * weight1 * 0.5; 
+                e2.vx += nx * overlap * weight2 * 0.5; e2.vy += ny * overlap * weight2 * 0.5; 
+            } 
+        } 
+    } 
+} 
+
+function processBullets(bulletArray, isPlayerBullets, currentTime) { 
+    for (let i = bulletArray.length - 1; i >= 0; i--) { 
+        let b = bulletArray[i]; 
         
-        if (data.playerSpawn) {
-            player.x = data.playerSpawn.x;
-            player.y = data.playerSpawn.y;
-            player.hp = player.maxHp;
-        }
+        // Custom offset for AABB conversion
+        let mockRect = { x: b.x - b.radius, y: b.y - b.radius, size: b.radius * 2 };
 
-        bullets.length = 0; 
-        enemyBullets.length = 0;
-        enemies.length = 0;
-        walls.length = 0;
-        
-        // Reset dynamic generation tracking
-        generatedColumns.clear();
-        placedStructures.length = 0;
-        lastSpawnTime = performance.now();
+        b.x += b.vx; 
+        mockRect.x = b.x - b.radius;
+        if (GameState.walls.some(w => isColliding(mockRect, w))) { b.vx *= -1; b.x += b.vx; b.bounces++; } 
 
-        if (data.seed !== undefined) {
-            levelSeed = data.seed;
-            enemySpawnRate = data.enemySpawnRate || 0.5;
-        } else {
-            walls = data.walls || [];
-            enemySpawns = data.enemySpawns || [];
-            enemySpawnRate = data.enemySpawnRate || 0;
-        }
+        b.y += b.vy; 
+        mockRect.y = b.y - b.radius;
+        if (GameState.walls.some(w => isColliding(mockRect, w))) { b.vy *= -1; b.y += b.vy; b.bounces++; } 
+
+        const targets = isPlayerBullets ? GameState.enemies : [player];
         
+        targets.forEach(t => { 
+            if (isColliding(mockRect, t)) { 
+                if (!b.hitTargets.has(t)) { 
+                    if (isPlayerBullets || !GameState.isInvincible) t.hp -= (b.damage || 1); 
+                    b.hitTargets.add(t); 
+                } 
+            } else { 
+                b.hitTargets.delete(t); 
+            } 
+        }); 
+
+        if (b.bounces > b.maxBounces || (currentTime - b.createdAt) > 60000) bulletArray.splice(i, 1); 
+    } 
+} 
+
+// ========================================== 
+// 5. EVENT LISTENERS & UI
+// ========================================== 
+window.addEventListener("keydown", (e) => { 
+    const key = e.key.toLowerCase(); 
+    if (GameState.keys.hasOwnProperty(key)) GameState.keys[key] = true; 
+    if (key === 'h') toggleUI(); 
+}); 
+window.addEventListener("keyup", (e) => { 
+    const key = e.key.toLowerCase(); 
+    if (GameState.keys.hasOwnProperty(key)) GameState.keys[key] = false; 
+}); 
+
+window.addEventListener("mousedown", (e) => { 
+    e.preventDefault(); 
+    const now = performance.now();
+    if (now - GameState.playerLastShot < Config.PLAYER_SHOOT_COOLDOWN) return;
+    GameState.playerLastShot = now;
+
+    const rect = canvas.getBoundingClientRect(); 
+    const worldTargetX = ((e.clientX - rect.left) * (canvas.width / rect.width)) / Config.BLOCK_SIZE_PX + camera.x; 
+    const worldTargetY = ((e.clientY - rect.top) * (canvas.height / rect.height)) / Config.BLOCK_SIZE_PX + camera.y; 
+
+    shoot(player, worldTargetX, worldTargetY, GameState.bullets, { 
+        color: "crimson", speed: Config.PLAYER_BULLET_SPEED, radiusBlocks: 0.08, maxBounces: 1 
+    }); 
+}); 
+
+window.addEventListener("contextmenu", (e) => e.preventDefault()); 
+editorUI.addEventListener("mousedown", (e) => e.stopPropagation()); 
+hideUIBtn.addEventListener("click", toggleUI); 
+loadLevelBtn.addEventListener("click", loadLevel); 
+if (godModeToggle) godModeToggle.addEventListener("change", (e) => GameState.isInvincible = e.target.checked); 
+
+function toggleUI() { 
+    GameState.showEditorHelpers = !GameState.showEditorHelpers;
+    editorUI.style.display = GameState.showEditorHelpers ? "block" : "none"; 
+} 
+
+function loadLevel() { 
+    try { 
+        const data = JSON.parse(levelDataInput.value); 
+        if (data.playerSpawn) { 
+            player.x = data.playerSpawn.x; player.y = data.playerSpawn.y; player.hp = player.maxHp; 
+        } 
+        
+        GameState.bullets.length = 0; GameState.enemyBullets.length = 0; GameState.enemies.length = 0; 
+        GameState.walls.length = 0; GameState.generatedColumns.clear(); GameState.placedStructures.length = 0; 
+        GameState.lastSpawnTime = performance.now(); 
+
+        if (data.seed !== undefined) { 
+            GameState.levelSeed = data.seed; GameState.enemySpawnRate = data.enemySpawnRate || 0.5; 
+        } else { 
+            GameState.walls = data.walls || []; GameState.enemySpawns = data.enemySpawns || []; 
+            GameState.enemySpawnRate = data.enemySpawnRate || 0; 
+        } 
         window.focus(); 
-    } catch (error) {
-        alert("Invalid JSON format. Please check your syntax.");
-    }
-}
+    } catch (error) { alert("Invalid JSON format. Please check your syntax."); } 
+} 
 
-// ==========================================
-// 5. CORE MECHANICS & WEAPONS (Logical Units)
-// ==========================================
-function shoot(shooter, targetX, targetY, bulletArray, stats) {
-    const centerX = shooter.x + shooter.size / 2;
-    const centerY = shooter.y + shooter.size / 2;
-    const angle = Math.atan2(targetY - centerY, targetX - centerX);
-    const speed = stats.speed || 0.2;
+// ========================================== 
+// 6. MAIN LOOP & RENDERING
+// ========================================== 
+function update(currentTime) { 
+    if (player.hp <= 0) return; 
 
-    if (bulletArray === bullets && bullets.length >= 100) {
-        bullets.shift(); 
-    }
+    updateProceduralGeneration(player.x); 
+    cleanupProceduralGeneration(player.x); 
 
-    bulletArray.push({
-        x: centerX, y: centerY,
-        radius: stats.radiusBlocks || 0.08,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        color: stats.color || "white",
-        damage: stats.damage || 1,
-        bounces: 0,
-        maxBounces: stats.maxBounces || 0,
-        hitTargets: new Set(),
-        createdAt: performance.now()
-    });
-}
-
-// ==========================================
-// 6. AI, PATHFINDING & LINE OF SIGHT
-// ==========================================
-function hasLineOfSight(x1, y1, x2, y2) {
-    for (let w of walls) {
-        if (
-            lineIntersects(x1, y1, x2, y2, w.x, w.y, w.x + w.width, w.y) || 
-            lineIntersects(x1, y1, x2, y2, w.x, w.y + w.height, w.x + w.width, w.y + w.height) || 
-            lineIntersects(x1, y1, x2, y2, w.x, w.y, w.x, w.y + w.height) || 
-            lineIntersects(x1, y1, x2, y2, w.x + w.width, w.y, w.x + w.width, w.y + w.height)
-        ) {
-            return false; 
-        }
-    }
-    return true; 
-}
-
-function lineIntersects(a,b,c,d,p,q,r,s) {
-    let det = (c - a) * (s - q) - (r - p) * (d - b);
-    if (det === 0) return false;
-    let lambda = ((s - q) * (r - a) + (p - r) * (s - b)) / det;
-    let gamma = ((b - d) * (r - a) + (c - a) * (s - b)) / det;
-    return (0 < lambda && lambda < 1) && (0 < gamma && gamma < 1);
-}
-
-function updateEnemies(currentTime) {
-    if (enemySpawnRate > 0 && enemySpawns.length > 0) {
-        const spawnIntervalMs = 1000 / enemySpawnRate;
-        if (currentTime - lastSpawnTime > spawnIntervalMs) {
-            
-            const pCenterX = player.x + player.size / 2;
-            const pCenterY = player.y + player.size / 2;
-
-            const validSpawns = enemySpawns.filter(spawn => {
-                const dist = Math.hypot(spawn.x - pCenterX, spawn.y - pCenterY);
-                return dist >= MIN_SPAWN_DISTANCE_BLOCKS && dist <= MAX_SPAWN_DISTANCE_BLOCKS;
-            });
-
-            if (validSpawns.length > 0) {
-            const spawnPoint = validSpawns[Math.floor(seededRandom() * validSpawns.length)];
-            const typeName = spawnPoint.type || "g-bot";
-            const stats = ENEMY_TYPES[typeName] || ENEMY_TYPES["g-bot"];
-
-            enemies.push({
-                // FIX: Multiply block coordinates by BLOCK_SIZE_PX to match player/world pixels!
-                x: spawnPoint.x, 
-                y: spawnPoint.y,
-                size: stats.sizeBlocks, 
-                speed: stats.speed, 
-                hp: stats.hp, 
-                maxHp: stats.hp,
-                color: stats.color, 
-                lastShot: 0, 
-                shootCooldown: stats.shootCooldown,
-                typeStats: stats,
-                ai: stats.ai,
-                lastSeenX: null,
-                lastSeenY: null,
-                vx: 0,
-                vy: 0
-            });
-        }
-            lastSpawnTime = currentTime;
-        }
-    }
-
-    for (let i = 0; i < enemies.length; i++) {
-        let e = enemies[i];
-        if (e.hp <= 0) continue; 
-
-        const eCenterX = e.x + e.size / 2;
-        const eCenterY = e.y + e.size / 2;
-        const pCenterX = player.x + player.size / 2;
-        const pCenterY = player.y + player.size / 2;
-
-        const los = hasLineOfSight(eCenterX, eCenterY, pCenterX, pCenterY);
-
-        e.vx = 0;
-        e.vy = 0;
-
-        if (los) {
-            e.lastSeenX = pCenterX;
-            e.lastSeenY = pCenterY;
-
-            if (currentTime - e.lastShot > e.shootCooldown) {
-                shoot(e, pCenterX, pCenterY, enemyBullets, { 
-                    color: e.typeStats.bulletColor, 
-                    speed: e.typeStats.bulletSpeed, 
-                    radiusBlocks: e.typeStats.bulletRadiusBlocks, 
-                    damage: e.typeStats.bulletDamage, 
-                    maxBounces: 0 
-                });
-                e.lastShot = currentTime;
-            }
-        }
-
-        if (e.ai === "aggressive") {
-            let targetX = null;
-            let targetY = null;
-
-            if (los) {
-                targetX = pCenterX;
-                targetY = pCenterY;
-            } else if (e.lastSeenX !== null && e.lastSeenY !== null) {
-                targetX = e.lastSeenX;
-                targetY = e.lastSeenY;
-
-                const distToMemory = Math.hypot(targetX - eCenterX, targetY - eCenterY);
-                if (distToMemory < e.speed) {
-                    e.lastSeenX = null;
-                    e.lastSeenY = null;
-                    targetX = null; 
-                }
-            }
-
-            if (targetX !== null && targetY !== null) {
-                const angle = Math.atan2(targetY - eCenterY, targetX - eCenterX);
-                e.vx = Math.cos(angle) * e.speed;
-                e.vy = Math.sin(angle) * e.speed;
-            }
-        }
-    }
-}
-
-function resolveEnemyVectorCollisions() {
-    for (let i = 0; i < enemies.length; i++) {
-        for (let j = i + 1; j < enemies.length; j++) {
-            let e1 = enemies[i];
-            let e2 = enemies[j];
-            if (e1.hp <= 0 || e2.hp <= 0) continue;
-
-            let r1 = e1.size / 2;
-            let r2 = e2.size / 2;
-
-            let c1x = e1.x + r1 + e1.vx;
-            let c1y = e1.y + r1 + e1.vy;
-            let c2x = e2.x + r2 + e2.vx;
-            let c2y = e2.y + r2 + e2.vy;
-
-            let dx = c2x - c1x;
-            let dy = c2y - c1y;
-            let distance = Math.hypot(dx, dy);
-            let minDist = r1 + r2;
-
-            if (distance < minDist) {
-                let nx, ny;
-                if (distance === 0) {
-                    let randomAngle = Math.random() * Math.PI * 2;
-                    nx = Math.cos(randomAngle);
-                    ny = Math.sin(randomAngle);
-                    distance = 0.001; 
-                } else {
-                    nx = dx / distance;
-                    ny = dy / distance;
-                }
-
-                let overlap = minDist - distance;
-                let totalSize = e1.size + e2.size;
-                let weight1 = e2.size / totalSize;
-                let weight2 = e1.size / totalSize;
-
-                e1.vx -= nx * overlap * weight1 * 0.5;
-                e1.vy -= ny * overlap * weight1 * 0.5;
-                e2.vx += nx * overlap * weight2 * 0.5;
-                e2.vy += ny * overlap * weight2 * 0.5;
-            }
-        }
-    }
-}
-
-function applyEnemyMovementAndWalls() {
-    for (let i = enemies.length - 1; i >= 0; i--) {
-        let e = enemies[i];
-        if (e.hp <= 0) {
-            enemies.splice(i, 1);
-            continue;
-        }
-
-        e.x += e.vx;
-        walls.forEach(w => {
-            if (e.x + e.size > w.x && e.x < w.x + w.width && e.y + e.size > w.y && e.y < w.y + w.height) {
-                if (e.vx > 0) e.x = w.x - e.size;
-                if (e.vx < 0) e.x = w.x + w.width;
-            }
-        });
-
-        e.y += e.vy;
-        walls.forEach(w => {
-            if (e.x + e.size > w.x && e.x < w.x + w.width && e.y + e.size > w.y && e.y < w.y + w.height) {
-                if (e.vy > 0) e.y = w.y - e.size;
-                if (e.vy < 0) e.y = w.y + w.height;
-            }
-        });
-    }
-}
-
-function processBullets(bulletArray, isPlayerBullets, currentTime) {
-    for (let i = bulletArray.length - 1; i >= 0; i--) {
-        let b = bulletArray[i];
-        
-        b.x += b.vx;
-        walls.forEach(w => {
-            if (b.x + b.radius > w.x && b.x - b.radius < w.x + w.width && 
-                b.y + b.radius > w.y && b.y - b.radius < w.y + w.height) {
-                b.vx *= -1; 
-                b.x += b.vx; 
-                b.bounces++; 
-            }
-        });
-
-        b.y += b.vy;
-        walls.forEach(w => {
-            if (b.x + b.radius > w.x && b.x - b.radius < w.x + w.width && 
-                b.y + b.radius > w.y && b.y - b.radius < w.y + w.height) {
-                b.vy *= -1; 
-                b.y += b.vy; 
-                b.bounces++; 
-            }
-        });
-
-        if (isPlayerBullets) {
-            enemies.forEach(e => {
-                const isColliding = b.x + b.radius > e.x && 
-                                    b.x - b.radius < e.x + e.size && 
-                                    b.y + b.radius > e.y && 
-                                    b.y - b.radius < e.y + e.size;
-                if (isColliding) {
-                    if (!b.hitTargets.has(e)) {
-                        e.hp -= 1;
-                        b.hitTargets.add(e);
-                    }
-                } else {
-                    b.hitTargets.delete(e);
-                }
-            });
-        } else {
-            const isColliding = b.x + b.radius > player.x && 
-                                b.x - b.radius < player.x + player.size && 
-                                b.y + b.radius > player.y && 
-                                b.y - b.radius < player.y + player.size;
-            if (isColliding) {
-                if (!b.hitTargets.has(player)) {
-                    if (!isInvincible) {
-                        player.hp -= b.damage; 
-                    }
-                    b.hitTargets.add(player);
-                }
-            } else {
-                b.hitTargets.delete(player);
-            }
-        }
-
-        const maxLifetimeMs = 60000; 
-        const isExpired = (currentTime - b.createdAt) > maxLifetimeMs;
-
-        if (b.bounces > b.maxBounces || isExpired) {
-            bulletArray.splice(i, 1);
-        }
-    }
-}
-
-// ==========================================
-// 7. MAIN LOOP (UPDATE & DRAW)
-// ==========================================
-function update(currentTime) {
-    if (player.hp <= 0) return;
-
-    updateProceduralGeneration(player.x);
-    cleanupProceduralGeneration(player.x);
-
-    let dx = 0, dy = 0;
-    if (keys.w) dy -= player.speed;
-    if (keys.s) dy += player.speed;
-    if (keys.a) dx -= player.speed;
-    if (keys.d) dx += player.speed;
-
-    player.x += dx;
-    walls.forEach(w => {
-        if (player.x + player.size > w.x && player.x < w.x + w.width && player.y + player.size > w.y && player.y < w.y + w.height) {
-            if (dx > 0) player.x = w.x - player.size; if (dx < 0) player.x = w.x + w.width;    
-        }
-    });
-
-    player.y += dy;
-    walls.forEach(w => {
-        if (player.x + player.size > w.x && player.x < w.x + w.width && player.y + player.size > w.y && player.y < w.y + w.height) {
-            if (dy > 0) player.y = w.y - player.size; if (dy < 0) player.y = w.y + w.height;    
-        }
-    });
+    let dx = 0, dy = 0; 
+    if (GameState.keys.w) dy -= player.speed; 
+    if (GameState.keys.s) dy += player.speed; 
+    if (GameState.keys.a) dx -= player.speed; 
+    if (GameState.keys.d) dx += player.speed; 
+    
+    handleWallCollisions(player, dx, dy);
 
     updateEnemies(currentTime);         
     resolveEnemyVectorCollisions();     
-    applyEnemyMovementAndWalls();       
-    updateCamera();                     
+    
+    // Apply movement for enemies and filter out dead ones
+    GameState.enemies = GameState.enemies.filter(e => {
+        if (e.hp <= 0) return false;
+        handleWallCollisions(e, e.vx, e.vy);
+        return true;
+    });
 
-    processBullets(bullets, true, currentTime);
-    processBullets(enemyBullets, false, currentTime);
+    // Update Camera
+    camera.x = player.x - camera.widthBlocks / 2 + player.size / 2; 
+    camera.y = player.y - camera.heightBlocks / 2 + player.size / 2; 
+
+    processBullets(GameState.bullets, true, currentTime); 
+    processBullets(GameState.enemyBullets, false, currentTime); 
+} 
+
+function drawProceduralEnvironment() { 
+    const startX = Math.floor(camera.x), endX = startX + camera.widthBlocks + 2; 
+    const startY = Math.floor(camera.y), endY = startY + camera.heightBlocks + 2; 
+
+    ctx.lineWidth = 1; 
+    for (let x = startX; x < endX; x++) { 
+        for (let y = startY; y < endY; y++) { 
+            const px = x * Config.BLOCK_SIZE_PX, py = y * Config.BLOCK_SIZE_PX; 
+            ctx.fillStyle = ((Math.abs(x + y)) % 2 === 0) ? "#111111" : "#1a1a1a"; 
+            ctx.fillRect(px, py, Config.BLOCK_SIZE_PX, Config.BLOCK_SIZE_PX); 
+            ctx.strokeStyle = "#222222"; 
+            ctx.strokeRect(px, py, Config.BLOCK_SIZE_PX, Config.BLOCK_SIZE_PX); 
+
+            if (GameState.showEditorHelpers) { 
+                ctx.fillStyle = "rgba(255, 255, 255, 0.25)"; 
+                ctx.font = "10px monospace"; 
+                ctx.fillText(`${x},${y}`, px + 4, py + 14); 
+            } 
+        } 
+    } 
+
+    if (GameState.showEditorHelpers) { 
+        GameState.enemySpawns.forEach(spawn => { 
+            const renderSizePx = (spawn.size || Config.PLAYER_SIZE_BLOCKS) * Config.BLOCK_SIZE_PX; 
+            const px = spawn.x * Config.BLOCK_SIZE_PX, py = spawn.y * Config.BLOCK_SIZE_PX; 
+            ctx.strokeStyle = "cyan"; ctx.lineWidth = 2; ctx.strokeRect(px, py, renderSizePx, renderSizePx); 
+            ctx.fillStyle = "rgba(0, 255, 255, 0.2)"; ctx.fillRect(px, py, renderSizePx, renderSizePx); 
+            ctx.fillStyle = "cyan"; ctx.font = "10px monospace"; ctx.fillText(`SPAWN: ${spawn.type}`, px, py - 4); 
+        }); 
+    } 
+} 
+
+function drawHealthBar(x, y, width, hp, maxHp, color) { 
+    ctx.fillStyle = "black"; ctx.fillRect(x, y, width, 5); 
+    ctx.fillStyle = color; ctx.fillRect(x, y, width * (hp / maxHp), 5); 
+} 
+
+function draw() { 
+    ctx.clearRect(0, 0, canvas.width, canvas.height); 
+    ctx.save(); 
+    ctx.translate(-Math.floor(camera.x * Config.BLOCK_SIZE_PX), -Math.floor(camera.y * Config.BLOCK_SIZE_PX)); 
+
+    drawProceduralEnvironment(); 
+
+    GameState.walls.forEach(w => {  
+        ctx.fillStyle = w.color;  
+        ctx.fillRect(w.x * Config.BLOCK_SIZE_PX, w.y * Config.BLOCK_SIZE_PX, w.width * Config.BLOCK_SIZE_PX, w.height * Config.BLOCK_SIZE_PX);  
+    }); 
+
+    if (player.hp > 0) { 
+        const pPxX = player.x * Config.BLOCK_SIZE_PX, pPxY = player.y * Config.BLOCK_SIZE_PX, pPxSize = player.size * Config.BLOCK_SIZE_PX; 
+        ctx.fillStyle = player.color; ctx.fillRect(pPxX, pPxY, pPxSize, pPxSize); 
+        drawHealthBar(pPxX, pPxY - 10, pPxSize, player.hp, player.maxHp, "cyan"); 
+    } 
+
+    GameState.enemies.forEach(e => { 
+        const ePxX = e.x * Config.BLOCK_SIZE_PX, ePxY = e.y * Config.BLOCK_SIZE_PX, ePxSize = e.size * Config.BLOCK_SIZE_PX; 
+        ctx.fillStyle = e.color; ctx.fillRect(ePxX, ePxY, ePxSize, ePxSize); 
+        drawHealthBar(ePxX, ePxY - 10, ePxSize, e.hp, e.maxHp, "red"); 
+    }); 
+
+    [...GameState.bullets, ...GameState.enemyBullets].forEach(b => { 
+        ctx.beginPath(); 
+        ctx.arc(b.x * Config.BLOCK_SIZE_PX, b.y * Config.BLOCK_SIZE_PX, b.radius * Config.BLOCK_SIZE_PX, 0, Math.PI * 2); 
+        ctx.fillStyle = b.color; ctx.fill(); ctx.closePath(); 
+    }); 
+
+    ctx.restore();  
+
+    if (player.hp <= 0) { 
+        ctx.fillStyle = "rgba(0, 0, 0, 0.7)"; ctx.fillRect(0, 0, canvas.width, canvas.height); 
+        ctx.fillStyle = "red"; ctx.font = "40px sans-serif"; ctx.fillText("GAME OVER", canvas.width / 2 - 120, canvas.height / 2); 
+    } 
+} 
+
+function gameLoop(currentTime) { 
+    update(currentTime); 
+    draw(); 
+    requestAnimationFrame(gameLoop); 
+} 
+
+// ========================================== 
+// 7. INITIALIZATION & EXPORT
+// ========================================== 
+function exportConfig() {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(Config, null, 4));
+    const a = document.createElement('a');
+    a.href = dataStr;
+    a.download = "custom_config.json";
+    document.body.appendChild(a); 
+    a.click();
+    a.remove();
 }
 
-// ==========================================
-// RENDER ENVIRONMENT & WORLD (Translates block units to pixels)
-// ==========================================
-function drawProceduralEnvironment() {
-    const startX = Math.floor(camera.x);
-    const endX = startX + camera.widthBlocks + 2;
-    const startY = Math.floor(camera.y);
-    const endY = startY + camera.heightBlocks + 2;
-
-    ctx.lineWidth = 1;
-    for (let x = startX; x < endX; x++) {
-        for (let y = startY; y < endY; y++) {
-            const px = x * BLOCK_SIZE_PX;
-            const py = y * BLOCK_SIZE_PX;
-            ctx.fillStyle = ((Math.abs(x + y)) % 2 === 0) ? "#111111" : "#1a1a1a";
-            ctx.fillRect(px, py, BLOCK_SIZE_PX, BLOCK_SIZE_PX);
-            ctx.strokeStyle = "#222222";
-            ctx.strokeRect(px, py, BLOCK_SIZE_PX, BLOCK_SIZE_PX);
-
-            // Render coordinate labels only when editor helpers/UI are active
-            if (showEditorHelpers) {
-                ctx.fillStyle = "rgba(255, 255, 255, 0.25)";
-                ctx.font = "10px monospace";
-                ctx.fillText(`${x},${y}`, px + 4, py + 14);
-            }
-        }
-    }
-
-    // Render enemy spawn points only when editor helpers/UI are active
-    if (showEditorHelpers) {
-        enemySpawns.forEach(spawn => {
-            const renderSizePx = (spawn.size || PLAYER_SIZE_BLOCKS) * BLOCK_SIZE_PX;
-            const px = spawn.x * BLOCK_SIZE_PX;
-            const py = spawn.y * BLOCK_SIZE_PX;
-
-            ctx.strokeStyle = "cyan";
-            ctx.lineWidth = 2;
-            ctx.strokeRect(px, py, renderSizePx, renderSizePx);
-            
-            ctx.fillStyle = "rgba(0, 255, 255, 0.2)";
-            ctx.fillRect(px, py, renderSizePx, renderSizePx);
-
-            ctx.fillStyle = "cyan";
-            ctx.font = "10px monospace";
-            ctx.fillText(`SPAWN: ${spawn.type || "g-bot"}`, px, py - 4);
-        });
-    }
-}
-
-function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    ctx.save();
-    ctx.translate(-Math.floor(camera.x * BLOCK_SIZE_PX), -Math.floor(camera.y * BLOCK_SIZE_PX));
-
-    drawProceduralEnvironment();
-
-    walls.forEach(w => { 
-        ctx.fillStyle = w.color; 
-        ctx.fillRect(w.x * BLOCK_SIZE_PX, w.y * BLOCK_SIZE_PX, w.width * BLOCK_SIZE_PX, w.height * BLOCK_SIZE_PX); 
-    });
-
-    if (player.hp > 0) {
-        const pPxX = player.x * BLOCK_SIZE_PX;
-        const pPxY = player.y * BLOCK_SIZE_PX;
-        const pPxSize = player.size * BLOCK_SIZE_PX;
-        ctx.fillStyle = player.color;
-        ctx.fillRect(pPxX, pPxY, pPxSize, pPxSize);
-        drawHealthBar(pPxX, pPxY - 10, pPxSize, player.hp, player.maxHp, "cyan");
-    }
-
-    enemies.forEach(e => {
-        const ePxX = e.x * BLOCK_SIZE_PX;
-        const ePxY = e.y * BLOCK_SIZE_PX;
-        const ePxSize = e.size * BLOCK_SIZE_PX;
-        ctx.fillStyle = e.color;
-        ctx.fillRect(ePxX, ePxY, ePxSize, ePxSize);
-        drawHealthBar(ePxX, ePxY - 10, ePxSize, e.hp, e.maxHp, "red");
-    });
-
-    [...bullets, ...enemyBullets].forEach(b => {
-        ctx.beginPath();
-        ctx.arc(b.x * BLOCK_SIZE_PX, b.y * BLOCK_SIZE_PX, b.radius * BLOCK_SIZE_PX, 0, Math.PI * 2);
-        ctx.fillStyle = b.color;
-        ctx.fill();
-        ctx.closePath();
-    });
-
-    ctx.restore(); 
-
-    if (player.hp <= 0) {
-        ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+async function initGame() {
+    try {
+        const response = await fetch('config.json');
+        if (!response.ok) throw new Error("Network response was not ok");
         
-        ctx.fillStyle = "red";
-        ctx.font = "40px sans-serif";
-        ctx.fillText("GAME OVER", canvas.width / 2 - 120, canvas.height / 2);
+        const loadedData = await response.json();
+        
+        // Merge fetched config into our unified Config object
+        Object.assign(Config, loadedData);
+        
+        // Sync dependencies 
+        player.speed = Config.PLAYER_SPEED;
+        player.size = Config.PLAYER_SIZE_BLOCKS;
+
+        loadLevel(); 
+        requestAnimationFrame(gameLoop); 
+        console.log("Config loaded successfully. Game starting...");
+    } catch (error) {
+        console.error("Failed to load config.json:", error);
+        alert("Could not load game configuration! Check console for details.");
     }
 }
 
-function drawHealthBar(x, y, width, hp, maxHp, color) {
-    ctx.fillStyle = "black";
-    ctx.fillRect(x, y, width, 5);
-    ctx.fillStyle = color;
-    ctx.fillRect(x, y, width * (hp / maxHp), 5);
-}
+// Start
+initGame();
 
-function gameLoop(currentTime) {
-    update(currentTime);
-    draw();
-    requestAnimationFrame(gameLoop);
-}
+// Expose state to the global window object for the UI to read/write
+window.Config = Config;
+window.player = player;
 
-// ==========================================
-// 8. INITIALIZATION
-// ==========================================
-loadLevel();
-requestAnimationFrame(gameLoop);
+// Trigger the UI to populate once the initial config.json is loaded
+if (window.syncConfigToUI) window.syncConfigToUI();
