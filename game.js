@@ -16,6 +16,52 @@ const Config = {
     RENDER_DISTANCE_BACK: 12
 };
 
+// config.json provides defaults. The config editor stores persistent overrides here.
+// localStorage is shared by index.html/config.html as long as they use the same origin.
+const CONFIG_STORAGE_KEY = "demoGameConfig";
+
+function isPlainObject(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+// Merge saved settings over config.json while keeping any new defaults that may
+// be added later. Arrays (such as STRUCTURE_LIBRARY) are intentionally replaced.
+function mergeConfig(base, override) {
+    if (!isPlainObject(base) || !isPlainObject(override)) {
+        return override;
+    }
+
+    const result = { ...base };
+
+    for (const [key, value] of Object.entries(override)) {
+        if (isPlainObject(value) && isPlainObject(base[key])) {
+            result[key] = mergeConfig(base[key], value);
+        } else {
+            result[key] = value;
+        }
+    }
+
+    return result;
+}
+
+function loadLocalConfig(defaultConfig) {
+    try {
+        const savedJson = localStorage.getItem(CONFIG_STORAGE_KEY);
+        if (!savedJson) return defaultConfig;
+
+        const savedConfig = JSON.parse(savedJson);
+        if (!isPlainObject(savedConfig)) {
+            throw new Error("Saved config is not a JSON object.");
+        }
+
+        console.log("Using locally saved config.");
+        return mergeConfig(defaultConfig, savedConfig);
+    } catch (error) {
+        console.warn("Could not load local config; using config.json defaults.", error);
+        return defaultConfig;
+    }
+}
+
 const GameState = {
     keys: { w: false, a: false, s: false, d: false },
     bullets: [],
@@ -617,20 +663,25 @@ function exportConfig() {
 
 async function initGame() {
     try {
+        // config.json is the default/factory configuration.
         const response = await fetch('config.json');
         if (!response.ok) throw new Error("Network response was not ok");
-        
-        const loadedData = await response.json();
-        
-        // Merge fetched config into our unified Config object
+
+        const defaultConfig = await response.json();
+
+        // If the config editor has saved an override, use it on top of the
+        // defaults. This makes editor changes persistent without trying to
+        // write to config.json (browsers are not allowed to overwrite it).
+        const loadedData = loadLocalConfig(defaultConfig);
+
         Object.assign(Config, loadedData);
-        
-        // Sync dependencies 
+
+        // Sync objects that copied config values during initial construction.
         player.speed = Config.PLAYER_SPEED;
         player.size = Config.PLAYER_SIZE_BLOCKS;
 
-        loadLevel(); 
-        requestAnimationFrame(gameLoop); 
+        loadLevel();
+        requestAnimationFrame(gameLoop);
         console.log("Config loaded successfully. Game starting...");
     } catch (error) {
         console.error("Failed to load config.json:", error);
