@@ -1,160 +1,115 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <title>Game Config Editor</title>
+		<title>Game Config Editor</title>
 
-    <link rel="stylesheet" href="config.css">
-</head>
+		<link rel="stylesheet" href="css/config.css" />
+	</head>
 
-<body>
+	<body>
+		<main class="config-container">
+			<!-- HEADER -->
+			<header class="config-header">
+				<h1>Game Config Editor</h1>
 
-    <main class="config-container">
+				<a href="index.html"> ← Back to Game </a>
+			</header>
 
-        <!-- HEADER -->
-        <header class="config-header">
+			<!-- PLAYER SETTINGS -->
+			<section class="config-section">
+				<h2>Player</h2>
 
-            <h1>Game Config Editor</h1>
+				<div class="config-row">
+					<label for="cfg_PLAYER_SPEED">
+						Player Speed (blocks/sec)
+					</label>
 
-            <a href="index.html">
-                ← Back to Game
-            </a>
+					<input type="number" id="cfg_PLAYER_SPEED" step="0.01" />
+				</div>
 
-        </header>
+				<div class="config-row">
+					<label for="cfg_PLAYER_BULLET_SPEED">
+						Bullet Speed (blocks/sec)
+					</label>
 
+					<input
+						type="number"
+						id="cfg_PLAYER_BULLET_SPEED"
+						step="0.01"
+					/>
+				</div>
 
-        <!-- PLAYER SETTINGS -->
-        <section class="config-section">
+				<div class="config-row">
+					<label for="cfg_PLAYER_SHOOT_COOLDOWN">
+						Shoot Cooldown (ms)
+					</label>
 
-            <h2>Player</h2>
+					<input
+						type="number"
+						id="cfg_PLAYER_SHOOT_COOLDOWN"
+						step="10"
+					/>
+				</div>
+			</section>
 
-            <div class="config-row">
+			<!-- WORLD SETTINGS -->
+			<section class="config-section">
+				<h2>World</h2>
 
-                <label for="cfg_PLAYER_SPEED">
-                    Player Speed (blocks/sec)
-                </label>
+				<div class="config-row">
+					<label for="cfg_STRUCTURE_DENSITY_BLOCKS">
+						Structure Density
+					</label>
 
-                <input
-                    type="number"
-                    id="cfg_PLAYER_SPEED"
-                    step="0.01"
-                >
+					<input
+						type="number"
+						id="cfg_STRUCTURE_DENSITY_BLOCKS"
+						step="1"
+					/>
+				</div>
+			</section>
 
-            </div>
+			<!-- ADVANCED SETTINGS -->
+			<section class="config-section">
+				<h2>Advanced Configuration</h2>
 
+				<p class="config-help">
+					Structure grid flags: <strong>0</strong> = empty,
+					<strong>1</strong> = wall, <strong>2</strong> = random
+					enemy, <strong>3</strong> = g-bot, <strong>4</strong> =
+					j-bot, <strong>5</strong> = h-bot.
+				</p>
 
-            <div class="config-row">
+				<textarea
+					id="cfg_ADVANCED"
+					rows="20"
+					spellcheck="false"
+					placeholder='{"ENEMY_TYPES": {...}}'
+				></textarea>
+			</section>
 
-                <label for="cfg_PLAYER_BULLET_SPEED">
-                    Bullet Speed (blocks/sec)
-                </label>
+			<!-- ACTIONS -->
+			<section class="config-actions">
+				<button id="applyConfigBtn" class="apply-btn">
+					Save Locally
+				</button>
 
-                <input
-                    type="number"
-                    id="cfg_PLAYER_BULLET_SPEED"
-                    step="0.01"
-                >
+				<button id="exportConfigBtn" class="export-btn">
+					Export config.json
+				</button>
 
-            </div>
+				<button id="resetConfigBtn" class="reset-btn">
+					Reset to config.json
+				</button>
+			</section>
 
+			<!-- STATUS -->
+			<div id="statusMessage"></div>
+		</main>
 
-            <div class="config-row">
-
-                <label for="cfg_PLAYER_SHOOT_COOLDOWN">
-                    Shoot Cooldown (ms)
-                </label>
-
-                <input
-                    type="number"
-                    id="cfg_PLAYER_SHOOT_COOLDOWN"
-                    step="10"
-                >
-
-            </div>
-
-        </section>
-
-
-        <!-- WORLD SETTINGS -->
-        <section class="config-section">
-
-            <h2>World</h2>
-
-            <div class="config-row">
-
-                <label for="cfg_STRUCTURE_DENSITY_BLOCKS">
-                    Structure Density
-                </label>
-
-                <input
-                    type="number"
-                    id="cfg_STRUCTURE_DENSITY_BLOCKS"
-                    step="1"
-                >
-
-            </div>
-
-        </section>
-
-
-        <!-- ADVANCED SETTINGS -->
-        <section class="config-section">
-
-            <h2>Advanced Configuration</h2>
-
-            <p class="config-help">
-                Structure grid flags: <strong>0</strong> = empty,
-                <strong>1</strong> = wall, <strong>2</strong> = random enemy,
-                <strong>3</strong> = g-bot, <strong>4</strong> = j-bot,
-                <strong>5</strong> = h-bot.
-            </p>
-
-            <textarea
-                id="cfg_ADVANCED"
-                rows="20"
-                spellcheck="false"
-                placeholder='{"ENEMY_TYPES": {...}}'
-            ></textarea>
-
-        </section>
-
-
-        <!-- ACTIONS -->
-        <section class="config-actions">
-
-            <button
-                id="applyConfigBtn"
-                class="apply-btn"
-            >
-                Save Locally
-            </button>
-
-            <button
-                id="exportConfigBtn"
-                class="export-btn"
-            >
-                Export config.json
-            </button>
-
-            <button
-                id="resetConfigBtn"
-                class="reset-btn"
-            >
-                Reset to config.json
-            </button>
-
-        </section>
-
-
-        <!-- STATUS -->
-        <div id="statusMessage"></div>
-
-    </main>
-
-
-    <script type="module" src="config.js"></script>
-
-</body>
+		<script type="module" src="js/config-editor.js"></script>
+	</body>
 </html>

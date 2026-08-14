@@ -1,31 +1,29 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <title>Demo</title>
+		<title>Demo</title>
 
-    <link rel="stylesheet" href="style.css">
-</head>
+		<link rel="stylesheet" href="css/style.css" />
+	</head>
 
-<body>
+	<body>
+		<canvas id="gameCanvas" width="1280" height="720"></canvas>
 
-    <canvas id="gameCanvas" width="1280" height="720"></canvas>
+		<!-- GAME DEBUG / LEVEL EDITOR -->
+		<div id="editorUI" class="ui-panel">
+			<h3>Level Editor & Debug</h3>
 
-    <!-- GAME DEBUG / LEVEL EDITOR -->
-    <div id="editorUI" class="ui-panel">
+			<label>
+				<input type="checkbox" id="godModeToggle" />
+				Toggle Invincibility (God Mode)
+			</label>
 
-        <h3>Level Editor & Debug</h3>
+			<br /><br />
 
-        <label>
-            <input type="checkbox" id="godModeToggle">
-            Toggle Invincibility (God Mode)
-        </label>
-
-        <br><br>
-
-        <textarea id="levelData" rows="10" cols="35">
+			<textarea id="levelData" rows="10" cols="35">
 {
     "seed": 12345,
     "playerSpawn": { "x": 1, "y": 1 },
@@ -33,27 +31,22 @@
     "enemySpawnRate": 0.5,
     "walls": []
 }
-        </textarea>
+        </textarea
+			>
 
-        <br>
+			<br />
 
-        <button id="loadLevelBtn">
-            Load Level / Apply
-        </button>
+			<button id="loadLevelBtn">Load Level / Apply</button>
 
-        <button id="hideUIBtn" style="margin-left: 5px;">
-            Toggle UI (H)
-        </button>
+			<button id="hideUIBtn" style="margin-left: 5px">
+				Toggle UI (H)
+			</button>
 
-        <br>
+			<br />
 
-        <a href="config.html" class="config-link">
-            Open Config Editor
-        </a>
+			<a href="config.html" class="config-link"> Open Config Editor </a>
+		</div>
 
-    </div>
-
-    <script type="module" src="game.js"></script>
-
-</body>
+		<script type="module" src="js/main.js"></script>
+	</body>
 </html>
