@@ -320,13 +320,31 @@ function processBullets(bulletArray, isPlayerBullets, currentTime) {
         // Custom offset for AABB conversion
         let mockRect = { x: b.x - b.radius, y: b.y - b.radius, size: b.radius * 2 };
 
-        b.x += b.vx; 
+        // Move X
+        b.x += b.vx;
         mockRect.x = b.x - b.radius;
-        if (GameState.walls.some(w => isColliding(mockRect, w))) { b.vx *= -1; b.x += b.vx; b.bounces++; } 
-
-        b.y += b.vy; 
         mockRect.y = b.y - b.radius;
-        if (GameState.walls.some(w => isColliding(mockRect, w))) { b.vy *= -1; b.y += b.vy; b.bounces++; } 
+
+        if (GameState.walls.some(w => isColliding(mockRect, w))) {
+            b.x -= b.vx;   // undo movement
+            b.vx *= -1;
+            b.bounces++;
+
+            mockRect.x = b.x - b.radius;
+        }
+
+        // Move Y
+        b.y += b.vy;
+        mockRect.x = b.x - b.radius;
+        mockRect.y = b.y - b.radius;
+
+        if (GameState.walls.some(w => isColliding(mockRect, w))) {
+            b.y -= b.vy;   // undo movement
+            b.vy *= -1;
+            b.bounces++;
+
+            mockRect.y = b.y - b.radius;
+        }
 
         const targets = isPlayerBullets ? GameState.enemies : [player];
         
