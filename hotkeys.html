@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Hotkey Editor</title>
+        <link rel="stylesheet" href="css/config.css" />
+    </head>
+
+    <body>
+        <main class="config-container hotkey-container">
+            <header class="config-header">
+                <h1>Hotkey Editor</h1>
+                <nav class="config-nav">
+                    <a href="config.html">Game Config</a>
+                    <a href="index.html">← Back to Game</a>
+                </nav>
+            </header>
+
+            <section class="config-section">
+                <h2>Bindings</h2>
+                <p class="config-help">
+                    Every action can have up to two bindings. The same key or mouse
+                    button may also be used by multiple actions.
+                </p>
+                <p class="config-help">
+                    Click a binding slot, then press a keyboard key or mouse button.
+                    Bindings use <code>KeyboardEvent.code</code>, so they track physical
+                    key positions rather than typed characters.
+                </p>
+                <div id="hotkeyGroups"></div>
+            </section>
+
+            <section class="config-actions">
+                <button id="saveHotkeysBtn" class="apply-btn">Save Locally</button>
+                <button id="exportHotkeysBtn" class="export-btn">Export hotkeys.json</button>
+                <button id="resetHotkeysBtn" class="reset-btn">Reset to hotkeys.json</button>
+            </section>
+
+            <div id="statusMessage"></div>
+        </main>
+
+        <script type="module" src="js/hotkey-editor.js"></script>
+    </body>
+</html>

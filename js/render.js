@@ -3,6 +3,7 @@
 import { Config } from "./config.js";
 import { GameState, player, camera } from "./state.js";
 import { canvas, ctx } from "./dom.js";
+import { getActiveWeaponIndex } from "./weapons.js";
 
 // Draws the checker/grid-like world background and optional enemy-spawn debug markers within the camera viewport.
 export function drawProceduralEnvironment() {
@@ -63,6 +64,32 @@ export function drawHealthBar(x, y, width, hp, maxHp, color) {
 
 	ctx.fillStyle = color;
 	ctx.fillRect(x, y, width * (hp / maxHp), 5);
+}
+
+
+// Draws a minimal active-weapon indicator in screen space.
+export function drawWeaponHud() {
+	if (player.hp <= 0) return;
+
+	const label = `Weapon ${getActiveWeaponIndex() + 1}`;
+
+	ctx.font = "16px monospace";
+	const textWidth = ctx.measureText(label).width;
+	const padding = 10;
+	const width = textWidth + padding * 2;
+	const height = 34;
+	const x = canvas.width - width - 12;
+	const y = 12;
+
+	ctx.fillStyle = "rgba(0, 0, 0, 0.72)";
+	ctx.fillRect(x, y, width, height);
+
+	ctx.strokeStyle = "cyan";
+	ctx.lineWidth = 1;
+	ctx.strokeRect(x, y, width, height);
+
+	ctx.fillStyle = "white";
+	ctx.fillText(label, x + padding, y + 22);
 }
 
 // Renders the complete frame: environment, walls, player, enemies, bullets, camera transform, and the game-over overlay.
@@ -134,6 +161,8 @@ export function draw() {
 	});
 
 	ctx.restore();
+
+	drawWeaponHud();
 
 	if (player.hp <= 0) {
 		ctx.fillStyle = "rgba(0, 0, 0, 0.7)";

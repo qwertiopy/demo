@@ -23,15 +23,16 @@ export function shoot(shooter, targetX, targetY, bulletArray, stats) {
 	bulletArray.push({
 		x: centerX,
 		y: centerY,
-		radius: stats.radiusBlocks || 0.08,
+		radius: stats.radiusBlocks ?? 0.08,
 		vx: Math.cos(angle) * speed,
 		vy: Math.sin(angle) * speed,
-		color: stats.color || "white",
-		damage: stats.damage || 1,
+		color: stats.color ?? "white",
+		damage: stats.damage ?? 1,
 		bounces: 0,
-		maxBounces: stats.maxBounces || 0,
+		maxBounces: stats.maxBounces ?? 0,
 		hitTargets: new Set(),
 		createdAt: performance.now(),
+		lifetimeMs: stats.lifetimeMs ?? 60000,
 
 		get width() {
 			return this.radius * 2;
@@ -338,7 +339,7 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 			}
 		}
 
-		if (removeBullet || currentTime - b.createdAt > 60000) {
+		if (removeBullet || currentTime - b.createdAt > b.lifetimeMs) {
 			bulletArray.splice(i, 1);
 		}
 	}

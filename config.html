@@ -1,115 +1,119 @@
 <!doctype html>
 <html lang="en">
-	<head>
-		<meta charset="UTF-8" />
-		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-		<title>Game Config Editor</title>
+        <title>Game Config Editor</title>
 
-		<link rel="stylesheet" href="css/config.css" />
-	</head>
+        <link rel="stylesheet" href="css/config.css" />
+    </head>
 
-	<body>
-		<main class="config-container">
-			<!-- HEADER -->
-			<header class="config-header">
-				<h1>Game Config Editor</h1>
+    <body>
+        <main class="config-container">
+            <header class="config-header">
+                <h1>Game Config Editor</h1>
 
-				<a href="index.html"> ← Back to Game </a>
-			</header>
+                <nav class="config-nav">
+                    <a href="hotkeys.html">Hotkey Editor</a>
+                    <a href="index.html">← Back to Game</a>
+                </nav>
+            </header>
 
-			<!-- PLAYER SETTINGS -->
-			<section class="config-section">
-				<h2>Player</h2>
+            <section class="config-section">
+                <h2>Player</h2>
 
-				<div class="config-row">
-					<label for="cfg_PLAYER_SPEED">
-						Player Speed (blocks/sec)
-					</label>
+                <div class="config-row">
+                    <label for="cfg_PLAYER_SPEED">
+                        Player Speed (blocks/sec)
+                    </label>
+                    <input type="number" id="cfg_PLAYER_SPEED" step="0.01" />
+                </div>
 
-					<input type="number" id="cfg_PLAYER_SPEED" step="0.01" />
-				</div>
+                <div class="config-row">
+                    <label for="cfg_PLAYER_BULLET_SPEED">
+                        Fallback Bullet Speed (blocks/sec)
+                    </label>
+                    <input
+                        type="number"
+                        id="cfg_PLAYER_BULLET_SPEED"
+                        step="0.01"
+                    />
+                    <p class="config-help compact-help">
+                        The 10 weapon entries below normally provide their own
+                        bullet speed. This value is only used as a fallback if a
+                        weapon has no speed value.
+                    </p>
+                </div>
 
-				<div class="config-row">
-					<label for="cfg_PLAYER_BULLET_SPEED">
-						Bullet Speed (blocks/sec)
-					</label>
+                <div class="config-row">
+                    <label for="cfg_PLAYER_SHOOT_COOLDOWN">
+                        Shoot Cooldown (ms)
+                    </label>
+                    <input
+                        type="number"
+                        id="cfg_PLAYER_SHOOT_COOLDOWN"
+                        step="10"
+                    />
+                </div>
+            </section>
 
-					<input
-						type="number"
-						id="cfg_PLAYER_BULLET_SPEED"
-						step="0.01"
-					/>
-				</div>
+            <section class="config-section">
+                <h2>World</h2>
 
-				<div class="config-row">
-					<label for="cfg_PLAYER_SHOOT_COOLDOWN">
-						Shoot Cooldown (ms)
-					</label>
+                <div class="config-row">
+                    <label for="cfg_STRUCTURE_DENSITY_BLOCKS">
+                        Structure Density
+                    </label>
+                    <input
+                        type="number"
+                        id="cfg_STRUCTURE_DENSITY_BLOCKS"
+                        step="1"
+                    />
+                </div>
+            </section>
 
-					<input
-						type="number"
-						id="cfg_PLAYER_SHOOT_COOLDOWN"
-						step="10"
-					/>
-				</div>
-			</section>
+            <section class="config-section">
+                <h2>Advanced Configuration</h2>
 
-			<!-- WORLD SETTINGS -->
-			<section class="config-section">
-				<h2>World</h2>
+                <p class="config-help">
+                    <strong>WEAPONS</strong> contains exactly 10 player weapons.
+                    Each entry is only bullet stats: speed, radiusBlocks, color,
+                    damage, maxBounces, spreadOffset, and lifetimeMs.
+                </p>
 
-				<div class="config-row">
-					<label for="cfg_STRUCTURE_DENSITY_BLOCKS">
-						Structure Density
-					</label>
+                <p class="config-help">
+                    Structure grid flags: <strong>0</strong> = empty,
+                    <strong>1</strong> = wall, <strong>2</strong> = random enemy,
+                    <strong>3</strong> = g-bot, <strong>4</strong> = j-bot,
+                    <strong>5</strong> = h-bot.
+                </p>
 
-					<input
-						type="number"
-						id="cfg_STRUCTURE_DENSITY_BLOCKS"
-						step="1"
-					/>
-				</div>
-			</section>
+                <textarea
+                    id="cfg_ADVANCED"
+                    rows="20"
+                    spellcheck="false"
+                    placeholder='{"WEAPONS": [...], "ENEMY_TYPES": {...}}'
+                ></textarea>
+            </section>
 
-			<!-- ADVANCED SETTINGS -->
-			<section class="config-section">
-				<h2>Advanced Configuration</h2>
+            <section class="config-actions">
+                <button id="applyConfigBtn" class="apply-btn">
+                    Save Locally
+                </button>
 
-				<p class="config-help">
-					Structure grid flags: <strong>0</strong> = empty,
-					<strong>1</strong> = wall, <strong>2</strong> = random
-					enemy, <strong>3</strong> = g-bot, <strong>4</strong> =
-					j-bot, <strong>5</strong> = h-bot.
-				</p>
+                <button id="exportConfigBtn" class="export-btn">
+                    Export config.json
+                </button>
 
-				<textarea
-					id="cfg_ADVANCED"
-					rows="20"
-					spellcheck="false"
-					placeholder='{"ENEMY_TYPES": {...}}'
-				></textarea>
-			</section>
+                <button id="resetConfigBtn" class="reset-btn">
+                    Reset to config.json
+                </button>
+            </section>
 
-			<!-- ACTIONS -->
-			<section class="config-actions">
-				<button id="applyConfigBtn" class="apply-btn">
-					Save Locally
-				</button>
+            <div id="statusMessage"></div>
+        </main>
 
-				<button id="exportConfigBtn" class="export-btn">
-					Export config.json
-				</button>
-
-				<button id="resetConfigBtn" class="reset-btn">
-					Reset to config.json
-				</button>
-			</section>
-
-			<!-- STATUS -->
-			<div id="statusMessage"></div>
-		</main>
-
-		<script type="module" src="js/config-editor.js"></script>
-	</body>
+        <script type="module" src="js/config-editor.js"></script>
+    </body>
 </html>
