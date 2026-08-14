@@ -202,7 +202,7 @@ function spawnEnemyPointFromCell(cellX, cellY, type) {
 function updateProceduralGeneration(playerX) { 
     const startX = Math.max(0, Math.floor(playerX) - Config.RENDER_DISTANCE_BACK); 
     const endX = Math.floor(playerX) + Config.RENDER_DISTANCE_FRONT; 
-    const ceilingY = 2; 
+    const ceilingY = 0; 
     const corridorWidthBlocks = 10; 
     const floorY = ceilingY + corridorWidthBlocks; 
 
