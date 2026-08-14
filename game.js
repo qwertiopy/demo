@@ -111,7 +111,7 @@ const ENEMY_TYPES = {
 // ==========================================
 // CHUNK GENERATION TRACKING & CONFIG
 // ==========================================
-const RENDER_DISTANCE_FRONT = 25; // Blocks to generate ahead of the player
+const RENDER_DISTANCE_FRONT = 35; // Blocks to generate ahead of the player
 const RENDER_DISTANCE_BACK = 12;   // Blocks to keep loaded behind the player
 
 const generatedColumns = new Set();
@@ -150,7 +150,7 @@ function spawnWall(x, y, widthBlocks, heightBlocks, color = "slategray") {
 function spawnEnemyPoint(x, y, type = "g-bot") {
     const stats = ENEMY_TYPES[type] || ENEMY_TYPES["g-bot"];
     enemySpawns.push({
-        x: x,
+        x: x, // Keep as block coordinate for safe tracking/cleanup
         y: y,
         type: type,
         size: stats.sizeBlocks
@@ -181,8 +181,7 @@ function updateProceduralGeneration(playerX) {
         spawnWall(blockX, floorY, 1, 1, "slategray");
 
         if (blockX >= 1) {
-            // BUGFIX 1: Use a bitwise hash with a prime multiplier to completely scramble the seed per column. 
-            // This prevents adjacent chunks from sharing similar PRNG sequences.
+            // Seed scramble to prevent identical chunk generation
             currentSeed = ((levelSeed ^ (blockX * 2654435761)) >>> 0) % 233280;
 
             let roll = seededRandom();
@@ -190,15 +189,15 @@ function updateProceduralGeneration(playerX) {
                 let template = STRUCTURE_LIBRARY[Math.floor(seededRandom() * STRUCTURE_LIBRARY.length)];
                 let structX = blockX;
                 
-                // BUGFIX 2: Calculate a random Y position between the ceiling and the floor
-                // + 1 keeps it below the ceiling wall, - height keeps it above the floor wall
-                let minY = ceilingY + 1;
+                // Allow structures to float anywhere between ceiling and floor
+                let minY = ceilingY + 1; 
                 let maxY = floorY - template.heightBlocks;
-                
-                // seededRandom() gives 0-1, so we multiply by our range and add our minimum height
                 let structY = Math.floor(seededRandom() * (maxY - minY + 1)) + minY;
 
                 let canSpawn = true;
+                
+                // Note: We're keeping this density check to prevent total absolute chaos, 
+                // but you can lower STRUCTURE_DENSITY_BLOCKS if you want more overlapping walls.
                 for (let s of placedStructures) {
                     let dist = Math.hypot(structX - s.origin.x, structY - s.origin.y);
                     if (dist < STRUCTURE_DENSITY_BLOCKS) {
@@ -214,6 +213,7 @@ function updateProceduralGeneration(playerX) {
                         type: template.type
                     });
 
+                    // Build the structure walls
                     for (let r = 0; r < template.grid.length; r++) {
                         for (let c = 0; c < template.grid[r].length; c++) {
                             if (template.grid[r][c] === 1) {
@@ -222,26 +222,65 @@ function updateProceduralGeneration(playerX) {
                         }
                     }
 
-                    // Spawn the enemy on top of the newly placed structure
+                    // ==========================================
+                    // ENEMY SPAWN LOGIC (Right side, push right on clip)
+                    // ==========================================
                     let enemyTypeRoll = seededRandom();
                     let botType = enemyTypeRoll > 0.7 ? "h-bot" : (enemyTypeRoll > 0.3 ? "j-bot" : "g-bot");
-                    spawnEnemyPoint(structX, structY - ENEMY_TYPES[botType].sizeBlocks, botType);
+                    
+                    // 1. Position: Right of structure, middle vertically
+                    let enemySpawnX = structX + template.widthBlocks;
+                    let enemySpawnY = structY + Math.floor(template.heightBlocks / 2);
+
+                    // 2. Collision Check: Push right if clipping inside any placed structure
+                    // let isClipping = false;
+                    // while (isClipping) {
+                    //     isClipping = false;
+                    //     for (let s of placedStructures) {
+                    //         // Simple bounding box check
+                    //         if (enemySpawnX >= s.origin.x && 
+                    //             enemySpawnX < s.origin.x + s.size.width && 
+                    //             enemySpawnY >= s.origin.y && 
+                    //             enemySpawnY < s.origin.y + s.size.height) {
+                                
+                    //             isClipping = true;
+                    //             enemySpawnX++; // Push to the right
+                    //             break; // Break the inner loop to restart the check with the new X
+                    //         }
+                    //     }
+                    // }
+
+                    spawnEnemyPoint(enemySpawnX, enemySpawnY, botType);
                 }
             }
         }
     }
 }
 
+// ==========================================
+// CLEANUP PROCEDURAL GENERATION
+// ==========================================
 function cleanupProceduralGeneration(playerX) {
-    const startX = Math.floor(playerX) - RENDER_DISTANCE_BACK;
+    const startX = Math.max(0, Math.floor(playerX) - RENDER_DISTANCE_BACK);
     const endX = Math.floor(playerX) + RENDER_DISTANCE_FRONT;
-
-    // Unload structures and walls outside the render distance to save memory
-    walls = walls.filter(w => w.x >= startX && w.x <= endX);
-    enemySpawns = enemySpawns.filter(s => s.x >= startX && s.x <= endX);
-    placedStructures = placedStructures.filter(s => s.origin.x >= startX && s.origin.x <= endX);
     
-    // Remove unloaded columns from the Set so they can be regenerated if the player walks backwards
+    // BUGFIX: Add a safety buffer so overhanging structures and right-pushed 
+    // enemies at the edge of the render distance aren't instantly deleted!
+    const SAFE_BUFFER = 0; // Blocks
+    const safeStartX = startX - SAFE_BUFFER;
+    const safeEndX = endX + SAFE_BUFFER;
+    
+    // 1. Unload block-coordinate data (using the SAFE bounds)
+    walls = walls.filter(w => w.x >= safeStartX && w.x <= safeEndX);
+    placedStructures = placedStructures.filter(s => s.origin.x >= safeStartX && s.origin.x <= safeEndX);
+    enemySpawns = enemySpawns.filter(s => s.x >= startX);
+    
+    // 2. Unload pixel-coordinate data (Active Entities, using the SAFE bounds)
+    // enemies = enemies.filter(e => e.x >= startX && e.x <= endX);
+    
+    // 3. Free up memory for regenerated chunks
+    // Note: We still use the STRICT startX/endX to clear generatedColumns 
+    // so the chunks actually trigger a rebuild when you move backwards.
     const unloadedColumns = [];
     generatedColumns.forEach(col => {
         if (col < startX || col > endX) unloadedColumns.push(col);
@@ -400,22 +439,29 @@ function updateEnemies(currentTime) {
             });
 
             if (validSpawns.length > 0) {
-                const spawnPoint = validSpawns[Math.floor(seededRandom() * validSpawns.length)];
-                const typeName = spawnPoint.type || "g-bot";
-                const stats = ENEMY_TYPES[typeName] || ENEMY_TYPES["g-bot"];
+            const spawnPoint = validSpawns[Math.floor(seededRandom() * validSpawns.length)];
+            const typeName = spawnPoint.type || "g-bot";
+            const stats = ENEMY_TYPES[typeName] || ENEMY_TYPES["g-bot"];
 
-                enemies.push({
-                    x: spawnPoint.x, y: spawnPoint.y,
-                    size: stats.sizeBlocks, speed: stats.speed, hp: stats.hp, maxHp: stats.hp,
-                    color: stats.color, lastShot: 0, shootCooldown: stats.shootCooldown,
-                    typeStats: stats,
-                    ai: stats.ai,
-                    lastSeenX: null,
-                    lastSeenY: null,
-                    vx: 0,
-                    vy: 0
-                });
-            }
+            enemies.push({
+                // FIX: Multiply block coordinates by BLOCK_SIZE_PX to match player/world pixels!
+                x: spawnPoint.x, 
+                y: spawnPoint.y,
+                size: stats.sizeBlocks, 
+                speed: stats.speed, 
+                hp: stats.hp, 
+                maxHp: stats.hp,
+                color: stats.color, 
+                lastShot: 0, 
+                shootCooldown: stats.shootCooldown,
+                typeStats: stats,
+                ai: stats.ai,
+                lastSeenX: null,
+                lastSeenY: null,
+                vx: 0,
+                vy: 0
+            });
+        }
             lastSpawnTime = currentTime;
         }
     }
