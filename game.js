@@ -257,9 +257,6 @@ function cleanupProceduralGeneration(playerX) {
     placedStructures = placedStructures.filter(s => s.origin.x >= safeStartX && s.origin.x <= safeEndX);
     enemySpawns = enemySpawns.filter(s => s.x >= startX);
     
-    // 2. Unload pixel-coordinate data (Active Entities, using the SAFE bounds)
-    // enemies = enemies.filter(e => e.x >= startX && e.x <= endX);
-    
     // 3. Free up memory for regenerated chunks
     // Note: We still use the STRICT startX/endX to clear generatedColumns 
     // so the chunks actually trigger a rebuild when you move backwards.
