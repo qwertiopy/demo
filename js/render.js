@@ -8,11 +8,11 @@ import { isRectOffScreen } from "./utils.js";
 
 // needed to fix rendering issues at extremely high coordinate values
 function worldToScreenX(x) {
-	return (x - camera.x) * Config.BLOCK_SIZE_PX;
+	return Math.round((x - camera.x) * Config.BLOCK_SIZE_PX);
 }
 
 function worldToScreenY(y) {
-	return (y - camera.y) * Config.BLOCK_SIZE_PX;
+	return Math.round((y - camera.y) * Config.BLOCK_SIZE_PX);
 }
 
 // Draws the checker/grid-like world background and optional enemy-spawn
