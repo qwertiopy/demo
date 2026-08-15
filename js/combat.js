@@ -2,7 +2,7 @@
 
 import { Config } from "./config.js";
 import { GameState, player } from "./state.js";
-import { isColliding } from "./utils.js";
+import { isColliding, handleWallCollisions } from "./utils.js";
 import { seededRandom } from "./utils.js";
 
 // Creates a projectile aimed from a shooter's center toward a world-space target and stores velocity, damage, bounce, and lifetime data.
@@ -226,6 +226,7 @@ export function updateEnemies(currentTime, dt) {
 			}
 		}
 
+		handleWallCollisions(e, e.moveX, e.moveY);
 		return true;
 	});
 }
