@@ -40,13 +40,65 @@ function validateStructureLibrary(structures) {
 	});
 }
 
+function validateWeapons(weapons) {
+	if (!Array.isArray(weapons) || weapons.length !== 10) {
+		throw new Error("WEAPONS must be an array containing exactly 10 weapons.");
+	}
+
+	const numericFields = [
+		"speed",
+		"radiusBlocks",
+		"damage",
+		"maxBounces",
+		"spreadOffset",
+		"lifetimeMs",
+	];
+
+	weapons.forEach((weapon, index) => {
+		if (!isPlainObject(weapon)) {
+			throw new Error(`Weapon ${index + 1} must be a JSON object.`);
+		}
+
+		numericFields.forEach((field) => {
+			if (!Number.isFinite(weapon[field])) {
+				throw new Error(
+					`Weapon ${index + 1}.${field} must be a finite number.`,
+				);
+			}
+		});
+
+		if (weapon.speed < 0) {
+			throw new Error(`Weapon ${index + 1}.speed cannot be negative.`);
+		}
+
+		if (weapon.radiusBlocks <= 0) {
+			throw new Error(
+				`Weapon ${index + 1}.radiusBlocks must be greater than 0.`,
+			);
+		}
+
+		if (weapon.maxBounces < 0 || !Number.isInteger(weapon.maxBounces)) {
+			throw new Error(
+				`Weapon ${index + 1}.maxBounces must be a non-negative integer.`,
+			);
+		}
+
+		if (weapon.lifetimeMs < 0) {
+			throw new Error(
+				`Weapon ${index + 1}.lifetimeMs cannot be negative.`,
+			);
+		}
+
+		if (typeof weapon.color !== "string" || weapon.color.length === 0) {
+			throw new Error(`Weapon ${index + 1}.color must be a CSS color string.`);
+		}
+	});
+}
+
 function readLocalConfig() {
 	try {
 		const savedJson = localStorage.getItem(CONFIG_STORAGE_KEY);
-
-		if (!savedJson) {
-			return null;
-		}
+		if (!savedJson) return null;
 
 		const savedConfig = JSON.parse(savedJson);
 
@@ -57,13 +109,29 @@ function readLocalConfig() {
 		return savedConfig;
 	} catch (error) {
 		console.warn("Could not read locally saved config:", error);
-
 		return null;
 	}
 }
 
 function saveLocalConfig() {
 	localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(config));
+}
+
+function migrateSavedConfig(savedConfig) {
+	const savedVersion = Number(savedConfig.CONFIG_SCHEMA_VERSION) || 0;
+	const migrated = mergeConfig(defaultConfig, savedConfig);
+
+	migrated.CONFIG_SCHEMA_VERSION = defaultConfig.CONFIG_SCHEMA_VERSION;
+
+	if (savedVersion < 3) {
+		migrated.STRUCTURE_LIBRARY = cloneConfig(defaultConfig.STRUCTURE_LIBRARY);
+	}
+
+	if (savedVersion < 4 || !Array.isArray(savedConfig.WEAPONS)) {
+		migrated.WEAPONS = cloneConfig(defaultConfig.WEAPONS);
+	}
+
+	return migrated;
 }
 
 async function init() {
@@ -75,7 +143,6 @@ async function init() {
 		}
 
 		defaultConfig = await response.json();
-
 		const savedConfig = readLocalConfig();
 
 		if (savedConfig) {
@@ -83,28 +150,17 @@ async function init() {
 				savedConfig.CONFIG_SCHEMA_VERSION !==
 				defaultConfig.CONFIG_SCHEMA_VERSION
 			) {
-				config = mergeConfig(defaultConfig, savedConfig);
-
-				config.CONFIG_SCHEMA_VERSION =
-					defaultConfig.CONFIG_SCHEMA_VERSION;
-
-				config.STRUCTURE_LIBRARY = cloneConfig(
-					defaultConfig.STRUCTURE_LIBRARY,
-				);
-
+				config = migrateSavedConfig(savedConfig);
 				saveLocalConfig();
-
 				showStatus(
-					"Local config upgraded to type-specific enemy spawn flags.",
+					"Local config upgraded. Added the 10-weapon configuration while preserving existing settings.",
 				);
 			} else {
 				config = mergeConfig(defaultConfig, savedConfig);
-
 				showStatus("Locally saved configuration loaded.");
 			}
 		} else {
 			config = cloneConfig(defaultConfig);
-
 			showStatus("config.json defaults loaded. No local save yet.");
 		}
 
@@ -115,9 +171,7 @@ async function init() {
 }
 
 function syncConfigToUI() {
-	if (!config) {
-		return;
-	}
+	if (!config) return;
 
 	document.getElementById("cfg_PLAYER_SPEED").value =
 		config.PLAYER_SPEED ?? "";
@@ -131,9 +185,8 @@ function syncConfigToUI() {
 	document.getElementById("cfg_STRUCTURE_DENSITY_BLOCKS").value =
 		config.STRUCTURE_DENSITY_BLOCKS ?? "";
 
-	// The textarea remains fully editable JSON,
-	// containing the advanced configuration sections.
 	const advancedData = {
+		WEAPONS: config.WEAPONS,
 		ENEMY_TYPES: config.ENEMY_TYPES,
 		STRUCTURE_LIBRARY: config.STRUCTURE_LIBRARY,
 	};
@@ -153,15 +206,12 @@ function readConfigFromUI() {
 	const playerSpeed = parseFloat(
 		document.getElementById("cfg_PLAYER_SPEED").value,
 	);
-
 	const bulletSpeed = parseFloat(
 		document.getElementById("cfg_PLAYER_BULLET_SPEED").value,
 	);
-
 	const shootCooldown = parseFloat(
 		document.getElementById("cfg_PLAYER_SHOOT_COOLDOWN").value,
 	);
-
 	const structureDensity = parseFloat(
 		document.getElementById("cfg_STRUCTURE_DENSITY_BLOCKS").value,
 	);
@@ -171,7 +221,7 @@ function readConfigFromUI() {
 	}
 
 	if (!Number.isFinite(bulletSpeed)) {
-		throw new Error("Bullet Speed must be a number in blocks/sec.");
+		throw new Error("Fallback Bullet Speed must be a number in blocks/sec.");
 	}
 
 	if (!Number.isFinite(shootCooldown) || shootCooldown < 0) {
@@ -191,12 +241,14 @@ function readConfigFromUI() {
 	}
 
 	config.PLAYER_SPEED = playerSpeed;
-
 	config.PLAYER_BULLET_SPEED = bulletSpeed;
-
 	config.PLAYER_SHOOT_COOLDOWN = shootCooldown;
-
 	config.STRUCTURE_DENSITY_BLOCKS = structureDensity;
+
+	if (advancedData.WEAPONS !== undefined) {
+		validateWeapons(advancedData.WEAPONS);
+		config.WEAPONS = advancedData.WEAPONS;
+	}
 
 	if (advancedData.ENEMY_TYPES !== undefined) {
 		config.ENEMY_TYPES = advancedData.ENEMY_TYPES;
@@ -204,7 +256,6 @@ function readConfigFromUI() {
 
 	if (advancedData.STRUCTURE_LIBRARY !== undefined) {
 		validateStructureLibrary(advancedData.STRUCTURE_LIBRARY);
-
 		config.STRUCTURE_LIBRARY = advancedData.STRUCTURE_LIBRARY;
 	}
 }
@@ -213,7 +264,6 @@ function applyConfig() {
 	try {
 		readConfigFromUI();
 		saveLocalConfig();
-
 		showStatus(
 			"Saved locally. Return to the game (or reload it) to use these settings.",
 		);
@@ -230,25 +280,20 @@ function exportConfig() {
 			"Cannot export invalid configuration: " + error.message,
 			true,
 		);
-
 		return;
 	}
 
 	const blob = new Blob([JSON.stringify(config, null, 4)], {
 		type: "application/json",
 	});
-
 	const url = URL.createObjectURL(blob);
-
 	const link = document.createElement("a");
 
 	link.href = url;
 	link.download = "config.json";
-
 	document.body.appendChild(link);
 	link.click();
 	link.remove();
-
 	URL.revokeObjectURL(url);
 
 	showStatus("config.json exported successfully.");
@@ -257,22 +302,17 @@ function exportConfig() {
 function resetConfig() {
 	if (!defaultConfig) {
 		showStatus("Default config has not loaded yet.", true);
-
 		return;
 	}
 
 	localStorage.removeItem(CONFIG_STORAGE_KEY);
-
 	config = cloneConfig(defaultConfig);
-
 	syncConfigToUI();
-
 	showStatus("Local save cleared. Restored config.json defaults.");
 }
 
 function showStatus(message, error = false) {
 	const status = document.getElementById("statusMessage");
-
 	status.textContent = message;
 	status.classList.toggle("error", error);
 }

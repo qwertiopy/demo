@@ -39,3 +39,13 @@ export function handleWallCollisions(entity, dx, dy) {
 		}
 	});
 }
+
+// returns true if every part of a given rectangle is offscreen (used for rendering)
+export function isRectOffScreen(x, y, width, height, camera) {
+	return (
+		x + width <= camera.x ||
+		x >= camera.x + camera.widthBlocks ||
+		y + height <= camera.y ||
+		y >= camera.y + camera.heightBlocks
+	);
+}

@@ -1,8 +1,100 @@
 {
-    "CONFIG_SCHEMA_VERSION": 3,
+    "CONFIG_SCHEMA_VERSION": 4,
     "PLAYER_SPEED": 5,
     "PLAYER_BULLET_SPEED": 10,
     "PLAYER_SHOOT_COOLDOWN": 0,
+    "WEAPONS": [
+        {
+            "speed": 10,
+            "radiusBlocks": 0.08,
+            "color": "crimson",
+            "damage": 1,
+            "maxBounces": 1,
+            "spreadOffset": 0,
+            "lifetimeMs": 60000
+        },
+        {
+            "speed": 10,
+            "radiusBlocks": 0.08,
+            "color": "crimson",
+            "damage": 1,
+            "maxBounces": 1,
+            "spreadOffset": 0,
+            "lifetimeMs": 60000
+        },
+        {
+            "speed": 10,
+            "radiusBlocks": 0.08,
+            "color": "crimson",
+            "damage": 1,
+            "maxBounces": 1,
+            "spreadOffset": 0,
+            "lifetimeMs": 60000
+        },
+        {
+            "speed": 10,
+            "radiusBlocks": 0.08,
+            "color": "crimson",
+            "damage": 1,
+            "maxBounces": 1,
+            "spreadOffset": 0,
+            "lifetimeMs": 60000
+        },
+        {
+            "speed": 10,
+            "radiusBlocks": 0.08,
+            "color": "crimson",
+            "damage": 1,
+            "maxBounces": 1,
+            "spreadOffset": 0,
+            "lifetimeMs": 60000
+        },
+        {
+            "speed": 10,
+            "radiusBlocks": 0.08,
+            "color": "crimson",
+            "damage": 1,
+            "maxBounces": 1,
+            "spreadOffset": 0,
+            "lifetimeMs": 60000
+        },
+        {
+            "speed": 10,
+            "radiusBlocks": 0.08,
+            "color": "crimson",
+            "damage": 1,
+            "maxBounces": 1,
+            "spreadOffset": 0,
+            "lifetimeMs": 60000
+        },
+        {
+            "speed": 10,
+            "radiusBlocks": 0.08,
+            "color": "crimson",
+            "damage": 1,
+            "maxBounces": 1,
+            "spreadOffset": 0,
+            "lifetimeMs": 60000
+        },
+        {
+            "speed": 10,
+            "radiusBlocks": 0.08,
+            "color": "crimson",
+            "damage": 1,
+            "maxBounces": 1,
+            "spreadOffset": 0,
+            "lifetimeMs": 60000
+        },
+        {
+            "speed": 10,
+            "radiusBlocks": 0.08,
+            "color": "crimson",
+            "damage": 1,
+            "maxBounces": 1,
+            "spreadOffset": 0,
+            "lifetimeMs": 60000
+        }
+    ],
     "STRUCTURE_DENSITY_BLOCKS": 5,
     "ENEMY_TYPES": {
         "g-bot": {

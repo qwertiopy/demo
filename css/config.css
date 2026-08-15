@@ -230,3 +230,120 @@ body {
 #statusMessage.error {
     color: #ff6666;
 }
+/* ==========================================
+   10. HELP / NAVIGATION
+   ========================================== */
+
+.config-nav {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.config-help {
+    color: #bbb;
+    line-height: 1.5;
+}
+
+.compact-help {
+    margin: 7px 0 0;
+    font-size: 12px;
+}
+
+.config-help code {
+    color: #8ff;
+}
+
+/* ==========================================
+   11. HOTKEY EDITOR
+   ========================================== */
+
+.hotkey-container {
+    width: min(1050px, 95vw);
+}
+
+.hotkey-group {
+    margin-top: 22px;
+}
+
+.hotkey-group:first-of-type {
+    margin-top: 12px;
+}
+
+.hotkey-group h3 {
+    margin: 0 0 10px;
+    color: #ddd;
+    font-size: 15px;
+}
+
+.hotkey-row {
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) minmax(180px, 240px) minmax(180px, 240px);
+    gap: 10px;
+    align-items: center;
+    padding: 9px 0;
+    border-top: 1px solid #333;
+}
+
+.hotkey-action-label {
+    color: #eee;
+}
+
+.hotkey-slot {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 6px;
+}
+
+.hotkey-bind-btn,
+.hotkey-clear-btn {
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: white;
+    cursor: pointer;
+    min-height: 36px;
+}
+
+.hotkey-bind-btn {
+    background: #111;
+    padding: 7px 10px;
+    font-family: monospace;
+}
+
+.hotkey-bind-btn:hover,
+.hotkey-bind-btn.listening {
+    border-color: cyan;
+    background: #173035;
+}
+
+.hotkey-clear-btn {
+    background: #3a2020;
+    padding: 7px 9px;
+}
+
+.hotkey-clear-btn:hover:not(:disabled) {
+    background: #5a2929;
+}
+
+.hotkey-clear-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+@media (max-width: 760px) {
+    .config-header {
+        align-items: flex-start;
+        gap: 16px;
+        flex-direction: column;
+    }
+
+    .config-nav {
+        justify-content: flex-start;
+    }
+
+    .hotkey-row {
+        grid-template-columns: 1fr;
+    }
+}
