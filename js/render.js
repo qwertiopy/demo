@@ -4,6 +4,7 @@ import { Config } from "./config.js";
 import { GameState, player, camera } from "./state.js";
 import { canvas, ctx } from "./dom.js";
 import { getActiveWeaponIndex } from "./weapons.js";
+import { isRectOffScreen } from "./utils.js";
 
 // needed to fix rendering issues at extremely high coordinate values
 function worldToScreenX(x) {
@@ -128,6 +129,11 @@ export function draw() {
 	drawProceduralEnvironment();
 
 	GameState.walls.forEach((w) => {
+		//don't draw if block is off screen
+		if (isRectOffScreen(w.x, w.y, w, w.width, w.height, camera)) {
+			return;
+		}
+
 		const px = worldToScreenX(w.x);
 		const py = worldToScreenY(w.y);
 
@@ -162,8 +168,11 @@ export function draw() {
 	}
 
 	GameState.enemies.forEach((e) => {
-		const ePxX = worldToScreenX(e.x);
+		if (isRectOffScreen(e.x, e.y, e.size, e.size, camera)) {
+			return;
+		}
 
+		const ePxX = worldToScreenX(e.x);
 		const ePxY = worldToScreenY(e.y);
 
 		const ePxSize = e.size * Config.BLOCK_SIZE_PX;
@@ -176,6 +185,9 @@ export function draw() {
 	});
 
 	[...GameState.bullets, ...GameState.enemyBullets].forEach((b) => {
+		if (isRectOffScreen(b.x, b.y, b.radius * 2, b.radius * 2, camera)) {
+			return;
+		}
 		ctx.beginPath();
 
 		ctx.arc(
