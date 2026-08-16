@@ -6,23 +6,122 @@ import { isColliding } from "./utils.js";
 import { seededRandom } from "./utils.js";
 import { handleWallCollisions } from "./utils.js";
 
+// Throwable projectiles use constant physical deceleration in blocks/sec².
+// Throw distance is chosen from the shooter-to-aim distance; initial speed and
+// flight duration are derived so the projectile reaches that path distance at
+// exactly zero speed:
+//
+//   D  = configured throw distance
+//   a  = throwDeceleration
+//   v0 = sqrt(2aD)
+//   T  = v0 / a = sqrt(2D/a)
+//   s(t) = v0*t - 0.5*a*t²
+//
+// Position is evaluated from this closed-form equation. Velocity is never
+// integrated frame by frame.
+export const MIN_THROW_DECELERATION = 0.001;
+
+export function getThrowableKinematics(distanceBlocks, decelerationBlocksPerSecondSq) {
+	const distance = Math.max(0, Number(distanceBlocks) || 0);
+	const deceleration = Math.max(
+		MIN_THROW_DECELERATION,
+		Number(decelerationBlocksPerSecondSq ?? 20) || 0,
+	);
+
+	if (distance === 0) {
+		return {
+			distanceBlocks: 0,
+			deceleration,
+			initialSpeed: 0,
+			durationSeconds: 0,
+			durationMs: 0,
+		};
+	}
+
+	const initialSpeed = Math.sqrt(2 * deceleration * distance);
+	const durationSeconds = initialSpeed / deceleration;
+
+	return {
+		distanceBlocks: distance,
+		deceleration,
+		initialSpeed,
+		durationSeconds,
+		durationMs: durationSeconds * 1000,
+	};
+}
+
+export function getThrowableTravelDistance(
+	distanceBlocks,
+	elapsedMs,
+	decelerationBlocksPerSecondSq,
+) {
+	const kinematics = getThrowableKinematics(
+		distanceBlocks,
+		decelerationBlocksPerSecondSq,
+	);
+
+	if (kinematics.distanceBlocks === 0) return 0;
+
+	const rawElapsedSeconds = Math.max(
+		(Number(elapsedMs) || 0) / 1000,
+		0,
+	);
+
+	// Once the analytically derived flight time has elapsed, the projectile is
+	// at the terminal point by definition. Return the exact configured distance
+	// rather than relying on floating-point evaluation of s(t) to equal D.
+	if (rawElapsedSeconds >= kinematics.durationSeconds) {
+		return kinematics.distanceBlocks;
+	}
+
+	const travelled =
+		kinematics.initialSpeed * rawElapsedSeconds -
+		0.5 * kinematics.deceleration * rawElapsedSeconds * rawElapsedSeconds;
+
+	return Math.min(
+		kinematics.distanceBlocks,
+		Math.max(0, travelled),
+	);
+}
+
 // Creates a projectile aimed from a shooter's center toward a world-space target and stores velocity, damage, bounce, and lifetime data.
 export function shoot(shooter, targetX, targetY, bulletArray, stats) {
 	if (GameState.isPlayerDead) return;
 
 	const centerX = shooter.x + shooter.size / 2;
 	const centerY = shooter.y + shooter.size / 2;
+	const targetDx = targetX - centerX;
+	const targetDy = targetY - centerY;
 	const spread = stats.spreadOffset || 0;
-	const angle = Math.atan2(targetY - centerY, targetX - centerX) + spread;
-	const speed = stats.speed ?? 12;
+	const angle = Math.atan2(targetDy, targetDx) + spread;
+	const throwable = stats.throwable === true;
+	const speed = throwable ? 0 : (stats.speed ?? 12);
+	const throwDistanceMultiplier = Math.max(
+		0,
+		Number(stats.throwDistanceMultiplier ?? 1) || 0,
+	);
+	const throwDistanceBlocks = throwable
+		? Math.hypot(targetDx, targetDy) * throwDistanceMultiplier
+		: 0;
+	const throwDeceleration = throwable
+		? Math.max(
+			MIN_THROW_DECELERATION,
+			Number(stats.throwDeceleration ?? 20) || 0,
+		)
+		: 0;
+	const throwKinematics = throwable
+		? getThrowableKinematics(throwDistanceBlocks, throwDeceleration)
+		: null;
+	const createdAt = performance.now();
 
 	// clamps max number of bullets to 100 (?????)
 	if (bulletArray === GameState.bullets && GameState.bullets.length >= 100) {
 		GameState.bullets.shift();
 	}
 
-	// create new bullet with data and push it to the bullet array
-	// worth refactoring to instantiate then push a default bullet object instead of creating one inline here
+	// Throwable vx/vy are intentionally zero: their movement is driven by the
+	// closed-form throw-distance equation in processBullets(). throwDirX/Y are
+	// unit direction components and can still be reflected by wall bounces.
 	bulletArray.push({
 		x: centerX,
 		y: centerY,
@@ -34,13 +133,23 @@ export function shoot(shooter, targetX, targetY, bulletArray, stats) {
 		bounces: 0,
 		maxBounces: stats.maxBounces ?? 0,
 		hitTargets: new Set(),
-		createdAt: performance.now(),
+		createdAt,
 		lifetimeMs: stats.lifetimeMs ?? 60000,
 		explosionRadiusBlocks: stats.explosionRadiusBlocks ?? 0,
 		detonationTimeMs: stats.detonationTimeMs ?? 0,
 		explosionDurationMs: stats.explosionDurationMs ?? 0,
 		explosionDamage: stats.explosionDamage ?? 0,
 		detonatesOnImpact: stats.detonatesOnImpact ?? false,
+		throwable,
+		throwDirX: Math.cos(angle),
+		throwDirY: Math.sin(angle),
+		throwDistanceBlocks,
+		throwDistanceMultiplier,
+		throwTravelledBlocks: 0,
+		throwDeceleration,
+		throwInitialSpeed: throwKinematics?.initialSpeed ?? 0,
+		throwFlightDurationMs: throwKinematics?.durationMs ?? 0,
+		throwComplete: !throwable || throwDistanceBlocks === 0,
 
 		get width() {
 			return this.radius * 2;
@@ -379,12 +488,42 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 			continue;
 		}
 
-		const frameDistance = Math.hypot(b.vx, b.vy) * dt;
+		let frameDistance;
+		let desiredThrowTravel = null;
+		let throwReachedTerminalTime = false;
+
+		if (b.throwable) {
+			// Closed-form total distance from launch using constant deceleration. We do
+			// not integrate acceleration or velocity each frame; the frame only moves
+			// the exact remaining delta. The analytically derived terminal time is the
+			// authoritative completion condition, avoiding fragile float equality checks.
+			const throwElapsedMs = Math.max(0, currentTime - b.createdAt);
+			throwReachedTerminalTime =
+				b.throwDistanceBlocks <= 0 ||
+				throwElapsedMs >= b.throwFlightDurationMs;
+
+			desiredThrowTravel = throwReachedTerminalTime
+				? b.throwDistanceBlocks
+				: getThrowableTravelDistance(
+					b.throwDistanceBlocks,
+					throwElapsedMs,
+					b.throwDeceleration,
+				);
+
+			frameDistance = Math.max(
+				0,
+				desiredThrowTravel - b.throwTravelledBlocks,
+			);
+		} else {
+			frameDistance = Math.hypot(b.vx, b.vy) * dt;
+		}
+
 		const steps = Math.max(
 			1,
 			Math.ceil(frameDistance / BULLET_MAX_STEP_BLOCKS),
 		);
 		const stepDt = dt / steps;
+		const throwableStepDistance = b.throwable ? frameDistance / steps : 0;
 
 		let removeBullet = false;
 		let detonateOnRemoval = false;
@@ -396,14 +535,22 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 				size: b.radius * 2,
 			};
 
-			const moveX = b.vx * stepDt;
+			const moveX = b.throwable
+				? b.throwDirX * throwableStepDistance
+				: b.vx * stepDt;
 			b.x += moveX;
 			mockRect.x = b.x - b.radius;
 			mockRect.y = b.y - b.radius;
 
 			if (GameState.walls.some((w) => isColliding(mockRect, w))) {
 				b.x -= moveX;
-				b.vx *= -1;
+
+				if (b.throwable) {
+					b.throwDirX *= -1;
+				} else {
+					b.vx *= -1;
+				}
+
 				b.bounces++;
 				mockRect.x = b.x - b.radius;
 
@@ -414,14 +561,22 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 				}
 			}
 
-			const moveY = b.vy * stepDt;
+			const moveY = b.throwable
+				? b.throwDirY * throwableStepDistance
+				: b.vy * stepDt;
 			b.y += moveY;
 			mockRect.x = b.x - b.radius;
 			mockRect.y = b.y - b.radius;
 
 			if (GameState.walls.some((w) => isColliding(mockRect, w))) {
 				b.y -= moveY;
-				b.vy *= -1;
+
+				if (b.throwable) {
+					b.throwDirY *= -1;
+				} else {
+					b.vy *= -1;
+				}
+
 				b.bounces++;
 				mockRect.y = b.y - b.radius;
 
@@ -454,6 +609,23 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 
 			bulletArray.splice(i, 1);
 			continue;
+		}
+
+		if (b.throwable && desiredThrowTravel !== null) {
+			// At terminal time, snap the path-distance state to D exactly. This avoids
+			// a projectile getting permanently stuck at D - tiny floating-point error.
+			b.throwTravelledBlocks = throwReachedTerminalTime
+				? b.throwDistanceBlocks
+				: desiredThrowTravel;
+			b.throwComplete = throwReachedTerminalTime;
+
+			// For throwables, terminal time corresponds exactly to v = 0, so it is
+			// treated as an impact when detonatesOnImpact is enabled.
+			if (b.throwComplete && b.detonatesOnImpact) {
+				detonateBullet(b, isPlayerBullets, currentTime);
+				bulletArray.splice(i, 1);
+				continue;
+			}
 		}
 
 		if (currentTime - b.createdAt > b.lifetimeMs) {

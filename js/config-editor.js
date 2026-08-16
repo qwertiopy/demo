@@ -56,6 +56,8 @@ function validateWeapons(weapons) {
 		"detonationTimeMs",
 		"explosionDurationMs",
 		"explosionDamage",
+		"throwDistanceMultiplier",
+		"throwDeceleration",
 	];
 
 	weapons.forEach((weapon, index) => {
@@ -98,6 +100,8 @@ function validateWeapons(weapons) {
 			"detonationTimeMs",
 			"explosionDurationMs",
 			"explosionDamage",
+			"throwDistanceMultiplier",
+			"throwDeceleration",
 		]) {
 			if (weapon[field] < 0) {
 				throw new Error(
@@ -106,9 +110,21 @@ function validateWeapons(weapons) {
 			}
 		}
 
+		if (weapon.throwDeceleration <= 0) {
+			throw new Error(
+				`Weapon ${index + 1}.throwDeceleration must be greater than 0.`,
+			);
+		}
+
 		if (typeof weapon.detonatesOnImpact !== "boolean") {
 			throw new Error(
 				`Weapon ${index + 1}.detonatesOnImpact must be true or false.`,
+			);
+		}
+
+		if (typeof weapon.throwable !== "boolean") {
+			throw new Error(
+				`Weapon ${index + 1}.throwable must be true or false.`,
 			);
 		}
 
@@ -160,6 +176,45 @@ function migrateSavedConfig(savedConfig) {
 		);
 	}
 
+	if (savedVersion < 6 && Array.isArray(savedConfig.WEAPONS)) {
+		migrated.WEAPONS = defaultConfig.WEAPONS.map((defaultWeapon, index) =>
+			mergeConfig(defaultWeapon, migrated.WEAPONS[index] || {}),
+		);
+	}
+
+	if (savedVersion < 7 && Array.isArray(savedConfig.WEAPONS)) {
+		migrated.WEAPONS = defaultConfig.WEAPONS.map((defaultWeapon, index) =>
+			mergeConfig(defaultWeapon, migrated.WEAPONS[index] || {}),
+		);
+	}
+
+
+	if (savedVersion < 8 && Array.isArray(savedConfig.WEAPONS)) {
+		migrated.WEAPONS = defaultConfig.WEAPONS.map((defaultWeapon, index) => {
+			const migratedWeapon = mergeConfig(
+				defaultWeapon,
+				migrated.WEAPONS[index] || {},
+			);
+
+			delete migratedWeapon.throwSpeed;
+			return migratedWeapon;
+		});
+	}
+
+	if (savedVersion < 9 && Array.isArray(savedConfig.WEAPONS)) {
+		migrated.WEAPONS = defaultConfig.WEAPONS.map((defaultWeapon, index) => {
+			const migratedWeapon = mergeConfig(
+				defaultWeapon,
+				migrated.WEAPONS[index] || {},
+			);
+
+			migratedWeapon.throwDeceleration = defaultWeapon.throwDeceleration;
+			delete migratedWeapon.throwDurationMs;
+			delete migratedWeapon.throwSpeed;
+			return migratedWeapon;
+		});
+	}
+
 	return migrated;
 }
 
@@ -182,7 +237,7 @@ async function init() {
 				config = migrateSavedConfig(savedConfig);
 				saveLocalConfig();
 				showStatus(
-					"Local config upgraded. Added the 10-weapon configuration while preserving existing settings.",
+					"Local config upgraded to the latest weapon schema while preserving existing settings.",
 				);
 			} else {
 				config = mergeConfig(defaultConfig, savedConfig);

@@ -81,8 +81,8 @@
                     Each entry is bullet stats: speed, radiusBlocks, color,
                     damage, maxBounces, spreadOffset, lifetimeMs,
                     explosionRadiusBlocks, detonationTimeMs,
-                    explosionDurationMs, explosionDamage, and
-                    detonatesOnImpact.
+                    explosionDurationMs, explosionDamage, detonatesOnImpact,
+                    throwable, throwDistanceMultiplier, and throwDeceleration.
                 </p>
 
                 <p class="config-help">
@@ -90,6 +90,17 @@
                     the timed fuse. If <strong>detonatesOnImpact</strong> is
                     true, the projectile detonates when a wall collision would
                     exceed maxBounces. Explosion radius is measured in blocks.
+                </p>
+
+                <p class="config-help">
+                    Throwables: set <strong>throwable = true</strong>. Normal
+                    projectile speed is ignored. Throw distance is the shooter-to-aim
+                    distance multiplied by <strong>throwDistanceMultiplier</strong>.
+                    <strong>throwDeceleration</strong> is a constant physical
+                    deceleration in blocks/sec². The required initial throw speed
+                    and flight duration are calculated automatically so the
+                    projectile reaches its target path distance at exactly zero
+                    speed.
                 </p>
 
                 <p class="config-help">
