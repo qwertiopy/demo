@@ -162,7 +162,7 @@ export function updateEnemies(currentTime, dt) {
 	GameState.enemies = GameState.enemies.filter((e) => {
 		if (e.hp <= 0) return false;
 
-		handleEnemyAI(e, currentTime);
+		handleEnemyAI(e, currentTime, dt);
 		handleWallCollisions(e, e.moveX, e.moveY);
 		return true;
 	});

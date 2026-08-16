@@ -1,7 +1,7 @@
 import { hasLineOfSight, shoot } from "./combat.js";
 import { GameState } from "./state.js";
 
-export function handleEnemyAI(e, currentTime) {
+export function handleEnemyAI(e, currentTime, dt) {
 	// enemy center
 	const eCenterX = e.x + e.size / 2;
 	const eCenterY = e.y + e.size / 2;
