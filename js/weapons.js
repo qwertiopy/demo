@@ -19,6 +19,10 @@ const FALLBACK_BULLET_STATS = {
     throwable: false,
     throwDistanceMultiplier: 1,
     throwDeceleration: 20,
+    laser: false,
+    laserWarmupMs: 0,
+    laserCooldownMs: 0,
+    penetrationBlocks: 0,
 };
 
 export function getWeaponCount() {

@@ -82,7 +82,8 @@
                     damage, maxBounces, spreadOffset, lifetimeMs,
                     explosionRadiusBlocks, detonationTimeMs,
                     explosionDurationMs, explosionDamage, detonatesOnImpact,
-                    throwable, throwDistanceMultiplier, and throwDeceleration.
+                    throwable, throwDistanceMultiplier, throwDeceleration, laser,
+                    laserWarmupMs, laserCooldownMs, and penetrationBlocks.
                 </p>
 
                 <p class="config-help">
@@ -101,6 +102,23 @@
                     and flight duration are calculated automatically so the
                     projectile reaches its target path distance at exactly zero
                     speed.
+                </p>
+
+
+                <p class="config-help">
+                    Lasers: set <strong>laser = true</strong>. Firing starts a
+                    warmup for <strong>laserWarmupMs</strong>, then resolves an
+                    instantaneous beam. The same weapon cannot begin another laser
+                    warmup until <strong>laserCooldownMs</strong> after the beam fires.
+                    Laser aim is locked when the shot is started.
+                </p>
+
+                <p class="config-help">
+                    Penetration: <strong>penetrationBlocks</strong> delays collision
+                    actions by that depth into each collider. If a wall or target is
+                    thinner than the configured penetration along the projectile's
+                    travel direction, the projectile phases through it completely.
+                    This applies to ordinary projectiles and laser beams.
                 </p>
 
                 <p class="config-help">

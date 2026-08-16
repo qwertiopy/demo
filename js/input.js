@@ -10,13 +10,17 @@ import {
     loadLevelBtn,
     godModeToggle,
 } from "./dom.js";
-import { shoot } from "./combat.js";
+import { requestLaserShot, shoot } from "./combat.js";
 import {
     getActionsForInput,
     keyboardEventToInputCode,
     mouseEventToInputCode,
 } from "./hotkeys.js";
-import { getActiveWeaponStats, selectWeapon } from "./weapons.js";
+import {
+    getActiveWeaponIndex,
+    getActiveWeaponStats,
+    selectWeapon,
+} from "./weapons.js";
 
 // Shows or hides the editor/debug UI and updates the matching GameState flag.
 export function toggleUI() {
@@ -38,6 +42,9 @@ export function loadLevel() {
         GameState.bullets.length = 0;
         GameState.enemyBullets.length = 0;
         GameState.explosions.length = 0;
+        GameState.laserWarmups.length = 0;
+        GameState.laserBeams.length = 0;
+        GameState.laserCooldownUntilByWeapon.length = 0;
         GameState.enemies.length = 0;
         GameState.walls.length = 0;
         GameState.enemySpawns.length = 0;
@@ -88,6 +95,19 @@ function updateAimFromMouseEvent(event) {
 
 function fireActiveWeapon() {
     const now = performance.now();
+    const stats = getActiveWeaponStats();
+
+    if (stats.laser === true) {
+        requestLaserShot(
+            player,
+            GameState.aimWorldX,
+            GameState.aimWorldY,
+            stats,
+            getActiveWeaponIndex(),
+            now,
+        );
+        return;
+    }
 
     if (now - GameState.playerLastShot < Config.PLAYER_SHOOT_COOLDOWN) {
         return;
@@ -100,7 +120,7 @@ function fireActiveWeapon() {
         GameState.aimWorldX,
         GameState.aimWorldY,
         GameState.bullets,
-        getActiveWeaponStats(),
+        stats,
     );
 }
 

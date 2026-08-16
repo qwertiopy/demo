@@ -1,7 +1,7 @@
 export const CONFIG_STORAGE_KEY = "demoGameConfig";
 
 export const Config = {
-    CONFIG_SCHEMA_VERSION: 9,
+    CONFIG_SCHEMA_VERSION: 10,
     PLAYER_SPEED: 0,
     PLAYER_BULLET_SPEED: 0,
     PLAYER_SHOOT_COOLDOWN: 0,
@@ -128,6 +128,15 @@ function migrateConfig(defaultConfig, savedConfig) {
                 delete migratedWeapon.throwSpeed;
                 return migratedWeapon;
             },
+        );
+    }
+
+    // Schema v10 adds laser timing and collision-penetration settings. Merge
+    // neutral defaults into existing weapons so prior local balancing is kept.
+    if (savedVersion < 10 && Array.isArray(savedConfig.WEAPONS)) {
+        migratedConfig.WEAPONS = defaultConfig.WEAPONS.map(
+            (defaultWeapon, index) =>
+                mergeConfig(defaultWeapon, migratedConfig.WEAPONS[index] || {}),
         );
     }
 

@@ -140,6 +140,11 @@ export function shoot(shooter, targetX, targetY, bulletArray, stats) {
 		explosionDurationMs: stats.explosionDurationMs ?? 0,
 		explosionDamage: stats.explosionDamage ?? 0,
 		detonatesOnImpact: stats.detonatesOnImpact ?? false,
+		penetrationBlocks: Math.max(0, Number(stats.penetrationBlocks ?? 0) || 0),
+		remainingPenetrationBlocks: Math.max(
+			0,
+			Number(stats.penetrationBlocks ?? 0) || 0,
+		),
 		throwable,
 		throwDirX: Math.cos(angle),
 		throwDirY: Math.sin(angle),
@@ -309,6 +314,8 @@ export function updateEnemies(currentTime, dt) {
 					explosionDamage: e.typeStats.bulletExplosionDamage ?? 0,
 					detonatesOnImpact:
 						e.typeStats.bulletDetonatesOnImpact ?? false,
+					penetrationBlocks:
+						e.typeStats.bulletPenetrationBlocks ?? 0,
 				});
 
 				e.lastShot = currentTime;
@@ -466,6 +473,364 @@ export function processExplosions(currentTime) {
 	}
 }
 
+// Returns a directionally inset collider that delays a collision by the
+// requested penetration depth. Penetration is measured from the entry face
+// along the active collision axis. If penetration is at least the collider's
+// thickness on that axis, the collider is phased through completely.
+export function getPenetratedCollisionRect(
+	rect,
+	penetrationBlocks = 0,
+	axis = "x",
+	direction = 1,
+) {
+	const width = rect.width ?? rect.size ?? 0;
+	const height = rect.height ?? rect.size ?? 0;
+	const penetration = Math.max(0, Number(penetrationBlocks) || 0);
+
+	let x = rect.x;
+	let y = rect.y;
+	let adjustedWidth = width;
+	let adjustedHeight = height;
+
+	if (axis === "x") {
+		if (adjustedWidth <= 0 || penetration >= adjustedWidth) return null;
+
+		if (direction >= 0) {
+			x += penetration;
+		}
+		adjustedWidth -= penetration;
+	} else {
+		if (adjustedHeight <= 0 || penetration >= adjustedHeight) return null;
+
+		if (direction >= 0) {
+			y += penetration;
+		}
+		adjustedHeight -= penetration;
+	}
+
+	return {
+		x,
+		y,
+		width: adjustedWidth,
+		height: adjustedHeight,
+	};
+}
+
+// Moving projectiles have one total wall-penetration budget measured in
+// blocks of travel while overlapping wall material. Each simulation substep
+// starts by deciding whether penetration is still available. If it is, every
+// wall collision in that substep is phased through and the intended path
+// distance for that substep is deducted once from the remaining budget. This
+// avoids double-charging at tile seams/corners while making continuous travel
+// inside walls consume penetration continuously. Once a substep begins with no
+// penetration remaining, the normal wall collision action is triggered.
+function collidesWithWallUsingPenetrationBudget(
+	bullet,
+	mover,
+	wall,
+	penetrationStepState,
+) {
+	if (!isColliding(mover, wall)) return false;
+
+	// A substep that began with penetration available is allowed to complete.
+	// Charge its intended travel distance only once even if the bullet overlaps
+	// multiple wall rectangles or is checked on both collision axes.
+	if (penetrationStepState.phaseThisStep) {
+		if (!penetrationStepState.consumed) {
+			const remaining = Math.max(
+				0,
+				Number(
+					bullet.remainingPenetrationBlocks ??
+					bullet.penetrationBlocks ??
+					0,
+				) || 0,
+			);
+			bullet.remainingPenetrationBlocks = Math.max(
+				0,
+				remaining - penetrationStepState.travelDistanceBlocks,
+			);
+			penetrationStepState.consumed = true;
+		}
+		return false;
+	}
+
+	return true;
+}
+
+// Hardcoded laser presentation/range values. Weapon balance is controlled by
+// the configurable warmup/cooldown/damage/penetration stats instead.
+export const LASER_MAX_RANGE_BLOCKS = 60;
+export const LASER_FLASH_DURATION_MS = 90;
+
+// Ray/AABB slab intersection. The optional radius expands the rectangle so a
+// laser with a visible thickness also gets a matching collision thickness.
+export function rayRectIntersection(
+	originX,
+	originY,
+	dirX,
+	dirY,
+	rect,
+	radius = 0,
+) {
+	const width = rect.width ?? rect.size ?? 0;
+	const height = rect.height ?? rect.size ?? 0;
+	const r = Math.max(0, Number(radius) || 0);
+	const minX = rect.x - r;
+	const maxX = rect.x + width + r;
+	const minY = rect.y - r;
+	const maxY = rect.y + height + r;
+	const EPSILON = 1e-12;
+
+	let tMin = -Infinity;
+	let tMax = Infinity;
+
+	for (const [origin, direction, min, max] of [
+		[originX, dirX, minX, maxX],
+		[originY, dirY, minY, maxY],
+	]) {
+		if (Math.abs(direction) < EPSILON) {
+			if (origin < min || origin > max) return null;
+			continue;
+		}
+
+		let t1 = (min - origin) / direction;
+		let t2 = (max - origin) / direction;
+
+		if (t1 > t2) [t1, t2] = [t2, t1];
+		tMin = Math.max(tMin, t1);
+		tMax = Math.min(tMax, t2);
+
+		if (tMax < tMin) return null;
+	}
+
+	if (tMax < 0) return null;
+
+	return {
+		entryDistance: Math.max(0, tMin),
+		exitDistance: tMax,
+	};
+}
+
+// Hitscan lasers consume penetration continuously while the ray is travelling
+// through wall material. Because a laser has no simulation ticks, we calculate
+// each wall interval along the ray, merge overlapping intervals, then subtract
+// their lengths from one local penetration budget in travel order. Targets do
+// not consume this budget.
+export function getLaserWallStopWithPenetrationBudget(
+	originX,
+	originY,
+	dirX,
+	dirY,
+	radius,
+	penetrationBlocks,
+) {
+	let remainingPenetrationBlocks = Math.max(
+		0,
+		Number(penetrationBlocks) || 0,
+	);
+	const wallIntervals = [];
+
+	for (const wall of GameState.walls) {
+		const hit = rayRectIntersection(
+			originX,
+			originY,
+			dirX,
+			dirY,
+			wall,
+			radius,
+		);
+		if (!hit || hit.entryDistance > LASER_MAX_RANGE_BLOCKS) continue;
+
+		const entryDistance = Math.max(0, hit.entryDistance);
+		const exitDistance = Math.min(
+			LASER_MAX_RANGE_BLOCKS,
+			hit.exitDistance,
+		);
+		if (exitDistance <= entryDistance) continue;
+
+		wallIntervals.push({ entryDistance, exitDistance });
+	}
+
+	wallIntervals.sort((a, b) => a.entryDistance - b.entryDistance);
+
+	// Merge overlapping wall intervals so overlapping wall rectangles do not
+	// charge the same physical section of the beam more than once.
+	const mergedIntervals = [];
+	for (const interval of wallIntervals) {
+		const previous = mergedIntervals[mergedIntervals.length - 1];
+		if (previous && interval.entryDistance <= previous.exitDistance) {
+			previous.exitDistance = Math.max(
+				previous.exitDistance,
+				interval.exitDistance,
+			);
+		} else {
+			mergedIntervals.push({ ...interval });
+		}
+	}
+
+	for (const interval of mergedIntervals) {
+		const wallTravelBlocks =
+			interval.exitDistance - interval.entryDistance;
+
+		if (remainingPenetrationBlocks >= wallTravelBlocks) {
+			remainingPenetrationBlocks -= wallTravelBlocks;
+			continue;
+		}
+
+		// The laser can enter the wall only as far as its remaining penetration
+		// budget allows, then its normal wall-impact action occurs there.
+		const stopDistance =
+			interval.entryDistance + remainingPenetrationBlocks;
+
+		return {
+			distance: Math.min(LASER_MAX_RANGE_BLOCKS, stopDistance),
+			impactedWall: true,
+			remainingPenetrationBlocks: 0,
+		};
+	}
+
+	return {
+		distance: LASER_MAX_RANGE_BLOCKS,
+		impactedWall: false,
+		remainingPenetrationBlocks,
+	};
+}
+
+function resolveLaserShot(shot, currentTime) {
+	const shooter = shot.shooter;
+	const originX = shooter.x + shooter.size / 2;
+	const originY = shooter.y + shooter.size / 2;
+	const { dirX, dirY, stats } = shot;
+	const radius = Math.max(0, Number(stats.radiusBlocks ?? 0.03) || 0);
+	const penetrationBlocks = Math.max(
+		0,
+		Number(stats.penetrationBlocks ?? 0) || 0,
+	);
+
+	const wallStop = getLaserWallStopWithPenetrationBudget(
+		originX,
+		originY,
+		dirX,
+		dirY,
+		radius,
+		penetrationBlocks,
+	);
+	const beamDistance = wallStop.distance;
+	const impactedWall = wallStop.impactedWall;
+
+	// Penetration only governs walls. Targets take damage whenever the beam
+	// actually intersects them before the beam's wall-limited endpoint.
+	for (const target of GameState.enemies) {
+		if (target.hp <= 0) continue;
+
+		const hit = rayRectIntersection(
+			originX,
+			originY,
+			dirX,
+			dirY,
+			target,
+			radius,
+		);
+
+		if (hit && hit.entryDistance <= beamDistance + 1e-9) {
+			target.hp -= stats.damage ?? 1;
+		}
+	}
+
+	const endX = originX + dirX * beamDistance;
+	const endY = originY + dirY * beamDistance;
+
+	GameState.laserBeams.push({
+		x1: originX,
+		y1: originY,
+		x2: endX,
+		y2: endY,
+		color: stats.color ?? "white",
+		radius,
+		createdAt: currentTime,
+		durationMs: LASER_FLASH_DURATION_MS,
+	});
+
+	if (impactedWall && stats.detonatesOnImpact) {
+		detonateBullet(
+			{
+				x: endX,
+				y: endY,
+				color: stats.color ?? "white",
+				explosionRadiusBlocks: stats.explosionRadiusBlocks ?? 0,
+				explosionDurationMs: stats.explosionDurationMs ?? 0,
+				explosionDamage: stats.explosionDamage ?? 0,
+			},
+			true,
+			currentTime,
+		);
+	}
+}
+
+// Starts a player laser shot. Aim direction is locked at trigger time. Warmup
+// is a delayed state transition, while the beam itself is resolved as hitscan.
+// Cooldown begins when the beam actually fires, not when warmup begins.
+export function requestLaserShot(
+	shooter,
+	targetX,
+	targetY,
+	stats,
+	weaponIndex,
+	currentTime = performance.now(),
+) {
+	const index = Math.max(0, Number(weaponIndex) || 0);
+	const cooldownUntil = GameState.laserCooldownUntilByWeapon[index] || 0;
+
+	if (currentTime < cooldownUntil) return false;
+	if (GameState.laserWarmups.some((shot) => shot.weaponIndex === index)) {
+		return false;
+	}
+
+	const centerX = shooter.x + shooter.size / 2;
+	const centerY = shooter.y + shooter.size / 2;
+	const angle = Math.atan2(targetY - centerY, targetX - centerX) +
+		(stats.spreadOffset || 0);
+	const warmupMs = Math.max(0, Number(stats.laserWarmupMs ?? 0) || 0);
+	const shot = {
+		shooter,
+		weaponIndex: index,
+		dirX: Math.cos(angle),
+		dirY: Math.sin(angle),
+		stats: { ...stats },
+		startedAt: currentTime,
+		fireAt: currentTime + warmupMs,
+	};
+
+	if (warmupMs <= 0) {
+		resolveLaserShot(shot, currentTime);
+		GameState.laserCooldownUntilByWeapon[index] =
+			currentTime + Math.max(0, Number(stats.laserCooldownMs ?? 0) || 0);
+		return true;
+	}
+
+	GameState.laserWarmups.push(shot);
+	return true;
+}
+
+// Advances pending laser warmups and short-lived rendered beam flashes.
+export function processLasers(currentTime) {
+	for (let i = GameState.laserWarmups.length - 1; i >= 0; i--) {
+		const shot = GameState.laserWarmups[i];
+
+		if (currentTime < shot.fireAt) continue;
+
+		resolveLaserShot(shot, currentTime);
+		GameState.laserCooldownUntilByWeapon[shot.weaponIndex] =
+			currentTime +
+			Math.max(0, Number(shot.stats.laserCooldownMs ?? 0) || 0);
+		GameState.laserWarmups.splice(i, 1);
+	}
+
+	GameState.laserBeams = GameState.laserBeams.filter(
+		(beam) => currentTime - beam.createdAt < beam.durationMs,
+	);
+}
+
 // Maximum projectile travel per collision substep; limiting this prevents fast bullets from tunneling through walls or targets
 // this can also be done by using the line of sight function to see if the bullet intersected a wall at any point between 2 steps, and if it did, reversing its direction or deleting it
 // i think doing it that way is more robust and allows for faster bullets and is also generally less buggy because it relies on continuous mathematical calculations - cyn
@@ -529,6 +894,23 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 		let detonateOnRemoval = false;
 
 		for (let step = 0; step < steps; step++) {
+			const intendedStepDistance = b.throwable
+				? throwableStepDistance
+				: Math.hypot(b.vx * stepDt, b.vy * stepDt);
+			const penetrationStepState = {
+				phaseThisStep:
+					Math.max(
+						0,
+						Number(
+							b.remainingPenetrationBlocks ??
+							b.penetrationBlocks ??
+							0,
+						) || 0,
+					) > 0,
+				travelDistanceBlocks: intendedStepDistance,
+				consumed: false,
+			};
+
 			const mockRect = {
 				x: b.x - b.radius,
 				y: b.y - b.radius,
@@ -542,7 +924,16 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 			mockRect.x = b.x - b.radius;
 			mockRect.y = b.y - b.radius;
 
-			if (GameState.walls.some((w) => isColliding(mockRect, w))) {
+			const hitWallX = moveX === 0 ? null : GameState.walls.find((w) =>
+				collidesWithWallUsingPenetrationBudget(
+					b,
+					mockRect,
+					w,
+					penetrationStepState,
+				),
+			);
+
+			if (hitWallX) {
 				b.x -= moveX;
 
 				if (b.throwable) {
@@ -568,7 +959,16 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 			mockRect.x = b.x - b.radius;
 			mockRect.y = b.y - b.radius;
 
-			if (GameState.walls.some((w) => isColliding(mockRect, w))) {
+			const hitWallY = moveY === 0 ? null : GameState.walls.find((w) =>
+				collidesWithWallUsingPenetrationBudget(
+					b,
+					mockRect,
+					w,
+					penetrationStepState,
+				),
+			);
+
+			if (hitWallY) {
 				b.y -= moveY;
 
 				if (b.throwable) {
@@ -587,8 +987,13 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 				}
 			}
 
+			// Wall penetration never suppresses target damage. If the projectile's
+			// hitbox overlaps a target, damage is applied immediately regardless of
+			// how much wall-penetration budget remains.
 			targets.forEach((t) => {
-				if (isColliding(mockRect, t)) {
+				const isTargetCollision = isColliding(mockRect, t);
+
+				if (isTargetCollision) {
 					if (!b.hitTargets.has(t)) {
 						if (isPlayerBullets || !GameState.isInvincible) {
 							t.hp -= b.damage ?? 1;
@@ -600,6 +1005,7 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 					b.hitTargets.delete(t);
 				}
 			});
+
 		}
 
 		if (removeBullet) {

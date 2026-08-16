@@ -58,6 +58,9 @@ function validateWeapons(weapons) {
 		"explosionDamage",
 		"throwDistanceMultiplier",
 		"throwDeceleration",
+		"laserWarmupMs",
+		"laserCooldownMs",
+		"penetrationBlocks",
 	];
 
 	weapons.forEach((weapon, index) => {
@@ -102,6 +105,9 @@ function validateWeapons(weapons) {
 			"explosionDamage",
 			"throwDistanceMultiplier",
 			"throwDeceleration",
+			"laserWarmupMs",
+			"laserCooldownMs",
+			"penetrationBlocks",
 		]) {
 			if (weapon[field] < 0) {
 				throw new Error(
@@ -125,6 +131,12 @@ function validateWeapons(weapons) {
 		if (typeof weapon.throwable !== "boolean") {
 			throw new Error(
 				`Weapon ${index + 1}.throwable must be true or false.`,
+			);
+		}
+
+		if (typeof weapon.laser !== "boolean") {
+			throw new Error(
+				`Weapon ${index + 1}.laser must be true or false.`,
 			);
 		}
 
@@ -213,6 +225,12 @@ function migrateSavedConfig(savedConfig) {
 			delete migratedWeapon.throwSpeed;
 			return migratedWeapon;
 		});
+	}
+
+	if (savedVersion < 10 && Array.isArray(savedConfig.WEAPONS)) {
+		migrated.WEAPONS = defaultConfig.WEAPONS.map((defaultWeapon, index) =>
+			mergeConfig(defaultWeapon, migrated.WEAPONS[index] || {}),
+		);
 	}
 
 	return migrated;
