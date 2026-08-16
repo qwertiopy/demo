@@ -37,6 +37,7 @@ export function loadLevel() {
 
         GameState.bullets.length = 0;
         GameState.enemyBullets.length = 0;
+        GameState.explosions.length = 0;
         GameState.enemies.length = 0;
         GameState.walls.length = 0;
         GameState.enemySpawns.length = 0;

@@ -78,8 +78,18 @@
 
                 <p class="config-help">
                     <strong>WEAPONS</strong> contains exactly 10 player weapons.
-                    Each entry is only bullet stats: speed, radiusBlocks, color,
-                    damage, maxBounces, spreadOffset, and lifetimeMs.
+                    Each entry is bullet stats: speed, radiusBlocks, color,
+                    damage, maxBounces, spreadOffset, lifetimeMs,
+                    explosionRadiusBlocks, detonationTimeMs,
+                    explosionDurationMs, explosionDamage, and
+                    detonatesOnImpact.
+                </p>
+
+                <p class="config-help">
+                    Explosives: <strong>detonationTimeMs = 0</strong> disables
+                    the timed fuse. If <strong>detonatesOnImpact</strong> is
+                    true, the projectile detonates when a wall collision would
+                    exceed maxBounces. Explosion radius is measured in blocks.
                 </p>
 
                 <p class="config-help">

@@ -52,6 +52,10 @@ function validateWeapons(weapons) {
 		"maxBounces",
 		"spreadOffset",
 		"lifetimeMs",
+		"explosionRadiusBlocks",
+		"detonationTimeMs",
+		"explosionDurationMs",
+		"explosionDamage",
 	];
 
 	weapons.forEach((weapon, index) => {
@@ -86,6 +90,25 @@ function validateWeapons(weapons) {
 		if (weapon.lifetimeMs < 0) {
 			throw new Error(
 				`Weapon ${index + 1}.lifetimeMs cannot be negative.`,
+			);
+		}
+
+		for (const field of [
+			"explosionRadiusBlocks",
+			"detonationTimeMs",
+			"explosionDurationMs",
+			"explosionDamage",
+		]) {
+			if (weapon[field] < 0) {
+				throw new Error(
+					`Weapon ${index + 1}.${field} cannot be negative.`,
+				);
+			}
+		}
+
+		if (typeof weapon.detonatesOnImpact !== "boolean") {
+			throw new Error(
+				`Weapon ${index + 1}.detonatesOnImpact must be true or false.`,
 			);
 		}
 
@@ -129,6 +152,12 @@ function migrateSavedConfig(savedConfig) {
 
 	if (savedVersion < 4 || !Array.isArray(savedConfig.WEAPONS)) {
 		migrated.WEAPONS = cloneConfig(defaultConfig.WEAPONS);
+	}
+
+	if (savedVersion < 5 && Array.isArray(savedConfig.WEAPONS)) {
+		migrated.WEAPONS = defaultConfig.WEAPONS.map((defaultWeapon, index) =>
+			mergeConfig(defaultWeapon, savedConfig.WEAPONS[index] || {}),
+		);
 	}
 
 	return migrated;

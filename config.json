@@ -1,5 +1,5 @@
 {
-    "CONFIG_SCHEMA_VERSION": 4,
+    "CONFIG_SCHEMA_VERSION": 5,
     "PLAYER_SPEED": 5,
     "PLAYER_BULLET_SPEED": 10,
     "PLAYER_SHOOT_COOLDOWN": 0,
@@ -11,7 +11,40 @@
             "damage": 1,
             "maxBounces": 1,
             "spreadOffset": 0,
-            "lifetimeMs": 60000
+            "lifetimeMs": 60000,
+            "explosionRadiusBlocks": 0,
+            "detonationTimeMs": 0,
+            "explosionDurationMs": 0,
+            "explosionDamage": 0,
+            "detonatesOnImpact": false
+        },
+        {
+            "speed": 10,
+            "radiusBlocks": 0.08,
+            "color": "crimson",
+            "damage": 1,
+            "maxBounces": 0,
+            "spreadOffset": 0,
+            "lifetimeMs": 60000,
+            "explosionRadiusBlocks": 2,
+            "detonationTimeMs": 0,
+            "explosionDurationMs": 250,
+            "explosionDamage": 1,
+            "detonatesOnImpact": true
+        },
+        {
+            "speed": 10,
+            "radiusBlocks": 0.08,
+            "color": "crimson",
+            "damage": 1,
+            "maxBounces": 9,
+            "spreadOffset": 0,
+            "lifetimeMs": 60000,
+            "explosionRadiusBlocks": 2,
+            "detonationTimeMs": 1500,
+            "explosionDurationMs": 250,
+            "explosionDamage": 1,
+            "detonatesOnImpact": false
         },
         {
             "speed": 10,
@@ -20,7 +53,12 @@
             "damage": 1,
             "maxBounces": 1,
             "spreadOffset": 0,
-            "lifetimeMs": 60000
+            "lifetimeMs": 60000,
+            "explosionRadiusBlocks": 0,
+            "detonationTimeMs": 0,
+            "explosionDurationMs": 0,
+            "explosionDamage": 0,
+            "detonatesOnImpact": false
         },
         {
             "speed": 10,
@@ -29,7 +67,12 @@
             "damage": 1,
             "maxBounces": 1,
             "spreadOffset": 0,
-            "lifetimeMs": 60000
+            "lifetimeMs": 60000,
+            "explosionRadiusBlocks": 0,
+            "detonationTimeMs": 0,
+            "explosionDurationMs": 0,
+            "explosionDamage": 0,
+            "detonatesOnImpact": false
         },
         {
             "speed": 10,
@@ -38,7 +81,12 @@
             "damage": 1,
             "maxBounces": 1,
             "spreadOffset": 0,
-            "lifetimeMs": 60000
+            "lifetimeMs": 60000,
+            "explosionRadiusBlocks": 0,
+            "detonationTimeMs": 0,
+            "explosionDurationMs": 0,
+            "explosionDamage": 0,
+            "detonatesOnImpact": false
         },
         {
             "speed": 10,
@@ -47,7 +95,12 @@
             "damage": 1,
             "maxBounces": 1,
             "spreadOffset": 0,
-            "lifetimeMs": 60000
+            "lifetimeMs": 60000,
+            "explosionRadiusBlocks": 0,
+            "detonationTimeMs": 0,
+            "explosionDurationMs": 0,
+            "explosionDamage": 0,
+            "detonatesOnImpact": false
         },
         {
             "speed": 10,
@@ -56,7 +109,12 @@
             "damage": 1,
             "maxBounces": 1,
             "spreadOffset": 0,
-            "lifetimeMs": 60000
+            "lifetimeMs": 60000,
+            "explosionRadiusBlocks": 0,
+            "detonationTimeMs": 0,
+            "explosionDurationMs": 0,
+            "explosionDamage": 0,
+            "detonatesOnImpact": false
         },
         {
             "speed": 10,
@@ -65,7 +123,12 @@
             "damage": 1,
             "maxBounces": 1,
             "spreadOffset": 0,
-            "lifetimeMs": 60000
+            "lifetimeMs": 60000,
+            "explosionRadiusBlocks": 0,
+            "detonationTimeMs": 0,
+            "explosionDurationMs": 0,
+            "explosionDamage": 0,
+            "detonatesOnImpact": false
         },
         {
             "speed": 10,
@@ -74,25 +137,12 @@
             "damage": 1,
             "maxBounces": 1,
             "spreadOffset": 0,
-            "lifetimeMs": 60000
-        },
-        {
-            "speed": 10,
-            "radiusBlocks": 0.08,
-            "color": "crimson",
-            "damage": 1,
-            "maxBounces": 1,
-            "spreadOffset": 0,
-            "lifetimeMs": 60000
-        },
-        {
-            "speed": 10,
-            "radiusBlocks": 0.08,
-            "color": "crimson",
-            "damage": 1,
-            "maxBounces": 1,
-            "spreadOffset": 0,
-            "lifetimeMs": 60000
+            "lifetimeMs": 60000,
+            "explosionRadiusBlocks": 0,
+            "detonationTimeMs": 0,
+            "explosionDurationMs": 0,
+            "explosionDamage": 0,
+            "detonatesOnImpact": false
         }
     ],
     "STRUCTURE_DENSITY_BLOCKS": 5,
@@ -108,7 +158,12 @@
             "bulletColor": "gold",
             "bulletDamage": 1,
             "ai": "aggressive",
-            "spread": 0.625
+            "spread": 0.625,
+            "bulletExplosionRadiusBlocks": 0,
+            "bulletDetonationTimeMs": 0,
+            "bulletExplosionDurationMs": 0,
+            "bulletExplosionDamage": 0,
+            "bulletDetonatesOnImpact": false
         },
         "j-bot": {
             "sizeBlocks": 0.75,
@@ -121,7 +176,12 @@
             "bulletColor": "red",
             "bulletDamage": 1,
             "ai": "aggressive",
-            "spread": 0.5
+            "spread": 0.5,
+            "bulletExplosionRadiusBlocks": 0,
+            "bulletDetonationTimeMs": 0,
+            "bulletExplosionDurationMs": 0,
+            "bulletExplosionDamage": 0,
+            "bulletDetonatesOnImpact": false
         },
         "h-bot": {
             "sizeBlocks": 0.375,
@@ -134,7 +194,12 @@
             "bulletColor": "fuchsia",
             "bulletDamage": 1,
             "ai": "passive",
-            "spread": 0.34
+            "spread": 0.34,
+            "bulletExplosionRadiusBlocks": 0,
+            "bulletDetonationTimeMs": 0,
+            "bulletExplosionDurationMs": 0,
+            "bulletExplosionDamage": 0,
+            "bulletDetonatesOnImpact": false
         }
     },
     "STRUCTURE_LIBRARY": [

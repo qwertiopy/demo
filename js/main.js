@@ -11,6 +11,7 @@ import {
     updateEnemies,
     resolveEnemyVectorCollisions,
     processBullets,
+    processExplosions,
 } from "./combat.js";
 import { initInput, loadLevel } from "./input.js";
 import { isActionDown, loadHotkeys } from "./hotkeys.js";
@@ -59,6 +60,7 @@ export function update(currentTime, dt) {
 
     processBullets(GameState.bullets, true, currentTime, dt);
     processBullets(GameState.enemyBullets, false, currentTime, dt);
+    processExplosions(currentTime);
 
     if (player.x > GameState.MaxDistance) {
         GameState.MaxDistance = player.x;

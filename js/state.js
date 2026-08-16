@@ -11,6 +11,7 @@ export const GameState = {
     activeWeaponIndex: 0,
     bullets: [],
     enemyBullets: [],
+    explosions: [],
     enemies: [],
     walls: [],
     enemySpawns: [],

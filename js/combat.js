@@ -33,6 +33,11 @@ export function shoot(shooter, targetX, targetY, bulletArray, stats) {
 		hitTargets: new Set(),
 		createdAt: performance.now(),
 		lifetimeMs: stats.lifetimeMs ?? 60000,
+		explosionRadiusBlocks: stats.explosionRadiusBlocks ?? 0,
+		detonationTimeMs: stats.detonationTimeMs ?? 0,
+		explosionDurationMs: stats.explosionDurationMs ?? 0,
+		explosionDamage: stats.explosionDamage ?? 0,
+		detonatesOnImpact: stats.detonatesOnImpact ?? false,
 
 		get width() {
 			return this.radius * 2;
@@ -184,6 +189,16 @@ export function updateEnemies(currentTime, dt) {
 					damage: e.typeStats.bulletDamage,
 					maxBounces: 0,
 					spreadOffset,
+					explosionRadiusBlocks:
+						e.typeStats.bulletExplosionRadiusBlocks ?? 0,
+					detonationTimeMs:
+						e.typeStats.bulletDetonationTimeMs ?? 0,
+					explosionDurationMs:
+						e.typeStats.bulletExplosionDurationMs ?? 0,
+					explosionDamage:
+						e.typeStats.bulletExplosionDamage ?? 0,
+					detonatesOnImpact:
+						e.typeStats.bulletDetonatesOnImpact ?? false,
 				});
 
 				e.lastShot = currentTime;
@@ -268,6 +283,74 @@ export function resolveEnemyVectorCollisions(dt) {
 	}
 }
 
+// Returns true when a circle overlaps an axis-aligned rectangle. Explosion
+// hitboxes use this instead of the square projectile collision approximation.
+export function circleIntersectsRect(circleX, circleY, radius, rect) {
+	const width = rect.width ?? rect.size ?? 0;
+	const height = rect.height ?? rect.size ?? 0;
+	const closestX = Math.max(rect.x, Math.min(circleX, rect.x + width));
+	const closestY = Math.max(rect.y, Math.min(circleY, rect.y + height));
+	const dx = circleX - closestX;
+	const dy = circleY - closestY;
+
+	return dx * dx + dy * dy <= radius * radius;
+}
+
+// Creates a circular explosion at the projectile's current position. A radius
+// of 0 means the projectile is non-explosive and no explosion object is made.
+export function detonateBullet(bullet, isPlayerBullet, currentTime) {
+	const radius = bullet.explosionRadiusBlocks ?? 0;
+
+	if (radius <= 0) return false;
+
+	GameState.explosions.push({
+		x: bullet.x,
+		y: bullet.y,
+		radius,
+		damage: bullet.explosionDamage ?? 0,
+		color: bullet.color ?? "orange",
+		createdAt: currentTime,
+		durationMs: bullet.explosionDurationMs ?? 0,
+		isPlayerExplosion: isPlayerBullet,
+		hitTargets: new Set(),
+	});
+
+	return true;
+}
+
+// Applies circular explosion damage for the explosion's lifetime. Each target
+// can only take damage once from a given explosion, even if it remains inside
+// the circle or leaves and re-enters before the duration expires.
+export function processExplosions(currentTime) {
+	for (let i = GameState.explosions.length - 1; i >= 0; i--) {
+		const explosion = GameState.explosions[i];
+		const targets = explosion.isPlayerExplosion ? GameState.enemies : [player];
+
+		for (const target of targets) {
+			if (target.hp <= 0 || explosion.hitTargets.has(target)) continue;
+
+			if (
+				circleIntersectsRect(
+					explosion.x,
+					explosion.y,
+					explosion.radius,
+					target,
+				)
+			) {
+				if (explosion.isPlayerExplosion || !GameState.isInvincible) {
+					target.hp -= explosion.damage;
+				}
+
+				explosion.hitTargets.add(target);
+			}
+		}
+
+		if (currentTime - explosion.createdAt >= explosion.durationMs) {
+			GameState.explosions.splice(i, 1);
+		}
+	}
+}
+
 // Maximum projectile travel per collision substep; limiting this prevents fast bullets from tunneling through walls or targets
 // this can also be done by using the line of sight function to see if the bullet intersected a wall at any point between 2 steps, and if it did, reversing its direction or deleting it
 // i think doing it that way is more robust and allows for faster bullets and is also generally less buggy because it relies on continuous mathematical calculations - cyn
@@ -279,6 +362,17 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 		const b = bulletArray[i];
 		const targets = isPlayerBullets ? GameState.enemies : [player];
 
+		// A positive detonationTimeMs enables a timed fuse. 0 means no timed
+		// detonation, allowing impact-only or completely non-explosive bullets.
+		if (
+			b.detonationTimeMs > 0 &&
+			currentTime - b.createdAt >= b.detonationTimeMs
+		) {
+			detonateBullet(b, isPlayerBullets, currentTime);
+			bulletArray.splice(i, 1);
+			continue;
+		}
+
 		const frameDistance = Math.hypot(b.vx, b.vy) * dt;
 		const steps = Math.max(
 			1,
@@ -287,6 +381,7 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 		const stepDt = dt / steps;
 
 		let removeBullet = false;
+		let detonateOnRemoval = false;
 
 		for (let step = 0; step < steps; step++) {
 			const mockRect = {
@@ -305,6 +400,12 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 				b.vx *= -1;
 				b.bounces++;
 				mockRect.x = b.x - b.radius;
+
+				if (b.bounces > b.maxBounces) {
+					removeBullet = true;
+					detonateOnRemoval = b.detonatesOnImpact;
+					break;
+				}
 			}
 
 			const moveY = b.vy * stepDt;
@@ -317,13 +418,19 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 				b.vy *= -1;
 				b.bounces++;
 				mockRect.y = b.y - b.radius;
+
+				if (b.bounces > b.maxBounces) {
+					removeBullet = true;
+					detonateOnRemoval = b.detonatesOnImpact;
+					break;
+				}
 			}
 
 			targets.forEach((t) => {
 				if (isColliding(mockRect, t)) {
 					if (!b.hitTargets.has(t)) {
 						if (isPlayerBullets || !GameState.isInvincible) {
-							t.hp -= b.damage || 1;
+							t.hp -= b.damage ?? 1;
 						}
 
 						b.hitTargets.add(t);
@@ -332,14 +439,18 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 					b.hitTargets.delete(t);
 				}
 			});
-
-			if (b.bounces > b.maxBounces) {
-				removeBullet = true;
-				break;
-			}
 		}
 
-		if (removeBullet || currentTime - b.createdAt > b.lifetimeMs) {
+		if (removeBullet) {
+			if (detonateOnRemoval) {
+				detonateBullet(b, isPlayerBullets, currentTime);
+			}
+
+			bulletArray.splice(i, 1);
+			continue;
+		}
+
+		if (currentTime - b.createdAt > b.lifetimeMs) {
 			bulletArray.splice(i, 1);
 		}
 	}

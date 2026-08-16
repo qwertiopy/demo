@@ -160,6 +160,28 @@ export function draw() {
 		ctx.closePath();
 	});
 
+	// Explosion rendering matches the circular gameplay hitbox.
+	GameState.explosions.forEach((explosion) => {
+		ctx.save();
+		ctx.globalAlpha = 0.28;
+		ctx.fillStyle = explosion.color;
+		ctx.beginPath();
+		ctx.arc(
+			explosion.x * Config.BLOCK_SIZE_PX,
+			explosion.y * Config.BLOCK_SIZE_PX,
+			explosion.radius * Config.BLOCK_SIZE_PX,
+			0,
+			Math.PI * 2,
+		);
+		ctx.fill();
+
+		ctx.globalAlpha = 0.9;
+		ctx.strokeStyle = explosion.color;
+		ctx.lineWidth = 2;
+		ctx.stroke();
+		ctx.restore();
+	});
+
 	ctx.restore();
 
 	drawWeaponHud();

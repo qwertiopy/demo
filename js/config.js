@@ -1,7 +1,7 @@
 export const CONFIG_STORAGE_KEY = "demoGameConfig";
 
 export const Config = {
-    CONFIG_SCHEMA_VERSION: 4,
+    CONFIG_SCHEMA_VERSION: 5,
     PLAYER_SPEED: 0,
     PLAYER_BULLET_SPEED: 0,
     PLAYER_SHOOT_COOLDOWN: 0,
@@ -58,11 +58,20 @@ function migrateConfig(defaultConfig, savedConfig) {
         );
     }
 
-    // Schema v4 introduces ten configurable player weapons. Existing local
-    // config values are preserved while the new weapon list comes from the
-    // current config.json defaults.
+    // Schema v4 introduced ten configurable player weapons.
     if (savedVersion < 4 || !Array.isArray(savedConfig.WEAPONS)) {
         migratedConfig.WEAPONS = cloneConfig(defaultConfig.WEAPONS);
+    }
+
+    // Schema v5 adds explosive-projectile fields. Arrays replace rather than
+    // deep-merge in mergeConfig(), so merge each saved weapon into its v5
+    // default individually. This preserves existing weapon balance while
+    // adding the new explosion fields with safe neutral defaults.
+    if (savedVersion < 5 && Array.isArray(savedConfig.WEAPONS)) {
+        migratedConfig.WEAPONS = defaultConfig.WEAPONS.map(
+            (defaultWeapon, index) =>
+                mergeConfig(defaultWeapon, savedConfig.WEAPONS[index] || {}),
+        );
     }
 
     return migratedConfig;
