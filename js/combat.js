@@ -8,6 +8,8 @@ import { handleWallCollisions } from "./utils.js";
 
 // Creates a projectile aimed from a shooter's center toward a world-space target and stores velocity, damage, bounce, and lifetime data.
 export function shoot(shooter, targetX, targetY, bulletArray, stats) {
+	if (GameState.isPlayerDead) return;
+
 	const centerX = shooter.x + shooter.size / 2;
 	const centerY = shooter.y + shooter.size / 2;
 	const spread = stats.spreadOffset || 0;
