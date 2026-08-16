@@ -37,7 +37,7 @@
             "radiusBlocks": 0.08,
             "color": "crimson",
             "damage": 1,
-            "maxBounces": 1,
+            "maxBounces": 9,
             "spreadOffset": 0,
             "lifetimeMs": 60000,
             "explosionRadiusBlocks": 2,
