@@ -16,6 +16,7 @@ import {
 import { initInput, loadLevel } from "./input.js";
 import { isActionDown, loadHotkeys } from "./hotkeys.js";
 import { draw } from "./render.js";
+import { handleEnemyAI } from "./AIs.js";
 
 // Runs one simulation step: procedural generation, player movement, enemy AI/movement, camera tracking, and projectile processing.
 export function update(currentTime, dt) {
