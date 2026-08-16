@@ -4,9 +4,12 @@ import { Config } from "./config.js";
 import { GameState, player } from "./state.js";
 import { isColliding } from "./utils.js";
 import { seededRandom } from "./utils.js";
+import { handleWallCollisions } from "./utils.js";
 
 // Creates a projectile aimed from a shooter's center toward a world-space target and stores velocity, damage, bounce, and lifetime data.
 export function shoot(shooter, targetX, targetY, bulletArray, stats) {
+	if (GameState.isPlayerDead) return;
+
 	const centerX = shooter.x + shooter.size / 2;
 	const centerY = shooter.y + shooter.size / 2;
 	const spread = stats.spreadOffset || 0;
@@ -155,8 +158,8 @@ export function updateEnemies(currentTime, dt) {
 	}
 
 	// enemy processing loop
-	GameState.enemies.forEach((e) => {
-		if (e.hp <= 0) return;
+	GameState.enemies = GameState.enemies.filter((e) => {
+		if (e.hp <= 0) return false;
 
 		// enemy center
 		const eCenterX = e.x + e.size / 2;
@@ -191,12 +194,10 @@ export function updateEnemies(currentTime, dt) {
 					spreadOffset,
 					explosionRadiusBlocks:
 						e.typeStats.bulletExplosionRadiusBlocks ?? 0,
-					detonationTimeMs:
-						e.typeStats.bulletDetonationTimeMs ?? 0,
+					detonationTimeMs: e.typeStats.bulletDetonationTimeMs ?? 0,
 					explosionDurationMs:
 						e.typeStats.bulletExplosionDurationMs ?? 0,
-					explosionDamage:
-						e.typeStats.bulletExplosionDamage ?? 0,
+					explosionDamage: e.typeStats.bulletExplosionDamage ?? 0,
 					detonatesOnImpact:
 						e.typeStats.bulletDetonatesOnImpact ?? false,
 				});
@@ -231,6 +232,9 @@ export function updateEnemies(currentTime, dt) {
 				e.vy = Math.sin(angle) * e.speed;
 			}
 		}
+
+		handleWallCollisions(e, e.moveX, e.moveY);
+		return true;
 	});
 }
 
@@ -324,7 +328,9 @@ export function detonateBullet(bullet, isPlayerBullet, currentTime) {
 export function processExplosions(currentTime) {
 	for (let i = GameState.explosions.length - 1; i >= 0; i--) {
 		const explosion = GameState.explosions[i];
-		const targets = explosion.isPlayerExplosion ? GameState.enemies : [player];
+		const targets = explosion.isPlayerExplosion
+			? GameState.enemies
+			: [player];
 
 		for (const target of targets) {
 			if (target.hp <= 0 || explosion.hitTargets.has(target)) continue;
