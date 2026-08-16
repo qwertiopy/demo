@@ -2,7 +2,7 @@
 
 import { Config } from "./config.js";
 import { GameState, player } from "./state.js";
-import { isColliding } from "./utils.js";
+import { isColliding, handleWallCollisions } from "./utils.js";
 import { seededRandom } from "./utils.js";
 
 // Creates a projectile aimed from a shooter's center toward a world-space target and stores velocity, damage, bounce, and lifetime data.
@@ -155,8 +155,8 @@ export function updateEnemies(currentTime, dt) {
 	}
 
 	// enemy processing loop
-	GameState.enemies.forEach((e) => {
-		if (e.hp <= 0) return;
+	GameState.enemies = GameState.enemies.filter((e) => {
+		if (e.hp <= 0) return false;
 
 		// enemy center
 		const eCenterX = e.x + e.size / 2;
@@ -165,6 +165,15 @@ export function updateEnemies(currentTime, dt) {
 		// player center
 		const pCenterX = player.x + player.size / 2;
 		const pCenterY = player.y + player.size / 2;
+
+		// if distance to the player is above a certain threshold, despawn the enemy
+		let threshold = 100;
+		let dx = pCenterX - eCenterX;
+		let dy = pCenterY - eCenterY;
+		let dist = Math.hypot(dx, dy);
+		if (dist > threshold) {
+			return false;
+		}
 
 		// line of sight
 		const los = hasLineOfSight(eCenterX, eCenterY, pCenterX, pCenterY);
@@ -231,6 +240,9 @@ export function updateEnemies(currentTime, dt) {
 				e.vy = Math.sin(angle) * e.speed;
 			}
 		}
+
+		handleWallCollisions(e, e.moveX, e.moveY);
+		return true;
 	});
 }
 
