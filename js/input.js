@@ -9,6 +9,7 @@ import {
 	levelDataInput,
 	loadLevelBtn,
 	godModeToggle,
+	respawnBtn,
 } from "./dom.js";
 import { requestLaserShot, shoot } from "./combat.js";
 import {
@@ -70,6 +71,15 @@ export function loadLevel() {
 	}
 }
 
+// Restarts the current level from its configured player spawn after death.
+export function respawnGame() {
+	if (player.hp > 0) return;
+
+	GameState.pressedInputs.clear();
+	GameState.MaxDistance = -1;
+	loadLevel();
+}
+
 function isEditableTarget(target) {
 	return (
 		target instanceof HTMLInputElement ||
@@ -126,6 +136,7 @@ function selectWeaponFromAction(actionId) {
 function triggerPressedActions(actions) {
 	actions.forEach((actionId) => selectWeaponFromAction(actionId));
 
+	if (actions.includes("respawn")) respawnGame();
 	if (actions.includes("toggleUI")) toggleUI();
 	if (actions.includes("shoot")) fireActiveWeapon();
 }
@@ -192,6 +203,12 @@ export function initInput() {
 
 	hideUIBtn.addEventListener("click", toggleUI);
 	loadLevelBtn.addEventListener("click", loadLevel);
+	respawnBtn.addEventListener("click", (event) => {
+		event.stopPropagation();
+		respawnGame();
+	});
+	respawnBtn.addEventListener("mousedown", (event) => event.stopPropagation());
+	respawnBtn.addEventListener("mouseup", (event) => event.stopPropagation());
 
 	if (godModeToggle) {
 		godModeToggle.addEventListener("change", (event) => {

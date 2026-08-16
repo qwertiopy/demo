@@ -4,138 +4,157 @@
 
 html,
 body {
-    margin: 0;
-    padding: 0;
+	margin: 0;
+	padding: 0;
 
-    width: 100vw;
-    height: 100vh;
+	width: 100vw;
+	height: 100vh;
 
-    background-color: #111;
+	background-color: #111;
 
-    display: flex;
-    justify-content: center;
-    align-items: center;
+	display: flex;
+	justify-content: center;
+	align-items: center;
 
-    overflow: hidden;
+	overflow: hidden;
 }
-
 
 /* ==========================================
    2. GAME CANVAS
    ========================================== */
 
 canvas {
-    background-color: #eee;
+	background-color: #eee;
 
-    max-width: 100%;
-    max-height: 100%;
+	max-width: 100%;
+	max-height: 100%;
 
-    aspect-ratio: 16 / 9;
+	aspect-ratio: 16 / 9;
 
-    image-rendering: pixelated;
+	image-rendering: pixelated;
 
-    /* Prevent default browser interactions */
-    user-select: none;
-    -webkit-user-drag: none;
+	/* Prevent default browser interactions */
+	user-select: none;
+	-webkit-user-drag: none;
 
-    outline: none;
-    touch-action: none;
+	outline: none;
+	touch-action: none;
 }
-
 
 /* ==========================================
    3. GAME UI
    ========================================== */
 
 .ui-panel {
-    position: absolute;
+	position: absolute;
 
-    top: 10px;
-    left: 10px;
+	top: 10px;
+	left: 10px;
 
-    background: rgba(0, 0, 0, 0.85);
+	background: rgba(0, 0, 0, 0.85);
 
-    padding: 15px;
+	padding: 15px;
 
-    border-radius: 8px;
+	border-radius: 8px;
 
-    color: white;
+	color: white;
 
-    font-family: sans-serif;
-    font-size: 14px;
+	font-family: sans-serif;
+	font-size: 14px;
 
-    z-index: 10;
+	z-index: 10;
 }
-
 
 /* ==========================================
    4. EDITOR UI
    ========================================== */
 
 .ui-panel h3 {
-    margin-top: 0;
-    color: cyan;
+	margin-top: 0;
+	color: cyan;
 }
-
 
 #levelData {
-    font-family: monospace;
+	font-family: monospace;
 
-    background: #222;
-    color: #0f0;
+	background: #222;
+	color: #0f0;
 
-    padding: 5px;
+	padding: 5px;
 
-    border: 1px solid #555;
-    border-radius: 4px;
+	border: 1px solid #555;
+	border-radius: 4px;
 
-    width: 100%;
-    box-sizing: border-box;
+	width: 100%;
+	box-sizing: border-box;
 }
-
 
 /* ==========================================
    5. BUTTONS
    ========================================== */
 
 .ui-panel button {
-    margin-top: 10px;
+	margin-top: 10px;
 
-    padding: 8px 12px;
+	padding: 8px 12px;
 
-    cursor: pointer;
+	cursor: pointer;
 
-    background: #444;
-    color: white;
+	background: #444;
+	color: white;
 
-    border: none;
-    border-radius: 4px;
+	border: none;
+	border-radius: 4px;
 }
 
 .ui-panel button:hover {
-    background: #666;
+	background: #666;
 }
-
 
 /* ==========================================
    6. CONFIG LINK
    ========================================== */
 
 .config-link {
-    display: inline-block;
+	display: inline-block;
 
-    margin-top: 12px;
+	margin-top: 12px;
 
-    color: cyan;
+	color: cyan;
 
-    text-decoration: none;
+	text-decoration: none;
 }
 
 .config-link:hover {
-    text-decoration: underline;
+	text-decoration: underline;
 }
 .editor-links {
-    display: flex;
-    gap: 14px;
-    flex-wrap: wrap;
+	display: flex;
+	gap: 14px;
+	flex-wrap: wrap;
+}
+
+#respawnBtn {
+	position: fixed;
+	left: 50%;
+	top: calc(50% + 85px);
+	transform: translateX(-50%);
+
+	padding: 10px 22px;
+
+	cursor: pointer;
+
+	background: #444;
+	color: white;
+
+	border: 1px solid cyan;
+	border-radius: 4px;
+
+	font: 18px monospace;
+
+	z-index: 20;
+}
+
+#respawnBtn:hover {
+	background: #666;
 }

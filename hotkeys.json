@@ -1,21 +1,22 @@
 {
-    "HOTKEY_SCHEMA_VERSION": 1,
-    "bindings": {
-        "moveUp": ["KeyW", "ArrowUp"],
-        "moveDown": ["KeyS", "ArrowDown"],
-        "moveLeft": ["KeyA", "ArrowLeft"],
-        "moveRight": ["KeyD", "ArrowRight"],
-        "shoot": ["Mouse0", "Space"],
-        "toggleUI": ["KeyH"],
-        "weapon1": ["Digit1"],
-        "weapon2": ["Digit2"],
-        "weapon3": ["Digit3"],
-        "weapon4": ["Digit4"],
-        "weapon5": ["Digit5"],
-        "weapon6": ["Digit6"],
-        "weapon7": ["Digit7"],
-        "weapon8": ["Digit8"],
-        "weapon9": ["Digit9"],
-        "weapon10": ["Digit0"]
-    }
+	"HOTKEY_SCHEMA_VERSION": 1,
+	"bindings": {
+		"moveUp": ["KeyW", "ArrowUp"],
+		"moveDown": ["KeyS", "ArrowDown"],
+		"moveLeft": ["KeyA", "ArrowLeft"],
+		"moveRight": ["KeyD", "ArrowRight"],
+		"shoot": ["Mouse0", "Space"],
+		"respawn": ["KeyR"],
+		"toggleUI": ["KeyH"],
+		"weapon1": ["Digit1"],
+		"weapon2": ["Digit2"],
+		"weapon3": ["Digit3"],
+		"weapon4": ["Digit4"],
+		"weapon5": ["Digit5"],
+		"weapon6": ["Digit6"],
+		"weapon7": ["Digit7"],
+		"weapon8": ["Digit8"],
+		"weapon9": ["Digit9"],
+		"weapon10": ["Digit0"]
+	}
 }
