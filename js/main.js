@@ -19,7 +19,11 @@ import { draw } from "./render.js";
 
 // Runs one simulation step: procedural generation, player movement, enemy AI/movement, camera tracking, and projectile processing.
 export function update(currentTime, dt) {
-	if (player.hp <= 0) return;
+	if (player.hp <= 0) {
+		GameState.isPlayerDead = true;
+		return;
+		// then add functionality for other stuff like resetting here
+	}
 
 	updateProceduralGeneration(player.x);
 	cleanupProceduralGeneration(player.x);
@@ -47,13 +51,6 @@ export function update(currentTime, dt) {
 
 	updateEnemies(currentTime, dt);
 	resolveEnemyVectorCollisions(dt);
-
-	// GameState.enemies = GameState.enemies.filter((enemy) => {
-	// 	if (enemy.hp <= 0) return false;
-
-	// 	handleWallCollisions(enemy, enemy.moveX, enemy.moveY);
-	// 	return true;
-	// });
 
 	camera.x = player.x - camera.widthBlocks / 2 + player.size / 2;
 	camera.y = player.y - camera.heightBlocks / 2 + player.size / 2;
