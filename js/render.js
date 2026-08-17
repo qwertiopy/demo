@@ -2,7 +2,7 @@
 
 import { Config } from "./config.js";
 import { GameState, player, camera } from "./state.js";
-import { canvas, ctx } from "./dom.js";
+import { canvas, ctx, respawnBtn } from "./dom.js";
 import { getActiveWeaponIndex } from "./weapons.js";
 
 // Draws the checker/grid-like world background and optional enemy-spawn debug markers within the camera viewport.
@@ -236,6 +236,8 @@ export function draw() {
 	ctx.restore();
 
 	drawWeaponHud();
+
+	respawnBtn.hidden = player.hp > 0;
 
 	if (player.hp <= 0) {
 		ctx.fillStyle = "rgba(0, 0, 0, 0.7)";

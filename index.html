@@ -1,29 +1,30 @@
 <!doctype html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-        <title>Demo</title>
+		<title>Demo</title>
 
-        <link rel="stylesheet" href="css/style.css" />
-    </head>
+		<link rel="stylesheet" href="css/style.css" />
+	</head>
 
-    <body>
-        <canvas id="gameCanvas" width="1280" height="720"></canvas>
+	<body>
+		<canvas id="gameCanvas" width="1280" height="720"></canvas>
+		<button id="respawnBtn" type="button" hidden>Respawn?</button>
 
-        <!-- GAME DEBUG / LEVEL EDITOR -->
-        <div id="editorUI" class="ui-panel">
-            <h3>Level Editor & Debug</h3>
+		<!-- GAME DEBUG / LEVEL EDITOR -->
+		<div id="editorUI" class="ui-panel">
+			<h3>Level Editor & Debug</h3>
 
-            <label>
-                <input type="checkbox" id="godModeToggle" />
-                Toggle Invincibility (God Mode)
-            </label>
+			<label>
+				<input type="checkbox" id="godModeToggle" />
+				Toggle Invincibility (God Mode)
+			</label>
 
-            <br /><br />
+			<br /><br />
 
-            <textarea id="levelData" rows="10" cols="35">
+			<textarea id="levelData" rows="10" cols="35">
 {
     "seed": 12345,
     "playerSpawn": { "x": 1, "y": 1 },
@@ -33,20 +34,20 @@
 }
             </textarea>
 
-            <br />
+			<br />
 
-            <button id="loadLevelBtn">Load Level / Apply</button>
+			<button id="loadLevelBtn">Load Level / Apply</button>
 
-            <button id="hideUIBtn" style="margin-left: 5px">
-                Toggle UI
-            </button>
+			<button id="hideUIBtn" style="margin-left: 5px">Toggle UI</button>
 
-            <div class="editor-links">
-                <a href="config.html" class="config-link">Open Config Editor</a>
-                <a href="hotkeys.html" class="config-link">Open Hotkey Editor</a>
-            </div>
-        </div>
+			<div class="editor-links">
+				<a href="config.html" class="config-link">Open Config Editor</a>
+				<a href="hotkeys.html" class="config-link"
+					>Open Hotkey Editor</a
+				>
+			</div>
+		</div>
 
-        <script type="module" src="js/main.js"></script>
-    </body>
+		<script type="module" src="js/main.js"></script>
+	</body>
 </html>

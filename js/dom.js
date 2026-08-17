@@ -10,3 +10,5 @@ export const hideUIBtn = document.getElementById("hideUIBtn");
 export const levelDataInput = document.getElementById("levelData");
 export const loadLevelBtn = document.getElementById("loadLevelBtn");
 export const godModeToggle = document.getElementById("godModeToggle");
+
+export const respawnBtn = document.getElementById("respawnBtn");
