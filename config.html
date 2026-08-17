@@ -68,11 +68,19 @@
                 <p class="config-help">
                     <strong>WEAPONS</strong> contains exactly 10 player weapons.
                     Each entry is bullet stats: speed, radiusBlocks, color,
-                    damage, maxBounces, spreadOffset, lifetimeMs,
+                    damage, maxBounces, spread, lifetimeMs,
                     explosionRadiusBlocks, detonationTimeMs,
                     explosionDurationMs, explosionDamage, detonatesOnImpact,
                     throwable, throwDistanceMultiplier, throwDeceleration, laser,
-                    laserWarmupMs, cooldownMs, and penetrationBlocks.
+                    laserWarmupMs, cooldownMs, penetrationBlocks, and
+                    bulletCollision.
+                </p>
+
+                <p class="config-help">
+                    Spread: <strong>spread</strong> is a random total angular cone
+                    width in radians. Every shot samples a random offset from
+                    -spread/2 to +spread/2, including player bullets, enemy bullets,
+                    and lasers.
                 </p>
 
                 <p class="config-help">
@@ -90,7 +98,9 @@
                     deceleration in blocks/sec². The required initial throw speed
                     and flight duration are calculated automatically so the
                     projectile reaches its target path distance at exactly zero
-                    speed.
+                    speed. For throwables, <strong>maxBounces</strong> controls
+                    boomerang reversals at the end of each throw leg; wall bounces
+                    themselves are unlimited.
                 </p>
 
 
@@ -101,15 +111,28 @@
                     weapon: ordinary projectiles and throwables start cooldown when
                     fired, while lasers start cooldown when the beam fires after
                     warmup. Cooldowns are tracked separately per weapon. Laser aim
-                    is locked when the shot is started.
+                    is locked when the shot is started. <strong>maxBounces</strong>
+                    also controls laser wall reflections.
                 </p>
 
                 <p class="config-help">
-                    Penetration: <strong>penetrationBlocks</strong> delays collision
-                    actions by that depth into each collider. If a wall or target is
-                    thinner than the configured penetration along the projectile's
-                    travel direction, the projectile phases through it completely.
-                    This applies to ordinary projectiles and laser beams.
+                    Penetration: <strong>penetrationBlocks</strong> is one total
+                    wall-travel budget. Moving bullets subtract their intended
+                    substep distance while overlapping walls; enemies never consume
+                    penetration and are damaged immediately on overlap. A bouncy
+                    bullet that exhausts penetration inside a wall finishes exiting
+                    that wall before its next wall collision can bounce. Laser
+                    hitscan consumes the same wall-distance budget along its ray.
+                </p>
+
+
+                <p class="config-help">
+                    Projectile collision: set <strong>bulletCollision = true</strong>
+                    to make that projectile physically collide with every other
+                    player or enemy projectile on every simulation frame. Only one
+                    projectile in a pair needs the flag enabled for the pair to
+                    collide. Projectile/projectile contact does not deal damage or
+                    consume wall penetration.
                 </p>
 
                 <p class="config-help">

@@ -54,34 +54,93 @@ export function getThrowableTravelDistance(
 	distanceBlocks,
 	elapsedMs,
 	decelerationBlocksPerSecondSq,
+	precomputedInitialSpeed = null,
+	precomputedDurationMs = null,
 ) {
-	const kinematics = getThrowableKinematics(
-		distanceBlocks,
-		decelerationBlocksPerSecondSq,
+	const distance = Math.max(0, Number(distanceBlocks) || 0);
+	const deceleration = Math.max(
+		MIN_THROW_DECELERATION,
+		Number(decelerationBlocksPerSecondSq ?? 20) || 0,
 	);
 
-	if (kinematics.distanceBlocks === 0) return 0;
+	if (distance === 0) return 0;
 
-	const rawElapsedSeconds = Math.max(
-		(Number(elapsedMs) || 0) / 1000,
-		0,
-	);
+	// Throwable launch kinematics are normally calculated once in shoot() and
+	// reused for every frame and every boomerang leg. The fallback calculations
+	// keep compatibility with any older projectile object missing those fields.
+	const initialSpeed = Number.isFinite(precomputedInitialSpeed)
+		? Math.max(0, precomputedInitialSpeed)
+		: Math.sqrt(2 * deceleration * distance);
+	const durationSeconds = Number.isFinite(precomputedDurationMs)
+		? Math.max(0, precomputedDurationMs) / 1000
+		: initialSpeed / deceleration;
+	const rawElapsedSeconds = Math.max((Number(elapsedMs) || 0) / 1000, 0);
 
-	// Once the analytically derived flight time has elapsed, the projectile is
-	// at the terminal point by definition. Return the exact configured distance
-	// rather than relying on floating-point evaluation of s(t) to equal D.
-	if (rawElapsedSeconds >= kinematics.durationSeconds) {
-		return kinematics.distanceBlocks;
+	if (rawElapsedSeconds >= durationSeconds) {
+		return distance;
 	}
 
 	const travelled =
-		kinematics.initialSpeed * rawElapsedSeconds -
-		0.5 * kinematics.deceleration * rawElapsedSeconds * rawElapsedSeconds;
+		initialSpeed * rawElapsedSeconds -
+		0.5 * deceleration * rawElapsedSeconds * rawElapsedSeconds;
 
-	return Math.min(
-		kinematics.distanceBlocks,
-		Math.max(0, travelled),
+	return Math.min(distance, Math.max(0, travelled));
+}
+
+// After the first outbound leg, each configured boomerang bounce travels 2D.
+// It begins at rest, accelerates at +a for D blocks until it reaches the
+// original launch speed at the midpoint, then decelerates at -a for another
+// D blocks until it reaches rest at the opposite endpoint. The original
+// launch kinematics are reused; no speed/duration values are recalculated.
+export function getThrowableBoomerangTravelDistance(
+	distanceBlocks,
+	elapsedMs,
+	decelerationBlocksPerSecondSq,
+	precomputedInitialSpeed = null,
+	precomputedDurationMs = null,
+) {
+	const distance = Math.max(0, Number(distanceBlocks) || 0);
+	const deceleration = Math.max(
+		MIN_THROW_DECELERATION,
+		Number(decelerationBlocksPerSecondSq ?? 20) || 0,
 	);
+
+	if (distance === 0) return 0;
+
+	const initialSpeed = Number.isFinite(precomputedInitialSpeed)
+		? Math.max(0, precomputedInitialSpeed)
+		: Math.sqrt(2 * deceleration * distance);
+	const halfDurationSeconds = Number.isFinite(precomputedDurationMs)
+		? Math.max(0, precomputedDurationMs) / 1000
+		: initialSpeed / deceleration;
+	const elapsedSeconds = Math.max((Number(elapsedMs) || 0) / 1000, 0);
+	const fullDurationSeconds = halfDurationSeconds * 2;
+
+	if (elapsedSeconds >= fullDurationSeconds) {
+		return distance * 2;
+	}
+
+	if (elapsedSeconds <= halfDurationSeconds) {
+		// Starts at v=0 and accelerates to the original launch speed.
+		return Math.min(
+			distance,
+			0.5 * deceleration * elapsedSeconds * elapsedSeconds,
+		);
+	}
+
+	// From the original launch point onward, decelerate from the original
+	// launch speed back to v=0 at the opposite endpoint.
+	const secondHalfTime = elapsedSeconds - halfDurationSeconds;
+	const secondHalfDistance =
+		initialSpeed * secondHalfTime -
+		0.5 * deceleration * secondHalfTime * secondHalfTime;
+
+	return Math.min(distance * 2, Math.max(distance, distance + secondHalfDistance));
+}
+
+export function getRandomSpreadOffset(spreadRadians = 0) {
+	const spread = Math.max(0, Number(spreadRadians) || 0);
+	return (Math.random() - 0.5) * spread;
 }
 
 // Creates a projectile aimed from a shooter's center toward a world-space target and stores velocity, damage, bounce, and lifetime data.
@@ -92,8 +151,8 @@ export function shoot(shooter, targetX, targetY, bulletArray, stats) {
 	const centerY = shooter.y + shooter.size / 2;
 	const targetDx = targetX - centerX;
 	const targetDy = targetY - centerY;
-	const spread = stats.spreadOffset || 0;
-	const angle = Math.atan2(targetDy, targetDx) + spread;
+	const spreadOffset = getRandomSpreadOffset(stats.spread ?? 0);
+	const angle = Math.atan2(targetDy, targetDx) + spreadOffset;
 	const throwable = stats.throwable === true;
 	const speed = throwable ? 0 : (stats.speed ?? 12);
 	const throwDistanceMultiplier = Math.max(
@@ -132,6 +191,7 @@ export function shoot(shooter, targetX, targetY, bulletArray, stats) {
 		damage: stats.damage ?? 1,
 		bounces: 0,
 		maxBounces: stats.maxBounces ?? 0,
+		throwBounces: 0,
 		hitTargets: new Set(),
 		createdAt,
 		lifetimeMs: stats.lifetimeMs ?? 60000,
@@ -145,16 +205,20 @@ export function shoot(shooter, targetX, targetY, bulletArray, stats) {
 			0,
 			Number(stats.penetrationBlocks ?? 0) || 0,
 		),
+		finishPenetratedWall: false,
 		throwable,
 		throwDirX: Math.cos(angle),
 		throwDirY: Math.sin(angle),
 		throwDistanceBlocks,
 		throwDistanceMultiplier,
 		throwTravelledBlocks: 0,
+		throwLegStartedAt: createdAt,
 		throwDeceleration,
 		throwInitialSpeed: throwKinematics?.initialSpeed ?? 0,
 		throwFlightDurationMs: throwKinematics?.durationMs ?? 0,
 		throwComplete: !throwable || throwDistanceBlocks === 0,
+		dv: 0,
+		bulletCollision: stats.bulletCollision === true,
 
 		get width() {
 			return this.radius * 2;
@@ -296,16 +360,13 @@ export function updateEnemies(currentTime, dt) {
 			e.lastSeenY = pCenterY;
 
 			if (currentTime - e.lastShot > e.shootCooldown) {
-				const spreadOffset =
-					(Math.random() - 0.5) * (e.typeStats.spread || 0);
-
 				shoot(e, pCenterX, pCenterY, GameState.enemyBullets, {
 					color: e.typeStats.bulletColor,
 					speed: e.typeStats.bulletSpeed,
 					radiusBlocks: e.typeStats.bulletRadiusBlocks,
 					damage: e.typeStats.bulletDamage,
 					maxBounces: 0,
-					spreadOffset,
+					spread: e.typeStats.spread ?? 0,
 					explosionRadiusBlocks:
 						e.typeStats.bulletExplosionRadiusBlocks ?? 0,
 					detonationTimeMs: e.typeStats.bulletDetonationTimeMs ?? 0,
@@ -316,6 +377,7 @@ export function updateEnemies(currentTime, dt) {
 						e.typeStats.bulletDetonatesOnImpact ?? false,
 					penetrationBlocks:
 						e.typeStats.bulletPenetrationBlocks ?? 0,
+					bulletCollision: e.typeStats.bulletCollision === true,
 				});
 
 				e.lastShot = currentTime;
@@ -398,6 +460,61 @@ export function resolveEnemyVectorCollisions(dt) {
 				e1.moveY -= ny * overlap * weight1 * 0.5;
 				e2.moveX += nx * overlap * weight2 * 0.5;
 				e2.moveY += ny * overlap * weight2 * 0.5;
+			}
+		}
+	}
+}
+
+// Resolves circular projectile/projectile overlaps for any pair where at least
+// one projectile opts in with bulletCollision=true. An opted-in projectile
+// therefore collides with every player/enemy projectile, even when both are
+// moving. dv is used only to keep a truly stationary projectile fixed when it
+// is hit by a moving one; otherwise the overlap is split by projectile radius.
+export function resolveProjectileVectorCollisions() {
+	const allProjectiles = [...GameState.bullets, ...GameState.enemyBullets];
+	const stationaryEpsilon = 1e-12;
+
+	for (let i = 0; i < allProjectiles.length; i++) {
+		for (let j = i + 1; j < allProjectiles.length; j++) {
+			const a = allProjectiles[i];
+			const b = allProjectiles[j];
+
+			if (a.bulletCollision !== true && b.bulletCollision !== true) {
+				continue;
+			}
+
+			const dx = b.x - a.x;
+			const dy = b.y - a.y;
+			const distance = Math.hypot(dx, dy);
+			const minDistance = (a.radius ?? 0) + (b.radius ?? 0);
+
+			if (distance >= minDistance) continue;
+
+			const angle = distance === 0 ? Math.random() * Math.PI * 2 : 0;
+			const nx = distance === 0 ? Math.cos(angle) : dx / distance;
+			const ny = distance === 0 ? Math.sin(angle) : dy / distance;
+			const overlap = minDistance - (distance === 0 ? 0.001 : distance);
+			const aStationary = (Number(a.dv) || 0) <= stationaryEpsilon;
+			const bStationary = (Number(b.dv) || 0) <= stationaryEpsilon;
+
+			if (aStationary && !bStationary) {
+				b.x += nx * overlap;
+				b.y += ny * overlap;
+			} else if (!aStationary && bStationary) {
+				a.x -= nx * overlap;
+				a.y -= ny * overlap;
+			} else {
+				const totalRadius = Math.max(
+					1e-9,
+					(a.radius ?? 0) + (b.radius ?? 0),
+				);
+				const weightA = (b.radius ?? 0) / totalRadius;
+				const weightB = (a.radius ?? 0) / totalRadius;
+
+				a.x -= nx * overlap * weightA;
+				a.y -= ny * overlap * weightA;
+				b.x += nx * overlap * weightB;
+				b.y += ny * overlap * weightB;
 			}
 		}
 	}
@@ -529,20 +646,23 @@ function collidesWithWallUsingPenetrationBudget(
 	mover,
 	wall,
 	penetrationStepState,
+	isBouncy,
 ) {
 	if (!isColliding(mover, wall)) return false;
 
-	// A substep that began with penetration available is allowed to complete.
-	// Charge its intended travel distance only once even if the bullet overlaps
-	// multiple wall rectangles or is checked on both collision axes.
+	// A bouncy projectile that spent its final penetration while already inside
+	// wall material is allowed to finish exiting that material. Once completely
+	// clear, the next wall contact executes the normal bounce action.
+	if (bullet.finishPenetratedWall && isBouncy) return false;
+
 	if (penetrationStepState.phaseThisStep) {
 		if (!penetrationStepState.consumed) {
 			const remaining = Math.max(
 				0,
 				Number(
 					bullet.remainingPenetrationBlocks ??
-					bullet.penetrationBlocks ??
-					0,
+						bullet.penetrationBlocks ??
+						0,
 				) || 0,
 			);
 			bullet.remainingPenetrationBlocks = Math.max(
@@ -550,6 +670,10 @@ function collidesWithWallUsingPenetrationBudget(
 				remaining - penetrationStepState.travelDistanceBlocks,
 			);
 			penetrationStepState.consumed = true;
+
+			if (bullet.remainingPenetrationBlocks <= 0 && isBouncy) {
+				bullet.finishPenetratedWall = true;
+			}
 		}
 		return false;
 	}
@@ -581,41 +705,61 @@ export function rayRectIntersection(
 	const maxY = rect.y + height + r;
 	const EPSILON = 1e-12;
 
-	let tMin = -Infinity;
-	let tMax = Infinity;
+	let xNear = -Infinity;
+	let xFar = Infinity;
+	let yNear = -Infinity;
+	let yFar = Infinity;
 
-	for (const [origin, direction, min, max] of [
-		[originX, dirX, minX, maxX],
-		[originY, dirY, minY, maxY],
-	]) {
-		if (Math.abs(direction) < EPSILON) {
-			if (origin < min || origin > max) return null;
-			continue;
-		}
-
-		let t1 = (min - origin) / direction;
-		let t2 = (max - origin) / direction;
-
-		if (t1 > t2) [t1, t2] = [t2, t1];
-		tMin = Math.max(tMin, t1);
-		tMax = Math.min(tMax, t2);
-
-		if (tMax < tMin) return null;
+	if (Math.abs(dirX) < EPSILON) {
+		if (originX < minX || originX > maxX) return null;
+	} else {
+		const tx1 = (minX - originX) / dirX;
+		const tx2 = (maxX - originX) / dirX;
+		xNear = Math.min(tx1, tx2);
+		xFar = Math.max(tx1, tx2);
 	}
 
-	if (tMax < 0) return null;
+	if (Math.abs(dirY) < EPSILON) {
+		if (originY < minY || originY > maxY) return null;
+	} else {
+		const ty1 = (minY - originY) / dirY;
+		const ty2 = (maxY - originY) / dirY;
+		yNear = Math.min(ty1, ty2);
+		yFar = Math.max(ty1, ty2);
+	}
+
+	const tMin = Math.max(xNear, yNear);
+	const tMax = Math.min(xFar, yFar);
+	if (tMax < tMin || tMax < 0) return null;
+
+	let normalX = 0;
+	let normalY = 0;
+	if (tMin >= 0) {
+		if (Math.abs(xNear - yNear) <= EPSILON) {
+			normalX = dirX >= 0 ? -1 : 1;
+			normalY = dirY >= 0 ? -1 : 1;
+			const magnitude = Math.hypot(normalX, normalY) || 1;
+			normalX /= magnitude;
+			normalY /= magnitude;
+		} else if (xNear > yNear) {
+			normalX = dirX >= 0 ? -1 : 1;
+		} else {
+			normalY = dirY >= 0 ? -1 : 1;
+		}
+	}
 
 	return {
 		entryDistance: Math.max(0, tMin),
 		exitDistance: tMax,
+		normalX,
+		normalY,
 	};
 }
 
-// Hitscan lasers consume penetration continuously while the ray is travelling
-// through wall material. Because a laser has no simulation ticks, we calculate
-// each wall interval along the ray, merge overlapping intervals, then subtract
-// their lengths from one local penetration budget in travel order. Targets do
-// not consume this budget.
+// Finds the next laser wall action along one ray segment while consuming one
+// cumulative penetration budget. A bouncy laser that spends its last
+// penetration inside a wall finishes that wall and only bounces on the next
+// wall contact, matching the moving-projectile penetration rule.
 export function getLaserWallStopWithPenetrationBudget(
 	originX,
 	originY,
@@ -623,11 +767,14 @@ export function getLaserWallStopWithPenetrationBudget(
 	dirY,
 	radius,
 	penetrationBlocks,
+	maxRangeBlocks = LASER_MAX_RANGE_BLOCKS,
+	bouncy = false,
 ) {
 	let remainingPenetrationBlocks = Math.max(
 		0,
 		Number(penetrationBlocks) || 0,
 	);
+	const maxRange = Math.max(0, Number(maxRangeBlocks) || 0);
 	const wallIntervals = [];
 
 	for (const wall of GameState.walls) {
@@ -639,26 +786,26 @@ export function getLaserWallStopWithPenetrationBudget(
 			wall,
 			radius,
 		);
-		if (!hit || hit.entryDistance > LASER_MAX_RANGE_BLOCKS) continue;
+		if (!hit || hit.entryDistance > maxRange) continue;
 
 		const entryDistance = Math.max(0, hit.entryDistance);
-		const exitDistance = Math.min(
-			LASER_MAX_RANGE_BLOCKS,
-			hit.exitDistance,
-		);
+		const exitDistance = Math.min(maxRange, hit.exitDistance);
 		if (exitDistance <= entryDistance) continue;
 
-		wallIntervals.push({ entryDistance, exitDistance });
+		wallIntervals.push({
+			entryDistance,
+			exitDistance,
+			normalX: hit.normalX,
+			normalY: hit.normalY,
+		});
 	}
 
 	wallIntervals.sort((a, b) => a.entryDistance - b.entryDistance);
 
-	// Merge overlapping wall intervals so overlapping wall rectangles do not
-	// charge the same physical section of the beam more than once.
 	const mergedIntervals = [];
 	for (const interval of wallIntervals) {
 		const previous = mergedIntervals[mergedIntervals.length - 1];
-		if (previous && interval.entryDistance <= previous.exitDistance) {
+		if (previous && interval.entryDistance <= previous.exitDistance + 1e-9) {
 			previous.exitDistance = Math.max(
 				previous.exitDistance,
 				interval.exitDistance,
@@ -669,101 +816,148 @@ export function getLaserWallStopWithPenetrationBudget(
 	}
 
 	for (const interval of mergedIntervals) {
-		const wallTravelBlocks =
-			interval.exitDistance - interval.entryDistance;
+		const wallTravelBlocks = interval.exitDistance - interval.entryDistance;
 
-		if (remainingPenetrationBlocks >= wallTravelBlocks) {
-			remainingPenetrationBlocks -= wallTravelBlocks;
+		if (remainingPenetrationBlocks >= wallTravelBlocks - 1e-12) {
+			remainingPenetrationBlocks = Math.max(
+				0,
+				remainingPenetrationBlocks - wallTravelBlocks,
+			);
 			continue;
 		}
 
-		// The laser can enter the wall only as far as its remaining penetration
-		// budget allows, then its normal wall-impact action occurs there.
-		const stopDistance =
-			interval.entryDistance + remainingPenetrationBlocks;
+		if (bouncy && remainingPenetrationBlocks > 0) {
+			// Consume the rest of the budget, but finish this final wall before the
+			// next collision is allowed to reflect the beam.
+			remainingPenetrationBlocks = 0;
+			continue;
+		}
+
+		const stopDistance = interval.entryDistance + remainingPenetrationBlocks;
 
 		return {
-			distance: Math.min(LASER_MAX_RANGE_BLOCKS, stopDistance),
+			distance: Math.min(maxRange, stopDistance),
 			impactedWall: true,
 			remainingPenetrationBlocks: 0,
+			normalX: interval.normalX,
+			normalY: interval.normalY,
 		};
 	}
 
 	return {
-		distance: LASER_MAX_RANGE_BLOCKS,
+		distance: maxRange,
 		impactedWall: false,
 		remainingPenetrationBlocks,
+		normalX: 0,
+		normalY: 0,
 	};
+}
+
+function createLaserExplosionAt(x, y, stats, currentTime) {
+	return detonateBullet(
+		{
+			x,
+			y,
+			color: stats.color ?? "white",
+			explosionRadiusBlocks: stats.explosionRadiusBlocks ?? 0,
+			explosionDurationMs: stats.explosionDurationMs ?? 0,
+			explosionDamage: stats.explosionDamage ?? 0,
+		},
+		true,
+		currentTime,
+	);
 }
 
 function resolveLaserShot(shot, currentTime) {
 	const shooter = shot.shooter;
-	const originX = shooter.x + shooter.size / 2;
-	const originY = shooter.y + shooter.size / 2;
-	const { dirX, dirY, stats } = shot;
+	let originX = shooter.x + shooter.size / 2;
+	let originY = shooter.y + shooter.size / 2;
+	let dirX = shot.dirX;
+	let dirY = shot.dirY;
+	const { stats } = shot;
 	const radius = Math.max(0, Number(stats.radiusBlocks ?? 0.03) || 0);
-	const penetrationBlocks = Math.max(
+	let remainingPenetrationBlocks = Math.max(
 		0,
 		Number(stats.penetrationBlocks ?? 0) || 0,
 	);
+	let remainingRange = LASER_MAX_RANGE_BLOCKS;
+	const maxBounces = Math.max(0, Math.floor(Number(stats.maxBounces ?? 0) || 0));
+	let bounces = 0;
+	const hitTargets = new Set();
+	const RAY_EPSILON = 1e-6;
 
-	const wallStop = getLaserWallStopWithPenetrationBudget(
-		originX,
-		originY,
-		dirX,
-		dirY,
-		radius,
-		penetrationBlocks,
-	);
-	const beamDistance = wallStop.distance;
-	const impactedWall = wallStop.impactedWall;
-
-	// Penetration only governs walls. Targets take damage whenever the beam
-	// actually intersects them before the beam's wall-limited endpoint.
-	for (const target of GameState.enemies) {
-		if (target.hp <= 0) continue;
-
-		const hit = rayRectIntersection(
+	while (remainingRange > RAY_EPSILON) {
+		const wallStop = getLaserWallStopWithPenetrationBudget(
 			originX,
 			originY,
 			dirX,
 			dirY,
-			target,
 			radius,
+			remainingPenetrationBlocks,
+			remainingRange,
+			maxBounces > 0,
 		);
+		const beamDistance = wallStop.distance;
+		remainingPenetrationBlocks = wallStop.remainingPenetrationBlocks;
 
-		if (hit && hit.entryDistance <= beamDistance + 1e-9) {
-			target.hp -= stats.damage ?? 1;
+		for (const target of GameState.enemies) {
+			if (target.hp <= 0 || hitTargets.has(target)) continue;
+
+			const hit = rayRectIntersection(
+				originX,
+				originY,
+				dirX,
+				dirY,
+				target,
+				radius,
+			);
+
+			if (hit && hit.entryDistance <= beamDistance + 1e-9) {
+				target.hp -= stats.damage ?? 1;
+				hitTargets.add(target);
+			}
 		}
-	}
 
-	const endX = originX + dirX * beamDistance;
-	const endY = originY + dirY * beamDistance;
+		const endX = originX + dirX * beamDistance;
+		const endY = originY + dirY * beamDistance;
 
-	GameState.laserBeams.push({
-		x1: originX,
-		y1: originY,
-		x2: endX,
-		y2: endY,
-		color: stats.color ?? "white",
-		radius,
-		createdAt: currentTime,
-		durationMs: LASER_FLASH_DURATION_MS,
-	});
+		GameState.laserBeams.push({
+			x1: originX,
+			y1: originY,
+			x2: endX,
+			y2: endY,
+			color: stats.color ?? "white",
+			radius,
+			createdAt: currentTime,
+			durationMs: LASER_FLASH_DURATION_MS,
+		});
 
-	if (impactedWall && stats.detonatesOnImpact) {
-		detonateBullet(
-			{
-				x: endX,
-				y: endY,
-				color: stats.color ?? "white",
-				explosionRadiusBlocks: stats.explosionRadiusBlocks ?? 0,
-				explosionDurationMs: stats.explosionDurationMs ?? 0,
-				explosionDamage: stats.explosionDamage ?? 0,
-			},
-			true,
-			currentTime,
-		);
+		remainingRange = Math.max(0, remainingRange - beamDistance);
+		if (!wallStop.impactedWall) break;
+
+		if (bounces < maxBounces) {
+			// Every successful bounce of an explosive weapon creates its explosion
+			// without consuming/removing the laser shot.
+			createLaserExplosionAt(endX, endY, stats, currentTime);
+
+			const dot = dirX * wallStop.normalX + dirY * wallStop.normalY;
+			dirX -= 2 * dot * wallStop.normalX;
+			dirY -= 2 * dot * wallStop.normalY;
+			const magnitude = Math.hypot(dirX, dirY) || 1;
+			dirX /= magnitude;
+			dirY /= magnitude;
+			bounces++;
+
+			originX = endX + dirX * RAY_EPSILON;
+			originY = endY + dirY * RAY_EPSILON;
+			remainingRange = Math.max(0, remainingRange - RAY_EPSILON);
+			continue;
+		}
+
+		if (stats.detonatesOnImpact) {
+			createLaserExplosionAt(endX, endY, stats, currentTime);
+		}
+		break;
 	}
 }
 
@@ -790,7 +984,7 @@ export function requestLaserShot(
 	const centerX = shooter.x + shooter.size / 2;
 	const centerY = shooter.y + shooter.size / 2;
 	const angle = Math.atan2(targetY - centerY, targetX - centerX) +
-		(stats.spreadOffset || 0);
+		getRandomSpreadOffset(stats.spread ?? 0);
 	const warmupMs = Math.max(0, Number(stats.laserWarmupMs ?? 0) || 0);
 	const shot = {
 		shooter,
@@ -837,14 +1031,35 @@ export function processLasers(currentTime) {
 // i think doing it that way is more robust and allows for faster bullets and is also generally less buggy because it relies on continuous mathematical calculations - cyn
 export const BULLET_MAX_STEP_BLOCKS = 0.2;
 
-// Substeps projectile movement, reflects bullets from walls, applies damage to valid targets, enforces bounce/lifetime limits, and removes expired bullets
+// Returns whether a projectile has bounce behaviour available. Throwables are
+// always wall-bouncy; their configured maxBounces is reserved for boomerang
+// endpoint reversals rather than wall impacts.
+function isBouncyProjectile(bullet) {
+	return bullet.throwable === true || Math.max(0, bullet.maxBounces ?? 0) > 0;
+}
+
+function triggerSuccessfulBounceExplosion(bullet, isPlayerBullets, currentTime) {
+	if ((bullet.explosionRadiusBlocks ?? 0) > 0) {
+		detonateBullet(bullet, isPlayerBullets, currentTime);
+	}
+}
+
+function projectileRect(bullet) {
+	return {
+		x: bullet.x - bullet.radius,
+		y: bullet.y - bullet.radius,
+		size: bullet.radius * 2,
+	};
+}
+
+// Substeps projectile movement, reflects bullets from walls, applies damage to
+// valid targets, handles penetration/bounce synergies, advances closed-form
+// throwable legs, tags zero-movement projectiles, and removes expired bullets.
 export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 	for (let i = bulletArray.length - 1; i >= 0; i--) {
 		const b = bulletArray[i];
 		const targets = isPlayerBullets ? GameState.enemies : [player];
 
-		// A positive detonationTimeMs enables a timed fuse. 0 means no timed
-		// detonation, allowing impact-only or completely non-explosive bullets.
 		if (
 			b.detonationTimeMs > 0 &&
 			currentTime - b.createdAt >= b.detonationTimeMs
@@ -859,30 +1074,50 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 		let throwReachedTerminalTime = false;
 
 		if (b.throwable) {
-			// Closed-form total distance from launch using constant deceleration. We do
-			// not integrate acceleration or velocity each frame; the frame only moves
-			// the exact remaining delta. The analytically derived terminal time is the
-			// authoritative completion condition, avoiding fragile float equality checks.
-			const throwElapsedMs = Math.max(0, currentTime - b.createdAt);
-			throwReachedTerminalTime =
-				b.throwDistanceBlocks <= 0 ||
-				throwElapsedMs >= b.throwFlightDurationMs;
+			const legStartedAt = b.throwLegStartedAt ?? b.createdAt;
+			const throwElapsedMs = Math.max(0, currentTime - legStartedAt);
+			const isBoomerangLeg = (b.throwBounces ?? 0) > 0;
+			const throwLegDistanceBlocks =
+				b.throwDistanceBlocks * (isBoomerangLeg ? 2 : 1);
+			const throwLegDurationMs =
+				b.throwFlightDurationMs * (isBoomerangLeg ? 2 : 1);
 
-			desiredThrowTravel = throwReachedTerminalTime
-				? b.throwDistanceBlocks
-				: getThrowableTravelDistance(
+			throwReachedTerminalTime =
+				throwLegDistanceBlocks <= 0 ||
+				throwElapsedMs >= throwLegDurationMs;
+
+			if (throwReachedTerminalTime) {
+				desiredThrowTravel = throwLegDistanceBlocks;
+			} else if (isBoomerangLeg) {
+				desiredThrowTravel = getThrowableBoomerangTravelDistance(
 					b.throwDistanceBlocks,
 					throwElapsedMs,
 					b.throwDeceleration,
+					b.throwInitialSpeed,
+					b.throwFlightDurationMs,
 				);
+			} else {
+				desiredThrowTravel = getThrowableTravelDistance(
+					b.throwDistanceBlocks,
+					throwElapsedMs,
+					b.throwDeceleration,
+					b.throwInitialSpeed,
+					b.throwFlightDurationMs,
+				);
+			}
 
 			frameDistance = Math.max(
 				0,
-				desiredThrowTravel - b.throwTravelledBlocks,
+				desiredThrowTravel - (b.throwTravelledBlocks ?? 0),
 			);
 		} else {
 			frameDistance = Math.hypot(b.vx, b.vy) * dt;
 		}
+
+		// dv is the projectile's intended movement magnitude for this simulation
+		// update. Projectile/projectile collision uses it to distinguish a fixed
+		// stationary collider from a moving projectile.
+		b.dv = frameDistance;
 
 		const steps = Math.max(
 			1,
@@ -890,6 +1125,7 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 		);
 		const stepDt = dt / steps;
 		const throwableStepDistance = b.throwable ? frameDistance / steps : 0;
+		const bouncy = isBouncyProjectile(b);
 
 		let removeBullet = false;
 		let detonateOnRemoval = false;
@@ -904,23 +1140,19 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 						0,
 						Number(
 							b.remainingPenetrationBlocks ??
-							b.penetrationBlocks ??
-							0,
+								b.penetrationBlocks ??
+								0,
 						) || 0,
 					) > 0,
 				travelDistanceBlocks: intendedStepDistance,
 				consumed: false,
 			};
 
-			const mockRect = {
-				x: b.x - b.radius,
-				y: b.y - b.radius,
-				size: b.radius * 2,
-			};
-
+			const mockRect = projectileRect(b);
 			const moveX = b.throwable
 				? b.throwDirX * throwableStepDistance
 				: b.vx * stepDt;
+
 			b.x += moveX;
 			mockRect.x = b.x - b.radius;
 			mockRect.y = b.y - b.radius;
@@ -931,22 +1163,32 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 					mockRect,
 					w,
 					penetrationStepState,
+					bouncy,
 				),
 			);
 
 			if (hitWallX) {
 				b.x -= moveX;
-
-				if (b.throwable) {
-					b.throwDirX *= -1;
-				} else {
-					b.vx *= -1;
-				}
-
-				b.bounces++;
 				mockRect.x = b.x - b.radius;
 
-				if (b.bounces > b.maxBounces) {
+				if (b.throwable) {
+					// Wall bounces are unlimited for throwables. maxBounces instead
+					// controls boomerang reversals at throw-leg endpoints.
+					b.throwDirX *= -1;
+					triggerSuccessfulBounceExplosion(
+						b,
+						isPlayerBullets,
+						currentTime,
+					);
+				} else if (b.bounces < b.maxBounces) {
+					b.vx *= -1;
+					b.bounces++;
+					triggerSuccessfulBounceExplosion(
+						b,
+						isPlayerBullets,
+						currentTime,
+					);
+				} else {
 					removeBullet = true;
 					detonateOnRemoval = b.detonatesOnImpact;
 					break;
@@ -956,6 +1198,7 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 			const moveY = b.throwable
 				? b.throwDirY * throwableStepDistance
 				: b.vy * stepDt;
+
 			b.y += moveY;
 			mockRect.x = b.x - b.radius;
 			mockRect.y = b.y - b.radius;
@@ -966,31 +1209,49 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 					mockRect,
 					w,
 					penetrationStepState,
+					bouncy,
 				),
 			);
 
 			if (hitWallY) {
 				b.y -= moveY;
+				mockRect.y = b.y - b.radius;
 
 				if (b.throwable) {
 					b.throwDirY *= -1;
-				} else {
+					triggerSuccessfulBounceExplosion(
+						b,
+						isPlayerBullets,
+						currentTime,
+					);
+				} else if (b.bounces < b.maxBounces) {
 					b.vy *= -1;
-				}
-
-				b.bounces++;
-				mockRect.y = b.y - b.radius;
-
-				if (b.bounces > b.maxBounces) {
+					b.bounces++;
+					triggerSuccessfulBounceExplosion(
+						b,
+						isPlayerBullets,
+						currentTime,
+					);
+				} else {
 					removeBullet = true;
 					detonateOnRemoval = b.detonatesOnImpact;
 					break;
 				}
 			}
 
-			// Wall penetration never suppresses target damage. If the projectile's
-			// hitbox overlaps a target, damage is applied immediately regardless of
-			// how much wall-penetration budget remains.
+			// Once a bouncy projectile has spent its last penetration inside wall
+			// material, keep phasing until its entire hitbox is clear. Only then is
+			// the next wall contact allowed to execute a bounce/collision action.
+			if (b.finishPenetratedWall && bouncy) {
+				mockRect.x = b.x - b.radius;
+				mockRect.y = b.y - b.radius;
+				if (!GameState.walls.some((w) => isColliding(mockRect, w))) {
+					b.finishPenetratedWall = false;
+				}
+			}
+
+			// Target damage is independent of wall penetration. Any actual overlap
+			// damages immediately and target contact never consumes penetration.
 			targets.forEach((t) => {
 				const isTargetCollision = isColliding(mockRect, t);
 
@@ -999,44 +1260,72 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 						if (isPlayerBullets || !GameState.isInvincible) {
 							t.hp -= b.damage ?? 1;
 						}
-
 						b.hitTargets.add(t);
 					}
 				} else {
 					b.hitTargets.delete(t);
 				}
 			});
-
 		}
 
 		if (removeBullet) {
 			if (detonateOnRemoval) {
 				detonateBullet(b, isPlayerBullets, currentTime);
 			}
-
 			bulletArray.splice(i, 1);
 			continue;
 		}
 
 		if (b.throwable && desiredThrowTravel !== null) {
-			// At terminal time, snap the path-distance state to D exactly. This avoids
-			// a projectile getting permanently stuck at D - tiny floating-point error.
-			b.throwTravelledBlocks = throwReachedTerminalTime
-				? b.throwDistanceBlocks
-				: desiredThrowTravel;
-			b.throwComplete = throwReachedTerminalTime;
+			const isBoomerangLeg = (b.throwBounces ?? 0) > 0;
+			const throwLegDistanceBlocks =
+				b.throwDistanceBlocks * (isBoomerangLeg ? 2 : 1);
 
-			// For throwables, terminal time corresponds exactly to v = 0, so it is
-			// treated as an impact when detonatesOnImpact is enabled.
-			if (b.throwComplete && b.detonatesOnImpact) {
-				detonateBullet(b, isPlayerBullets, currentTime);
-				bulletArray.splice(i, 1);
-				continue;
+			b.throwTravelledBlocks = throwReachedTerminalTime
+				? throwLegDistanceBlocks
+				: desiredThrowTravel;
+
+			if (throwReachedTerminalTime) {
+				const configuredBoomerangBounces = Math.max(
+					0,
+					Math.floor(Number(b.maxBounces ?? 0) || 0),
+				);
+
+				if ((b.throwBounces ?? 0) < configuredBoomerangBounces) {
+					// A throwable bounce reverses direction by 180 degrees. The first
+					// outbound leg is D and ends at v=0. Each bounce leg is 2D: it
+					// accelerates from 0 to the original launch speed over the first D,
+					// then decelerates back to 0 over the second D. One full 2D leg
+					// consumes exactly one configured boomerang bounce.
+					b.throwDirX *= -1;
+					b.throwDirY *= -1;
+					b.throwBounces = (b.throwBounces ?? 0) + 1;
+					b.throwLegStartedAt = currentTime;
+					b.throwTravelledBlocks = 0;
+					b.throwComplete = false;
+					triggerSuccessfulBounceExplosion(
+						b,
+						isPlayerBullets,
+						currentTime,
+					);
+				} else {
+					b.throwComplete = true;
+
+					if (b.detonatesOnImpact) {
+						detonateBullet(b, isPlayerBullets, currentTime);
+						bulletArray.splice(i, 1);
+						continue;
+					}
+				}
+			} else {
+				b.throwComplete = false;
 			}
 		}
 
 		if (currentTime - b.createdAt > b.lifetimeMs) {
 			bulletArray.splice(i, 1);
+			continue;
 		}
+
 	}
 }

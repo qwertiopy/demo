@@ -13,6 +13,7 @@ import {
 	processBullets,
 	processExplosions,
 	processLasers,
+	resolveProjectileVectorCollisions,
 } from "./combat.js";
 import { initInput, loadLevel, processAutofire } from "./input.js";
 import { isActionDown, loadHotkeys } from "./hotkeys.js";
@@ -25,8 +26,6 @@ export function update(currentTime, dt) {
 		return;
 		// then add functionality for other stuff like resetting here
 	}
-
-	processAutofire(currentTime);
 
 	updateProceduralGeneration(player.x);
 	cleanupProceduralGeneration(player.x);
@@ -58,8 +57,13 @@ export function update(currentTime, dt) {
 	camera.x = player.x - camera.widthBlocks / 2 + player.size / 2;
 	camera.y = player.y - camera.heightBlocks / 2 + player.size / 2;
 
+	// Fire after movement/camera tracking so a held autofire binding recalculates
+	// aim against the current frame's camera position.
+	processAutofire(currentTime);
+
 	processBullets(GameState.bullets, true, currentTime, dt);
 	processBullets(GameState.enemyBullets, false, currentTime, dt);
+	resolveProjectileVectorCollisions();
 	processLasers(currentTime);
 	processExplosions(currentTime);
 

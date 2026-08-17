@@ -1,7 +1,7 @@
 export const CONFIG_STORAGE_KEY = "demoGameConfig";
 
 export const Config = {
-    CONFIG_SCHEMA_VERSION: 11,
+    CONFIG_SCHEMA_VERSION: 13,
     PLAYER_SPEED: 0,
     PLAYER_BULLET_SPEED: 0,
     WEAPONS: [],
@@ -170,6 +170,49 @@ function migrateConfig(defaultConfig, savedConfig) {
         );
 
         delete migratedConfig.PLAYER_SHOOT_COOLDOWN;
+    }
+
+    // Schema v12 replaces the fixed spreadOffset field with spread, a total
+    // random angular spread in radians. Preserve any old numeric value as the
+    // new spread magnitude and remove the retired field.
+    if (savedVersion < 12 && Array.isArray(savedConfig.WEAPONS)) {
+        migratedConfig.WEAPONS = defaultConfig.WEAPONS.map(
+            (defaultWeapon, index) => {
+                const sourceWeapon = migratedConfig.WEAPONS[index] || {};
+                const migratedWeapon = mergeConfig(defaultWeapon, sourceWeapon);
+
+                migratedWeapon.spread = Math.max(
+                    0,
+                    Number(sourceWeapon.spread ?? sourceWeapon.spreadOffset ?? defaultWeapon.spread ?? 0) || 0,
+                );
+                delete migratedWeapon.spreadOffset;
+                return migratedWeapon;
+            },
+        );
+    }
+
+    // Schema v13 adds opt-in projectile/projectile collision. Merge the new
+    // neutral false default into player weapons and enemy bullet definitions.
+    if (savedVersion < 13) {
+        if (Array.isArray(savedConfig.WEAPONS)) {
+            migratedConfig.WEAPONS = defaultConfig.WEAPONS.map(
+                (defaultWeapon, index) =>
+                    mergeConfig(defaultWeapon, migratedConfig.WEAPONS[index] || {}),
+            );
+        }
+
+        if (isPlainObject(defaultConfig.ENEMY_TYPES)) {
+            const migratedEnemyTypes = {};
+
+            for (const [typeName, defaultType] of Object.entries(defaultConfig.ENEMY_TYPES)) {
+                migratedEnemyTypes[typeName] = mergeConfig(
+                    defaultType,
+                    migratedConfig.ENEMY_TYPES?.[typeName] || {},
+                );
+            }
+
+            migratedConfig.ENEMY_TYPES = migratedEnemyTypes;
+        }
     }
 
     return migratedConfig;

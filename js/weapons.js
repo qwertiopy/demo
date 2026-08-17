@@ -9,7 +9,7 @@ const FALLBACK_BULLET_STATS = {
     color: "crimson",
     damage: 1,
     maxBounces: 1,
-    spreadOffset: 0,
+    spread: 0,
     lifetimeMs: 60000,
     explosionRadiusBlocks: 0,
     detonationTimeMs: 0,
@@ -23,6 +23,7 @@ const FALLBACK_BULLET_STATS = {
     laserWarmupMs: 0,
     cooldownMs: 0,
     penetrationBlocks: 0,
+    bulletCollision: false,
 };
 
 export function getWeaponCount() {

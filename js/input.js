@@ -89,25 +89,44 @@ function isEditableTarget(target) {
 	);
 }
 
-function updateAimFromMouseEvent(event) {
+export function refreshAimFromMousePosition() {
+	if (
+		!Number.isFinite(GameState.mouseClientX) ||
+		!Number.isFinite(GameState.mouseClientY)
+	) {
+		return false;
+	}
+
 	const rect = canvas.getBoundingClientRect();
-	if (rect.width <= 0 || rect.height <= 0) return;
+	if (rect.width <= 0 || rect.height <= 0) return false;
 
 	GameState.aimWorldX =
-		((event.clientX - rect.left) * (canvas.width / rect.width)) /
+		((GameState.mouseClientX - rect.left) * (canvas.width / rect.width)) /
 			Config.BLOCK_SIZE_PX +
 		camera.x;
 
 	GameState.aimWorldY =
-		((event.clientY - rect.top) * (canvas.height / rect.height)) /
+		((GameState.mouseClientY - rect.top) * (canvas.height / rect.height)) /
 			Config.BLOCK_SIZE_PX +
 		camera.y;
+
+	return true;
+}
+
+function updateAimFromMouseEvent(event) {
+	GameState.mouseClientX = event.clientX;
+	GameState.mouseClientY = event.clientY;
+	refreshAimFromMousePosition();
 }
 
 export function fireActiveWeapon(currentTime = performance.now()) {
 	if (GameState.isPlayerDead || player.hp <= 0) return false;
 
 	const now = Number.isFinite(currentTime) ? currentTime : performance.now();
+	// Recalculate world aim from the last known screen-space mouse position every
+	// firing attempt. This keeps keyboard/autofire aim correct while the camera
+	// moves even when no mouse event fires.
+	refreshAimFromMousePosition();
 	const stats = getActiveWeaponStats();
 	const weaponIndex = getActiveWeaponIndex();
 

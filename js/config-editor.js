@@ -50,7 +50,7 @@ function validateWeapons(weapons) {
 		"radiusBlocks",
 		"damage",
 		"maxBounces",
-		"spreadOffset",
+		"spread",
 		"lifetimeMs",
 		"explosionRadiusBlocks",
 		"detonationTimeMs",
@@ -99,6 +99,7 @@ function validateWeapons(weapons) {
 		}
 
 		for (const field of [
+			"spread",
 			"explosionRadiusBlocks",
 			"detonationTimeMs",
 			"explosionDurationMs",
@@ -137,6 +138,12 @@ function validateWeapons(weapons) {
 		if (typeof weapon.laser !== "boolean") {
 			throw new Error(
 				`Weapon ${index + 1}.laser must be true or false.`,
+			);
+		}
+
+		if (typeof weapon.bulletCollision !== "boolean") {
+			throw new Error(
+				`Weapon ${index + 1}.bulletCollision must be true or false.`,
 			);
 		}
 
@@ -258,6 +265,41 @@ function migrateSavedConfig(savedConfig) {
 		});
 
 		delete migrated.PLAYER_SHOOT_COOLDOWN;
+	}
+
+	if (savedVersion < 12 && Array.isArray(savedConfig.WEAPONS)) {
+		migrated.WEAPONS = defaultConfig.WEAPONS.map((defaultWeapon, index) => {
+			const sourceWeapon = migrated.WEAPONS[index] || {};
+			const migratedWeapon = mergeConfig(defaultWeapon, sourceWeapon);
+
+			migratedWeapon.spread = Math.max(
+				0,
+				Number(sourceWeapon.spread ?? sourceWeapon.spreadOffset ?? defaultWeapon.spread ?? 0) || 0,
+			);
+			delete migratedWeapon.spreadOffset;
+			return migratedWeapon;
+		});
+	}
+
+	if (savedVersion < 13) {
+		if (Array.isArray(savedConfig.WEAPONS)) {
+			migrated.WEAPONS = defaultConfig.WEAPONS.map((defaultWeapon, index) =>
+				mergeConfig(defaultWeapon, migrated.WEAPONS[index] || {}),
+			);
+		}
+
+		if (isPlainObject(defaultConfig.ENEMY_TYPES)) {
+			const migratedEnemyTypes = {};
+
+			for (const [typeName, defaultType] of Object.entries(defaultConfig.ENEMY_TYPES)) {
+				migratedEnemyTypes[typeName] = mergeConfig(
+					defaultType,
+					migrated.ENEMY_TYPES?.[typeName] || {},
+				);
+			}
+
+			migrated.ENEMY_TYPES = migratedEnemyTypes;
+		}
 	}
 
 	return migrated;

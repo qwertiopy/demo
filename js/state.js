@@ -6,6 +6,8 @@ import { Config } from "./config.js";
 // bookkeeping, timing, gameplay toggles, aiming, and active weapon selection.
 export const GameState = {
 	pressedInputs: new Set(),
+	mouseClientX: null,
+	mouseClientY: null,
 	aimWorldX: 1,
 	aimWorldY: 0.25,
 	activeWeaponIndex: 0,
