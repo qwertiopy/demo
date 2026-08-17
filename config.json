@@ -26,12 +26,12 @@
             "bulletCollision": false
         },
         {
-            "speed": 5,
+            "speed": 15,
             "radiusBlocks": 0.08,
             "color": "crimson",
             "damage": 1,
             "maxBounces": 9,
-            "spread": 0,
+            "spread": 0.5,
             "lifetimeMs": 60000,
             "explosionRadiusBlocks": 1,
             "detonationTimeMs": 0,
