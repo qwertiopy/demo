@@ -1,14 +1,14 @@
 {
-    "CONFIG_SCHEMA_VERSION": 5,
+    "CONFIG_SCHEMA_VERSION": 10,
     "PLAYER_SPEED": 5,
     "PLAYER_BULLET_SPEED": 10,
     "PLAYER_SHOOT_COOLDOWN": 0,
     "WEAPONS": [
         {
-            "speed": 10,
+            "speed": 5,
             "radiusBlocks": 0.08,
             "color": "crimson",
-            "damage": 1,
+            "damage": 3,
             "maxBounces": 1,
             "spreadOffset": 0,
             "lifetimeMs": 60000,
@@ -16,10 +16,17 @@
             "detonationTimeMs": 0,
             "explosionDurationMs": 0,
             "explosionDamage": 0,
-            "detonatesOnImpact": false
+            "detonatesOnImpact": false,
+            "throwable": false,
+            "throwDistanceMultiplier": 1,
+            "throwDeceleration": 20,
+            "laser": false,
+            "laserWarmupMs": 0,
+            "laserCooldownMs": 0,
+            "penetrationBlocks": 1
         },
         {
-            "speed": 10,
+            "speed": 5,
             "radiusBlocks": 0.08,
             "color": "crimson",
             "damage": 1,
@@ -29,8 +36,15 @@
             "explosionRadiusBlocks": 1,
             "detonationTimeMs": 0,
             "explosionDurationMs": 250,
-            "explosionDamage": 1,
-            "detonatesOnImpact": true
+            "explosionDamage": 3,
+            "detonatesOnImpact": true,
+            "throwable": false,
+            "throwDistanceMultiplier": 1,
+            "throwDeceleration": 20,
+            "laser": false,
+            "laserWarmupMs": 0,
+            "laserCooldownMs": 0,
+            "penetrationBlocks": 0
         },
         {
             "speed": 10,
@@ -44,7 +58,35 @@
             "detonationTimeMs": 1500,
             "explosionDurationMs": 250,
             "explosionDamage": 1,
-            "detonatesOnImpact": false
+            "detonatesOnImpact": false,
+            "throwable": true,
+            "throwDistanceMultiplier": 1,
+            "throwDeceleration": 20,
+            "laser": false,
+            "laserWarmupMs": 0,
+            "laserCooldownMs": 0,
+            "penetrationBlocks": 0
+        },
+        {
+            "speed": 10,
+            "radiusBlocks": 0.08,
+            "color": "crimson",
+            "damage": 1,
+            "maxBounces": 1,
+            "spreadOffset": 0,
+            "lifetimeMs": 60000,
+            "explosionRadiusBlocks": 2,
+            "detonationTimeMs": 0,
+            "explosionDurationMs": 100,
+            "explosionDamage": 1,
+            "detonatesOnImpact": true,
+            "throwable": false,
+            "throwDistanceMultiplier": 1,
+            "throwDeceleration": 20,
+            "laser": true,
+            "laserWarmupMs": 0,
+            "laserCooldownMs": 0,
+            "penetrationBlocks": 1
         },
         {
             "speed": 10,
@@ -58,7 +100,14 @@
             "detonationTimeMs": 0,
             "explosionDurationMs": 0,
             "explosionDamage": 0,
-            "detonatesOnImpact": false
+            "detonatesOnImpact": false,
+            "throwable": false,
+            "throwDistanceMultiplier": 1,
+            "throwDeceleration": 20,
+            "laser": false,
+            "laserWarmupMs": 0,
+            "laserCooldownMs": 0,
+            "penetrationBlocks": 0
         },
         {
             "speed": 10,
@@ -72,7 +121,14 @@
             "detonationTimeMs": 0,
             "explosionDurationMs": 0,
             "explosionDamage": 0,
-            "detonatesOnImpact": false
+            "detonatesOnImpact": false,
+            "throwable": false,
+            "throwDistanceMultiplier": 1,
+            "throwDeceleration": 20,
+            "laser": false,
+            "laserWarmupMs": 0,
+            "laserCooldownMs": 0,
+            "penetrationBlocks": 0
         },
         {
             "speed": 10,
@@ -86,7 +142,14 @@
             "detonationTimeMs": 0,
             "explosionDurationMs": 0,
             "explosionDamage": 0,
-            "detonatesOnImpact": false
+            "detonatesOnImpact": false,
+            "throwable": false,
+            "throwDistanceMultiplier": 1,
+            "throwDeceleration": 20,
+            "laser": false,
+            "laserWarmupMs": 0,
+            "laserCooldownMs": 0,
+            "penetrationBlocks": 0
         },
         {
             "speed": 10,
@@ -100,7 +163,14 @@
             "detonationTimeMs": 0,
             "explosionDurationMs": 0,
             "explosionDamage": 0,
-            "detonatesOnImpact": false
+            "detonatesOnImpact": false,
+            "throwable": false,
+            "throwDistanceMultiplier": 1,
+            "throwDeceleration": 20,
+            "laser": false,
+            "laserWarmupMs": 0,
+            "laserCooldownMs": 0,
+            "penetrationBlocks": 0
         },
         {
             "speed": 10,
@@ -114,7 +184,14 @@
             "detonationTimeMs": 0,
             "explosionDurationMs": 0,
             "explosionDamage": 0,
-            "detonatesOnImpact": false
+            "detonatesOnImpact": false,
+            "throwable": false,
+            "throwDistanceMultiplier": 1,
+            "throwDeceleration": 20,
+            "laser": false,
+            "laserWarmupMs": 0,
+            "laserCooldownMs": 0,
+            "penetrationBlocks": 0
         },
         {
             "speed": 10,
@@ -128,21 +205,14 @@
             "detonationTimeMs": 0,
             "explosionDurationMs": 0,
             "explosionDamage": 0,
-            "detonatesOnImpact": false
-        },
-        {
-            "speed": 10,
-            "radiusBlocks": 0.08,
-            "color": "crimson",
-            "damage": 1,
-            "maxBounces": 1,
-            "spreadOffset": 0,
-            "lifetimeMs": 60000,
-            "explosionRadiusBlocks": 0,
-            "detonationTimeMs": 0,
-            "explosionDurationMs": 0,
-            "explosionDamage": 0,
-            "detonatesOnImpact": false
+            "detonatesOnImpact": false,
+            "throwable": false,
+            "throwDistanceMultiplier": 1,
+            "throwDeceleration": 20,
+            "laser": false,
+            "laserWarmupMs": 0,
+            "laserCooldownMs": 0,
+            "penetrationBlocks": 0
         }
     ],
     "STRUCTURE_DENSITY_BLOCKS": 5,
@@ -163,7 +233,8 @@
             "bulletDetonationTimeMs": 0,
             "bulletExplosionDurationMs": 0,
             "bulletExplosionDamage": 0,
-            "bulletDetonatesOnImpact": false
+            "bulletDetonatesOnImpact": false,
+            "bulletPenetrationBlocks": 0
         },
         "j-bot": {
             "sizeBlocks": 0.75,
@@ -181,7 +252,8 @@
             "bulletDetonationTimeMs": 0,
             "bulletExplosionDurationMs": 0,
             "bulletExplosionDamage": 0,
-            "bulletDetonatesOnImpact": false
+            "bulletDetonatesOnImpact": false,
+            "bulletPenetrationBlocks": 0
         },
         "h-bot": {
             "sizeBlocks": 0.375,
@@ -199,7 +271,8 @@
             "bulletDetonationTimeMs": 0,
             "bulletExplosionDurationMs": 0,
             "bulletExplosionDamage": 0,
-            "bulletDetonatesOnImpact": false
+            "bulletDetonatesOnImpact": false,
+            "bulletPenetrationBlocks": 0
         }
     },
     "STRUCTURE_LIBRARY": [

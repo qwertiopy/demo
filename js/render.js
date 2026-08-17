@@ -160,6 +160,57 @@ export function draw() {
 		ctx.closePath();
 	});
 
+	// Pending laser warmups are telegraphed as a faint beam. Aim direction is
+	// locked when the shot starts, but the origin follows the shooter until fire.
+	GameState.laserWarmups.forEach((shot) => {
+		const originX = shot.shooter.x + shot.shooter.size / 2;
+		const originY = shot.shooter.y + shot.shooter.size / 2;
+		const elapsed = Math.max(0, performance.now() - shot.startedAt);
+		const duration = Math.max(1, shot.fireAt - shot.startedAt);
+		const progress = Math.min(1, elapsed / duration);
+		const radius = Math.max(0.015, Number(shot.stats.radiusBlocks ?? 0.03) || 0.03);
+
+		ctx.save();
+		ctx.globalAlpha = 0.16 + progress * 0.34;
+		ctx.strokeStyle = shot.stats.color ?? "white";
+		ctx.lineWidth = Math.max(1, radius * 2 * Config.BLOCK_SIZE_PX);
+		ctx.setLineDash([6, 8]);
+		ctx.beginPath();
+		ctx.moveTo(
+			originX * Config.BLOCK_SIZE_PX,
+			originY * Config.BLOCK_SIZE_PX,
+		);
+		ctx.lineTo(
+			(originX + shot.dirX * 60) * Config.BLOCK_SIZE_PX,
+			(originY + shot.dirY * 60) * Config.BLOCK_SIZE_PX,
+		);
+		ctx.stroke();
+		ctx.restore();
+	});
+
+	// Fired lasers are short-lived hitscan flashes. The rendered beam endpoint is
+	// the same endpoint used by the collision resolver.
+	GameState.laserBeams.forEach((beam) => {
+		const age = Math.max(0, performance.now() - beam.createdAt);
+		const alpha = Math.max(0, 1 - age / Math.max(1, beam.durationMs));
+
+		ctx.save();
+		ctx.globalAlpha = alpha;
+		ctx.strokeStyle = beam.color;
+		ctx.lineWidth = Math.max(2, beam.radius * 2 * Config.BLOCK_SIZE_PX);
+		ctx.beginPath();
+		ctx.moveTo(
+			beam.x1 * Config.BLOCK_SIZE_PX,
+			beam.y1 * Config.BLOCK_SIZE_PX,
+		);
+		ctx.lineTo(
+			beam.x2 * Config.BLOCK_SIZE_PX,
+			beam.y2 * Config.BLOCK_SIZE_PX,
+		);
+		ctx.stroke();
+		ctx.restore();
+	});
+
 	// Explosion rendering matches the circular gameplay hitbox.
 	GameState.explosions.forEach((explosion) => {
 		ctx.save();

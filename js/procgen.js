@@ -146,7 +146,7 @@ export function updateProceduralGeneration(playerX) {
 	}
 }
 
-// Removes walls, structures, spawn points, and generated-column markers that have moved outside the active render window.
+// Removes walls, structures, entities, projectiles, spawn points, and generated-column markers that have moved outside the active render window.
 export function cleanupProceduralGeneration(playerX) {
 	const startX = Math.max(
 		0,
@@ -164,6 +164,25 @@ export function cleanupProceduralGeneration(playerX) {
 
 	GameState.placedStructures = GameState.placedStructures.filter(
 		(s) => s.origin.x >= safeStartX && s.origin.x <= safeEndX,
+	);
+
+	// Despawn enemies once their full hitbox is outside the active render window.
+	// Using the enemy's right edge on the back boundary prevents a partially
+	// visible enemy from disappearing as soon as its left edge leaves the window.
+	GameState.enemies = GameState.enemies.filter(
+		(e) => e.x + e.size >= safeStartX && e.x <= safeEndX,
+	);
+
+	// Remove projectiles only once their entire circular hitbox is outside the
+	// active horizontal render window. Apply this to both player and enemy bullets.
+	const bulletIsInsideRenderWindow = (b) => {
+		const radius = Number(b.radius) || 0;
+		return b.x + radius >= safeStartX && b.x - radius <= safeEndX;
+	};
+
+	GameState.bullets = GameState.bullets.filter(bulletIsInsideRenderWindow);
+	GameState.enemyBullets = GameState.enemyBullets.filter(
+		bulletIsInsideRenderWindow,
 	);
 
 	GameState.enemySpawns = GameState.enemySpawns.filter((s) => s.x >= startX);

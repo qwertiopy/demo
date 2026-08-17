@@ -1,7 +1,7 @@
 export const CONFIG_STORAGE_KEY = "demoGameConfig";
 
 export const Config = {
-    CONFIG_SCHEMA_VERSION: 5,
+    CONFIG_SCHEMA_VERSION: 10,
     PLAYER_SPEED: 0,
     PLAYER_BULLET_SPEED: 0,
     PLAYER_SHOOT_COOLDOWN: 0,
@@ -71,6 +71,72 @@ function migrateConfig(defaultConfig, savedConfig) {
         migratedConfig.WEAPONS = defaultConfig.WEAPONS.map(
             (defaultWeapon, index) =>
                 mergeConfig(defaultWeapon, savedConfig.WEAPONS[index] || {}),
+        );
+    }
+
+    // Schema v6 adds the throwable flag. Merge each existing weapon into its
+    // v6 default so old local saves gain throwable=false without losing any
+    // of their weapon balancing.
+    if (savedVersion < 6 && Array.isArray(savedConfig.WEAPONS)) {
+        migratedConfig.WEAPONS = defaultConfig.WEAPONS.map(
+            (defaultWeapon, index) =>
+                mergeConfig(defaultWeapon, migratedConfig.WEAPONS[index] || {}),
+        );
+    }
+
+    // Schema v7 adds configurable throwable duration, distance multiplier, and
+    // initial throw speed. Merge defaults into each existing weapon so local
+    // balancing and throwable choices are preserved.
+    if (savedVersion < 7 && Array.isArray(savedConfig.WEAPONS)) {
+        migratedConfig.WEAPONS = defaultConfig.WEAPONS.map(
+            (defaultWeapon, index) =>
+                mergeConfig(defaultWeapon, migratedConfig.WEAPONS[index] || {}),
+        );
+    }
+
+    // Schema v8 replaces throwSpeed with throwDeceleration. Merge the new
+    // default into each weapon, preserve all other balancing, and explicitly
+    // remove the retired throwSpeed field from migrated local saves.
+    if (savedVersion < 8 && Array.isArray(savedConfig.WEAPONS)) {
+        migratedConfig.WEAPONS = defaultConfig.WEAPONS.map(
+            (defaultWeapon, index) => {
+                const migratedWeapon = mergeConfig(
+                    defaultWeapon,
+                    migratedConfig.WEAPONS[index] || {},
+                );
+
+                delete migratedWeapon.throwSpeed;
+                return migratedWeapon;
+            },
+        );
+    }
+
+    // Schema v9 makes throwDeceleration a physical constant in blocks/sec² and
+    // derives initial throw speed + duration from distance. The v8 field had
+    // incompatible dimensionless curve semantics, so it cannot be preserved
+    // safely. Replace it with the v9 default and remove retired duration/speed.
+    if (savedVersion < 9 && Array.isArray(savedConfig.WEAPONS)) {
+        migratedConfig.WEAPONS = defaultConfig.WEAPONS.map(
+            (defaultWeapon, index) => {
+                const migratedWeapon = mergeConfig(
+                    defaultWeapon,
+                    migratedConfig.WEAPONS[index] || {},
+                );
+
+                migratedWeapon.throwDeceleration = defaultWeapon.throwDeceleration;
+                delete migratedWeapon.throwDurationMs;
+                delete migratedWeapon.throwSpeed;
+                return migratedWeapon;
+            },
+        );
+    }
+
+    // Schema v10 adds laser timing and collision-penetration settings. Merge
+    // neutral defaults into existing weapons so prior local balancing is kept.
+    if (savedVersion < 10 && Array.isArray(savedConfig.WEAPONS)) {
+        migratedConfig.WEAPONS = defaultConfig.WEAPONS.map(
+            (defaultWeapon, index) =>
+                mergeConfig(defaultWeapon, migratedConfig.WEAPONS[index] || {}),
         );
     }
 
