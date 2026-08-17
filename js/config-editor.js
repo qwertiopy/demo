@@ -59,7 +59,7 @@ function validateWeapons(weapons) {
 		"throwDistanceMultiplier",
 		"throwDeceleration",
 		"laserWarmupMs",
-		"laserCooldownMs",
+		"cooldownMs",
 		"penetrationBlocks",
 	];
 
@@ -106,7 +106,7 @@ function validateWeapons(weapons) {
 			"throwDistanceMultiplier",
 			"throwDeceleration",
 			"laserWarmupMs",
-			"laserCooldownMs",
+			"cooldownMs",
 			"penetrationBlocks",
 		]) {
 			if (weapon[field] < 0) {
@@ -233,6 +233,33 @@ function migrateSavedConfig(savedConfig) {
 		);
 	}
 
+	if (savedVersion < 11 && Array.isArray(savedConfig.WEAPONS)) {
+		const oldGlobalCooldown = Math.max(
+			0,
+			Number(savedConfig.PLAYER_SHOOT_COOLDOWN ?? 0) || 0,
+		);
+
+		migrated.WEAPONS = defaultConfig.WEAPONS.map((defaultWeapon, index) => {
+			const sourceWeapon = migrated.WEAPONS[index] || {};
+			const oldLaserCooldown = Math.max(
+				0,
+				Number(sourceWeapon.laserCooldownMs ?? 0) || 0,
+			);
+			const migratedWeapon = mergeConfig(defaultWeapon, sourceWeapon);
+
+			migratedWeapon.cooldownMs = sourceWeapon.laser === true
+				? oldLaserCooldown
+				: oldLaserCooldown > 0
+					? oldLaserCooldown
+					: oldGlobalCooldown;
+
+			delete migratedWeapon.laserCooldownMs;
+			return migratedWeapon;
+		});
+
+		delete migrated.PLAYER_SHOOT_COOLDOWN;
+	}
+
 	return migrated;
 }
 
@@ -281,9 +308,6 @@ function syncConfigToUI() {
 	document.getElementById("cfg_PLAYER_BULLET_SPEED").value =
 		config.PLAYER_BULLET_SPEED ?? "";
 
-	document.getElementById("cfg_PLAYER_SHOOT_COOLDOWN").value =
-		config.PLAYER_SHOOT_COOLDOWN ?? "";
-
 	document.getElementById("cfg_STRUCTURE_DENSITY_BLOCKS").value =
 		config.STRUCTURE_DENSITY_BLOCKS ?? "";
 
@@ -311,9 +335,6 @@ function readConfigFromUI() {
 	const bulletSpeed = parseFloat(
 		document.getElementById("cfg_PLAYER_BULLET_SPEED").value,
 	);
-	const shootCooldown = parseFloat(
-		document.getElementById("cfg_PLAYER_SHOOT_COOLDOWN").value,
-	);
 	const structureDensity = parseFloat(
 		document.getElementById("cfg_STRUCTURE_DENSITY_BLOCKS").value,
 	);
@@ -324,10 +345,6 @@ function readConfigFromUI() {
 
 	if (!Number.isFinite(bulletSpeed)) {
 		throw new Error("Fallback Bullet Speed must be a number in blocks/sec.");
-	}
-
-	if (!Number.isFinite(shootCooldown) || shootCooldown < 0) {
-		throw new Error("Shoot Cooldown must be a non-negative number in ms.");
 	}
 
 	if (!Number.isFinite(structureDensity)) {
@@ -344,7 +361,6 @@ function readConfigFromUI() {
 
 	config.PLAYER_SPEED = playerSpeed;
 	config.PLAYER_BULLET_SPEED = bulletSpeed;
-	config.PLAYER_SHOOT_COOLDOWN = shootCooldown;
 	config.STRUCTURE_DENSITY_BLOCKS = structureDensity;
 
 	if (advancedData.WEAPONS !== undefined) {

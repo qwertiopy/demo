@@ -14,7 +14,7 @@ import {
 	processExplosions,
 	processLasers,
 } from "./combat.js";
-import { initInput, loadLevel } from "./input.js";
+import { initInput, loadLevel, processAutofire } from "./input.js";
 import { isActionDown, loadHotkeys } from "./hotkeys.js";
 import { draw } from "./render.js";
 
@@ -25,6 +25,8 @@ export function update(currentTime, dt) {
 		return;
 		// then add functionality for other stuff like resetting here
 	}
+
+	processAutofire(currentTime);
 
 	updateProceduralGeneration(player.x);
 	cleanupProceduralGeneration(player.x);

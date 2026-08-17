@@ -9,6 +9,7 @@ export const HOTKEY_ACTIONS = [
 	{ id: "moveLeft", label: "Move Left", group: "Movement" },
 	{ id: "moveRight", label: "Move Right", group: "Movement" },
 	{ id: "shoot", label: "Shoot", group: "Combat" },
+	{ id: "autofire", label: "Auto Fire", group: "Combat" },
 	{ id: "respawn", label: "Respawn", group: "Interface" },
 	{ id: "toggleUI", label: "Toggle Debug UI", group: "Interface" },
 	{ id: "weapon1", label: "Select Weapon 1", group: "Weapons" },
@@ -25,7 +26,7 @@ export const HOTKEY_ACTIONS = [
 
 const ACTION_IDS = new Set(HOTKEY_ACTIONS.map((action) => action.id));
 
-export const Hotkeys = { HOTKEY_SCHEMA_VERSION: 1, bindings: {} };
+export const Hotkeys = { HOTKEY_SCHEMA_VERSION: 2, bindings: {} };
 
 function isPlainObject(value) {
 	return value !== null && typeof value === "object" && !Array.isArray(value);

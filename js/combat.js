@@ -769,7 +769,8 @@ function resolveLaserShot(shot, currentTime) {
 
 // Starts a player laser shot. Aim direction is locked at trigger time. Warmup
 // is a delayed state transition, while the beam itself is resolved as hitscan.
-// Cooldown begins when the beam actually fires, not when warmup begins.
+// Cooldown begins at the exact scheduled end of warmup (shot.fireAt), so the
+// short rendered firing flash overlaps cooldown instead of extending it.
 export function requestLaserShot(
 	shooter,
 	targetX,
@@ -779,7 +780,7 @@ export function requestLaserShot(
 	currentTime = performance.now(),
 ) {
 	const index = Math.max(0, Number(weaponIndex) || 0);
-	const cooldownUntil = GameState.laserCooldownUntilByWeapon[index] || 0;
+	const cooldownUntil = GameState.weaponCooldownUntilByWeapon[index] || 0;
 
 	if (currentTime < cooldownUntil) return false;
 	if (GameState.laserWarmups.some((shot) => shot.weaponIndex === index)) {
@@ -803,8 +804,8 @@ export function requestLaserShot(
 
 	if (warmupMs <= 0) {
 		resolveLaserShot(shot, currentTime);
-		GameState.laserCooldownUntilByWeapon[index] =
-			currentTime + Math.max(0, Number(stats.laserCooldownMs ?? 0) || 0);
+		GameState.weaponCooldownUntilByWeapon[index] =
+			currentTime + Math.max(0, Number(stats.cooldownMs ?? 0) || 0);
 		return true;
 	}
 
@@ -820,9 +821,9 @@ export function processLasers(currentTime) {
 		if (currentTime < shot.fireAt) continue;
 
 		resolveLaserShot(shot, currentTime);
-		GameState.laserCooldownUntilByWeapon[shot.weaponIndex] =
-			currentTime +
-			Math.max(0, Number(shot.stats.laserCooldownMs ?? 0) || 0);
+		GameState.weaponCooldownUntilByWeapon[shot.weaponIndex] =
+			shot.fireAt +
+			Math.max(0, Number(shot.stats.cooldownMs ?? 0) || 0);
 		GameState.laserWarmups.splice(i, 1);
 	}
 

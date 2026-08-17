@@ -1,10 +1,9 @@
 export const CONFIG_STORAGE_KEY = "demoGameConfig";
 
 export const Config = {
-    CONFIG_SCHEMA_VERSION: 10,
+    CONFIG_SCHEMA_VERSION: 11,
     PLAYER_SPEED: 0,
     PLAYER_BULLET_SPEED: 0,
-    PLAYER_SHOOT_COOLDOWN: 0,
     WEAPONS: [],
     STRUCTURE_DENSITY_BLOCKS: 0,
     ENEMY_TYPES: {},
@@ -138,6 +137,39 @@ function migrateConfig(defaultConfig, savedConfig) {
             (defaultWeapon, index) =>
                 mergeConfig(defaultWeapon, migratedConfig.WEAPONS[index] || {}),
         );
+    }
+
+    // Schema v11 replaces laserCooldownMs + the old global player cooldown with
+    // one per-weapon cooldownMs field. Lasers preserve their former laser-only
+    // cooldown; non-lasers preserve the old global cooldown unless they already
+    // had a non-zero laserCooldownMs value configured.
+    if (savedVersion < 11 && Array.isArray(savedConfig.WEAPONS)) {
+        const oldGlobalCooldown = Math.max(
+            0,
+            Number(savedConfig.PLAYER_SHOOT_COOLDOWN ?? 0) || 0,
+        );
+
+        migratedConfig.WEAPONS = defaultConfig.WEAPONS.map(
+            (defaultWeapon, index) => {
+                const sourceWeapon = migratedConfig.WEAPONS[index] || {};
+                const oldLaserCooldown = Math.max(
+                    0,
+                    Number(sourceWeapon.laserCooldownMs ?? 0) || 0,
+                );
+                const migratedWeapon = mergeConfig(defaultWeapon, sourceWeapon);
+
+                migratedWeapon.cooldownMs = sourceWeapon.laser === true
+                    ? oldLaserCooldown
+                    : oldLaserCooldown > 0
+                        ? oldLaserCooldown
+                        : oldGlobalCooldown;
+
+                delete migratedWeapon.laserCooldownMs;
+                return migratedWeapon;
+            },
+        );
+
+        delete migratedConfig.PLAYER_SHOOT_COOLDOWN;
     }
 
     return migratedConfig;

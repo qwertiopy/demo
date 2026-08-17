@@ -45,17 +45,6 @@
                         weapon has no speed value.
                     </p>
                 </div>
-
-                <div class="config-row">
-                    <label for="cfg_PLAYER_SHOOT_COOLDOWN">
-                        Shoot Cooldown (ms)
-                    </label>
-                    <input
-                        type="number"
-                        id="cfg_PLAYER_SHOOT_COOLDOWN"
-                        step="10"
-                    />
-                </div>
             </section>
 
             <section class="config-section">
@@ -83,7 +72,7 @@
                     explosionRadiusBlocks, detonationTimeMs,
                     explosionDurationMs, explosionDamage, detonatesOnImpact,
                     throwable, throwDistanceMultiplier, throwDeceleration, laser,
-                    laserWarmupMs, laserCooldownMs, and penetrationBlocks.
+                    laserWarmupMs, cooldownMs, and penetrationBlocks.
                 </p>
 
                 <p class="config-help">
@@ -108,9 +97,11 @@
                 <p class="config-help">
                     Lasers: set <strong>laser = true</strong>. Firing starts a
                     warmup for <strong>laserWarmupMs</strong>, then resolves an
-                    instantaneous beam. The same weapon cannot begin another laser
-                    warmup until <strong>laserCooldownMs</strong> after the beam fires.
-                    Laser aim is locked when the shot is started.
+                    instantaneous beam. <strong>cooldownMs</strong> applies to every
+                    weapon: ordinary projectiles and throwables start cooldown when
+                    fired, while lasers start cooldown when the beam fires after
+                    warmup. Cooldowns are tracked separately per weapon. Laser aim
+                    is locked when the shot is started.
                 </p>
 
                 <p class="config-help">

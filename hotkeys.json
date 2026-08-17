@@ -1,11 +1,12 @@
 {
-	"HOTKEY_SCHEMA_VERSION": 1,
+	"HOTKEY_SCHEMA_VERSION": 2,
 	"bindings": {
 		"moveUp": ["KeyW", "ArrowUp"],
 		"moveDown": ["KeyS", "ArrowDown"],
 		"moveLeft": ["KeyA", "ArrowLeft"],
 		"moveRight": ["KeyD", "ArrowRight"],
 		"shoot": ["Mouse0", "Space"],
+		"autofire": [],
 		"respawn": ["KeyR"],
 		"toggleUI": ["KeyH"],
 		"weapon1": ["Digit1"],

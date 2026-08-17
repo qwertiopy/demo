@@ -21,7 +21,7 @@ const FALLBACK_BULLET_STATS = {
     throwDeceleration: 20,
     laser: false,
     laserWarmupMs: 0,
-    laserCooldownMs: 0,
+    cooldownMs: 0,
     penetrationBlocks: 0,
 };
 

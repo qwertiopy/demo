@@ -14,6 +14,7 @@ import {
 import { requestLaserShot, shoot } from "./combat.js";
 import {
 	getActionsForInput,
+	isActionDown,
 	keyboardEventToInputCode,
 	mouseEventToInputCode,
 } from "./hotkeys.js";
@@ -45,14 +46,13 @@ export function loadLevel() {
 		GameState.explosions.length = 0;
 		GameState.laserWarmups.length = 0;
 		GameState.laserBeams.length = 0;
-		GameState.laserCooldownUntilByWeapon.length = 0;
+		GameState.weaponCooldownUntilByWeapon.length = 0;
 		GameState.enemies.length = 0;
 		GameState.walls.length = 0;
 		GameState.enemySpawns.length = 0;
 		GameState.generatedColumns.clear();
 		GameState.placedStructures.length = 0;
 		GameState.lastSpawnTime = performance.now();
-		GameState.playerLastShot = 0;
 		GameState.isPlayerDead = false;
 
 		if (data.seed !== undefined) {
@@ -104,22 +104,48 @@ function updateAimFromMouseEvent(event) {
 		camera.y;
 }
 
-function fireActiveWeapon() {
-	const now = performance.now();
+export function fireActiveWeapon(currentTime = performance.now()) {
+	if (GameState.isPlayerDead || player.hp <= 0) return false;
 
-	if (now - GameState.playerLastShot < Config.PLAYER_SHOOT_COOLDOWN) {
-		return;
+	const now = Number.isFinite(currentTime) ? currentTime : performance.now();
+	const stats = getActiveWeaponStats();
+	const weaponIndex = getActiveWeaponIndex();
+
+	if (stats.laser === true) {
+		return requestLaserShot(
+			player,
+			GameState.aimWorldX,
+			GameState.aimWorldY,
+			stats,
+			weaponIndex,
+			now,
+		);
 	}
 
-	GameState.playerLastShot = now;
+	const cooldownUntil = GameState.weaponCooldownUntilByWeapon[weaponIndex] || 0;
+	if (now < cooldownUntil) return false;
 
 	shoot(
 		player,
 		GameState.aimWorldX,
 		GameState.aimWorldY,
 		GameState.bullets,
-		getActiveWeaponStats(),
+		stats,
 	);
+
+	GameState.weaponCooldownUntilByWeapon[weaponIndex] =
+		now + Math.max(0, Number(stats.cooldownMs ?? 0) || 0);
+
+	return true;
+}
+
+// Continuous-fire action. Unlike the one-shot Shoot action, Auto Fire is
+// evaluated every simulation frame while any of its bindings are held. The
+// per-weapon cooldown gate in fireActiveWeapon() determines whether that frame
+// actually produces a shot.
+export function processAutofire(currentTime = performance.now()) {
+	if (!isActionDown("autofire", GameState.pressedInputs)) return false;
+	return fireActiveWeapon(currentTime);
 }
 
 function selectWeaponFromAction(actionId) {
