@@ -44,4 +44,4 @@ export const player = {
 };
 
 // Mutable camera state expressed in world blocks; the render system follows the player by updating these coordinates.
-export const camera = { x: 0, y: 0, widthBlocks: 20, heightBlocks: 11.25 };
+export const camera = { x: 0, y: 0, widthBlocks: 30, heightBlocks: 16.875 };

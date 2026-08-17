@@ -18,6 +18,7 @@ import {
 import { initInput, loadLevel, processAutofire } from "./input.js";
 import { isActionDown, loadHotkeys } from "./hotkeys.js";
 import { draw } from "./render.js";
+import { canvas } from "./dom.js";
 
 // Runs one simulation step: procedural generation, player movement, enemy AI/movement, camera tracking, and projectile processing.
 export function update(currentTime, dt) {
@@ -70,6 +71,16 @@ export function update(currentTime, dt) {
 	if (player.x > GameState.MaxDistance) {
 		GameState.MaxDistance = player.x;
 	}
+}
+
+// Keeps camera world dimensions consistent with the intrinsic canvas size,
+// the true 64 px/block world scale, and the configurable render zoom.
+export function syncCameraViewport() {
+	const renderZoom = Math.max(0.01, Number(Config.RENDER_ZOOM) || 1);
+	const renderedBlockSizePx = Config.BLOCK_SIZE_PX * renderZoom;
+
+	camera.widthBlocks = canvas.width / renderedBlockSizePx;
+	camera.heightBlocks = canvas.height / renderedBlockSizePx;
 }
 
 let lastFrameTime = null;
@@ -129,6 +140,7 @@ export async function initGame() {
 
 		player.speed = Config.PLAYER_SPEED;
 		player.size = Config.PLAYER_SIZE_BLOCKS;
+		syncCameraViewport();
 
 		await loadHotkeys();
 		initInput();

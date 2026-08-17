@@ -100,14 +100,17 @@ export function refreshAimFromMousePosition() {
 	const rect = canvas.getBoundingClientRect();
 	if (rect.width <= 0 || rect.height <= 0) return false;
 
+	const renderZoom = Math.max(0.01, Number(Config.RENDER_ZOOM) || 1);
+	const renderedBlockSizePx = Config.BLOCK_SIZE_PX * renderZoom;
+
 	GameState.aimWorldX =
 		((GameState.mouseClientX - rect.left) * (canvas.width / rect.width)) /
-			Config.BLOCK_SIZE_PX +
+			renderedBlockSizePx +
 		camera.x;
 
 	GameState.aimWorldY =
 		((GameState.mouseClientY - rect.top) * (canvas.height / rect.height)) /
-			Config.BLOCK_SIZE_PX +
+			renderedBlockSizePx +
 		camera.y;
 
 	return true;

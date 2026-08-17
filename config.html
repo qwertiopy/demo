@@ -48,6 +48,25 @@
             </section>
 
             <section class="config-section">
+                <h2>Rendering</h2>
+
+                <div class="config-row">
+                    <label for="cfg_RENDER_ZOOM">Render Zoom</label>
+                    <input
+                        type="number"
+                        id="cfg_RENDER_ZOOM"
+                        min="0.01"
+                        step="0.05"
+                    />
+                    <p class="config-help compact-help">
+                        1x keeps world blocks at their true 64 px size. On the
+                        1920x1080 canvas this shows 30 × 16.875 blocks. Higher
+                        values zoom in; lower values zoom out.
+                    </p>
+                </div>
+            </section>
+
+            <section class="config-section">
                 <h2>World</h2>
 
                 <div class="config-row">

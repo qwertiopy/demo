@@ -2,6 +2,7 @@
     "CONFIG_SCHEMA_VERSION": 13,
     "PLAYER_SPEED": 5,
     "PLAYER_BULLET_SPEED": 10,
+    "RENDER_ZOOM": 1,
     "WEAPONS": [
         {
             "speed": 5,

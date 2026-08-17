@@ -98,6 +98,10 @@ export function draw() {
 
 	ctx.save();
 
+	// World units remain exactly 64 px/block at 1x. Zoom only magnifies the
+	// rendered world; it does not change simulation coordinates or block size.
+	const renderZoom = Math.max(0.01, Number(Config.RENDER_ZOOM) || 1);
+	ctx.scale(renderZoom, renderZoom);
 	ctx.translate(
 		-Math.floor(camera.x * Config.BLOCK_SIZE_PX),
 		-Math.floor(camera.y * Config.BLOCK_SIZE_PX),

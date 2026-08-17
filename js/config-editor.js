@@ -350,6 +350,9 @@ function syncConfigToUI() {
 	document.getElementById("cfg_PLAYER_BULLET_SPEED").value =
 		config.PLAYER_BULLET_SPEED ?? "";
 
+	document.getElementById("cfg_RENDER_ZOOM").value =
+		config.RENDER_ZOOM ?? 1;
+
 	document.getElementById("cfg_STRUCTURE_DENSITY_BLOCKS").value =
 		config.STRUCTURE_DENSITY_BLOCKS ?? "";
 
@@ -377,6 +380,9 @@ function readConfigFromUI() {
 	const bulletSpeed = parseFloat(
 		document.getElementById("cfg_PLAYER_BULLET_SPEED").value,
 	);
+	const renderZoom = parseFloat(
+		document.getElementById("cfg_RENDER_ZOOM").value,
+	);
 	const structureDensity = parseFloat(
 		document.getElementById("cfg_STRUCTURE_DENSITY_BLOCKS").value,
 	);
@@ -387,6 +393,10 @@ function readConfigFromUI() {
 
 	if (!Number.isFinite(bulletSpeed)) {
 		throw new Error("Fallback Bullet Speed must be a number in blocks/sec.");
+	}
+
+	if (!Number.isFinite(renderZoom) || renderZoom <= 0) {
+		throw new Error("Render Zoom must be a number greater than 0.");
 	}
 
 	if (!Number.isFinite(structureDensity)) {
@@ -403,6 +413,7 @@ function readConfigFromUI() {
 
 	config.PLAYER_SPEED = playerSpeed;
 	config.PLAYER_BULLET_SPEED = bulletSpeed;
+	config.RENDER_ZOOM = renderZoom;
 	config.STRUCTURE_DENSITY_BLOCKS = structureDensity;
 
 	if (advancedData.WEAPONS !== undefined) {
