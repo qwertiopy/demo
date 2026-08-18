@@ -302,6 +302,50 @@ function migrateSavedConfig(savedConfig) {
 		}
 	}
 
+	if (savedVersion < 14) {
+		const sourceRendering = isPlainObject(savedConfig.RENDERING)
+			? savedConfig.RENDERING
+			: {};
+
+		migrated.RENDERING = mergeConfig(
+			defaultConfig.RENDERING,
+			sourceRendering,
+		);
+
+		if (savedConfig.RENDER_ZOOM !== undefined) {
+			migrated.RENDERING.ZOOM = Math.max(
+				0.01,
+				Number(savedConfig.RENDER_ZOOM) || defaultConfig.RENDERING.ZOOM,
+			);
+		}
+
+		if (savedConfig.RENDER_DISTANCE_FRONT !== undefined) {
+			migrated.RENDERING.DISTANCE_FRONT_BLOCKS = Math.max(
+				0,
+				Number(savedConfig.RENDER_DISTANCE_FRONT) || 0,
+			);
+		}
+
+		if (savedConfig.RENDER_DISTANCE_BACK !== undefined) {
+			migrated.RENDERING.DISTANCE_BACK_BLOCKS = Math.max(
+				0,
+				Number(savedConfig.RENDER_DISTANCE_BACK) || 0,
+			);
+		}
+
+		if (savedConfig.BLOCK_SIZE_PX !== undefined) {
+			migrated.RENDERING.BLOCK_SIZE_PX = Math.max(
+				1,
+				Number(savedConfig.BLOCK_SIZE_PX) || defaultConfig.RENDERING.BLOCK_SIZE_PX,
+			);
+		}
+
+		delete migrated.RENDER_ZOOM;
+		delete migrated.RENDER_DISTANCE_FRONT;
+		delete migrated.RENDER_DISTANCE_BACK;
+		delete migrated.BLOCK_SIZE_PX;
+	}
+
 	return migrated;
 }
 
@@ -350,8 +394,32 @@ function syncConfigToUI() {
 	document.getElementById("cfg_PLAYER_BULLET_SPEED").value =
 		config.PLAYER_BULLET_SPEED ?? "";
 
-	document.getElementById("cfg_RENDER_ZOOM").value =
-		config.RENDER_ZOOM ?? 1;
+	const rendering = config.RENDERING || {};
+	document.getElementById("cfg_RENDER_CANVAS_WIDTH_PX").value =
+		rendering.CANVAS_WIDTH_PX ?? 1920;
+	document.getElementById("cfg_RENDER_CANVAS_HEIGHT_PX").value =
+		rendering.CANVAS_HEIGHT_PX ?? 1080;
+	document.getElementById("cfg_RENDER_BLOCK_SIZE_PX").value =
+		rendering.BLOCK_SIZE_PX ?? 64;
+	document.getElementById("cfg_RENDER_ZOOM").value = rendering.ZOOM ?? 1;
+	document.getElementById("cfg_RENDER_TARGET_FPS").value =
+		rendering.TARGET_FPS ?? 60;
+	document.getElementById("cfg_RENDER_DISTANCE_FRONT_BLOCKS").value =
+		rendering.DISTANCE_FRONT_BLOCKS ?? 35;
+	document.getElementById("cfg_RENDER_DISTANCE_BACK_BLOCKS").value =
+		rendering.DISTANCE_BACK_BLOCKS ?? 20;
+	document.getElementById("cfg_RENDER_ENVIRONMENT_OVERSCAN_BLOCKS").value =
+		rendering.ENVIRONMENT_OVERSCAN_BLOCKS ?? 2;
+	document.getElementById("cfg_RENDER_CLEANUP_BUFFER_BLOCKS").value =
+		rendering.CLEANUP_BUFFER_BLOCKS ?? 0;
+	document.getElementById("cfg_RENDER_LASER_FLASH_DURATION_MS").value =
+		rendering.LASER_FLASH_DURATION_MS ?? 90;
+	document.getElementById("cfg_RENDER_TRAIL_LENGTH_FRAMES").value =
+		rendering.TRAIL_LENGTH_FRAMES ?? 0;
+	document.getElementById("cfg_RENDER_TRAIL_DETAIL").value =
+		rendering.TRAIL_DETAIL ?? 60;
+	document.getElementById("cfg_RENDER_TRAIL_QUAD_DETAIL").value =
+		rendering.TRAIL_QUAD_DETAIL ?? 30;
 
 	document.getElementById("cfg_STRUCTURE_DENSITY_BLOCKS").value =
 		config.STRUCTURE_DENSITY_BLOCKS ?? "";
@@ -380,8 +448,44 @@ function readConfigFromUI() {
 	const bulletSpeed = parseFloat(
 		document.getElementById("cfg_PLAYER_BULLET_SPEED").value,
 	);
+	const canvasWidthPx = parseFloat(
+		document.getElementById("cfg_RENDER_CANVAS_WIDTH_PX").value,
+	);
+	const canvasHeightPx = parseFloat(
+		document.getElementById("cfg_RENDER_CANVAS_HEIGHT_PX").value,
+	);
+	const blockSizePx = parseFloat(
+		document.getElementById("cfg_RENDER_BLOCK_SIZE_PX").value,
+	);
 	const renderZoom = parseFloat(
 		document.getElementById("cfg_RENDER_ZOOM").value,
+	);
+	const targetFps = parseFloat(
+		document.getElementById("cfg_RENDER_TARGET_FPS").value,
+	);
+	const renderDistanceFront = parseFloat(
+		document.getElementById("cfg_RENDER_DISTANCE_FRONT_BLOCKS").value,
+	);
+	const renderDistanceBack = parseFloat(
+		document.getElementById("cfg_RENDER_DISTANCE_BACK_BLOCKS").value,
+	);
+	const environmentOverscan = parseFloat(
+		document.getElementById("cfg_RENDER_ENVIRONMENT_OVERSCAN_BLOCKS").value,
+	);
+	const cleanupBuffer = parseFloat(
+		document.getElementById("cfg_RENDER_CLEANUP_BUFFER_BLOCKS").value,
+	);
+	const laserFlashDurationMs = parseFloat(
+		document.getElementById("cfg_RENDER_LASER_FLASH_DURATION_MS").value,
+	);
+	const trailLengthFrames = parseFloat(
+		document.getElementById("cfg_RENDER_TRAIL_LENGTH_FRAMES").value,
+	);
+	const trailDetail = parseFloat(
+		document.getElementById("cfg_RENDER_TRAIL_DETAIL").value,
+	);
+	const trailQuadDetail = parseFloat(
+		document.getElementById("cfg_RENDER_TRAIL_QUAD_DETAIL").value,
 	);
 	const structureDensity = parseFloat(
 		document.getElementById("cfg_STRUCTURE_DENSITY_BLOCKS").value,
@@ -395,8 +499,52 @@ function readConfigFromUI() {
 		throw new Error("Fallback Bullet Speed must be a number in blocks/sec.");
 	}
 
+	if (!Number.isInteger(canvasWidthPx) || canvasWidthPx <= 0) {
+		throw new Error("Canvas Width must be a positive integer.");
+	}
+
+	if (!Number.isInteger(canvasHeightPx) || canvasHeightPx <= 0) {
+		throw new Error("Canvas Height must be a positive integer.");
+	}
+
+	if (!Number.isFinite(blockSizePx) || blockSizePx <= 0) {
+		throw new Error("Block Size must be a number greater than 0.");
+	}
+
 	if (!Number.isFinite(renderZoom) || renderZoom <= 0) {
 		throw new Error("Render Zoom must be a number greater than 0.");
+	}
+
+	if (!Number.isInteger(targetFps) || targetFps <= 0) {
+		throw new Error("Target FPS must be a positive integer.");
+	}
+
+	for (const [label, value] of [
+		["Front Render Distance", renderDistanceFront],
+		["Back Render Distance", renderDistanceBack],
+		["Environment Overscan", environmentOverscan],
+		["Cleanup Buffer", cleanupBuffer],
+		["Laser Flash Duration", laserFlashDurationMs],
+	]) {
+		if (!Number.isFinite(value) || value < 0) {
+			throw new Error(`${label} must be a non-negative number.`);
+		}
+	}
+
+	if (!Number.isInteger(trailLengthFrames) || trailLengthFrames < 0) {
+		throw new Error("Trail Length must be a non-negative integer frame count.");
+	}
+
+	if (!Number.isInteger(trailDetail) || trailDetail < 0 || trailDetail > 60) {
+		throw new Error("Trail Detail must be an integer between 0 and 60.");
+	}
+
+	if (
+		!Number.isInteger(trailQuadDetail) ||
+		trailQuadDetail < 0 ||
+		trailQuadDetail > 60
+	) {
+		throw new Error("Quad Trail Detail must be an integer between 0 and 60.");
 	}
 
 	if (!Number.isFinite(structureDensity)) {
@@ -413,7 +561,21 @@ function readConfigFromUI() {
 
 	config.PLAYER_SPEED = playerSpeed;
 	config.PLAYER_BULLET_SPEED = bulletSpeed;
-	config.RENDER_ZOOM = renderZoom;
+	config.RENDERING = {
+		CANVAS_WIDTH_PX: canvasWidthPx,
+		CANVAS_HEIGHT_PX: canvasHeightPx,
+		BLOCK_SIZE_PX: blockSizePx,
+		ZOOM: renderZoom,
+		TARGET_FPS: targetFps,
+		DISTANCE_FRONT_BLOCKS: renderDistanceFront,
+		DISTANCE_BACK_BLOCKS: renderDistanceBack,
+		ENVIRONMENT_OVERSCAN_BLOCKS: environmentOverscan,
+		CLEANUP_BUFFER_BLOCKS: cleanupBuffer,
+		LASER_FLASH_DURATION_MS: laserFlashDurationMs,
+		TRAIL_LENGTH_FRAMES: trailLengthFrames,
+		TRAIL_DETAIL: trailDetail,
+		TRAIL_QUAD_DETAIL: trailQuadDetail,
+	};
 	config.STRUCTURE_DENSITY_BLOCKS = structureDensity;
 
 	if (advancedData.WEAPONS !== undefined) {

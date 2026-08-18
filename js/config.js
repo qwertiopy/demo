@@ -1,20 +1,31 @@
 export const CONFIG_STORAGE_KEY = "demoGameConfig";
 
 export const Config = {
-    CONFIG_SCHEMA_VERSION: 13,
+    CONFIG_SCHEMA_VERSION: 15,
     PLAYER_SPEED: 0,
     PLAYER_BULLET_SPEED: 0,
     WEAPONS: [],
     STRUCTURE_DENSITY_BLOCKS: 0,
     ENEMY_TYPES: {},
     STRUCTURE_LIBRARY: [],
-    BLOCK_SIZE_PX: 64,
-    RENDER_ZOOM: 1,
+    RENDERING: {
+        CANVAS_WIDTH_PX: 1920,
+        CANVAS_HEIGHT_PX: 1080,
+        BLOCK_SIZE_PX: 64,
+        ZOOM: 1,
+        TARGET_FPS: 60,
+        DISTANCE_FRONT_BLOCKS: 35,
+        DISTANCE_BACK_BLOCKS: 20,
+        ENVIRONMENT_OVERSCAN_BLOCKS: 2,
+        CLEANUP_BUFFER_BLOCKS: 0,
+        LASER_FLASH_DURATION_MS: 90,
+        TRAIL_LENGTH_FRAMES: 0,
+        TRAIL_DETAIL: 60,
+        TRAIL_QUAD_DETAIL: 30,
+    },
     PLAYER_SIZE_BLOCKS: 0.5,
     MIN_SPAWN_DISTANCE_BLOCKS: 25,
     MAX_SPAWN_DISTANCE_BLOCKS: 35,
-    RENDER_DISTANCE_FRONT: 35,
-    RENDER_DISTANCE_BACK: 20,
 };
 
 export function isPlainObject(value) {
@@ -214,6 +225,76 @@ function migrateConfig(defaultConfig, savedConfig) {
 
             migratedConfig.ENEMY_TYPES = migratedEnemyTypes;
         }
+    }
+
+    // Schema v14 centralizes rendering/load-window settings in RENDERING.
+    // Preserve the old top-level zoom/distance values when they exist, while
+    // introducing the new trails setting with a neutral 0% default.
+    if (savedVersion < 14) {
+        const sourceRendering = isPlainObject(savedConfig.RENDERING)
+            ? savedConfig.RENDERING
+            : {};
+
+        migratedConfig.RENDERING = mergeConfig(
+            defaultConfig.RENDERING,
+            sourceRendering,
+        );
+
+        if (savedConfig.RENDER_ZOOM !== undefined) {
+            migratedConfig.RENDERING.ZOOM = Math.max(
+                0.01,
+                Number(savedConfig.RENDER_ZOOM) || defaultConfig.RENDERING.ZOOM,
+            );
+        }
+
+        if (savedConfig.RENDER_DISTANCE_FRONT !== undefined) {
+            migratedConfig.RENDERING.DISTANCE_FRONT_BLOCKS = Math.max(
+                0,
+                Number(savedConfig.RENDER_DISTANCE_FRONT) || 0,
+            );
+        }
+
+        if (savedConfig.RENDER_DISTANCE_BACK !== undefined) {
+            migratedConfig.RENDERING.DISTANCE_BACK_BLOCKS = Math.max(
+                0,
+                Number(savedConfig.RENDER_DISTANCE_BACK) || 0,
+            );
+        }
+
+        if (savedConfig.BLOCK_SIZE_PX !== undefined) {
+            migratedConfig.RENDERING.BLOCK_SIZE_PX = Math.max(
+                1,
+                Number(savedConfig.BLOCK_SIZE_PX) || defaultConfig.RENDERING.BLOCK_SIZE_PX,
+            );
+        }
+
+        delete migratedConfig.RENDER_ZOOM;
+        delete migratedConfig.RENDER_DISTANCE_FRONT;
+        delete migratedConfig.RENDER_DISTANCE_BACK;
+        delete migratedConfig.BLOCK_SIZE_PX;
+    }
+
+
+    // Schema v15 splits the old trail percentage/frame-count setting into an
+    // explicit retained-history length and an independent sampling density.
+    // Preserve the old v14 trail value as the new length and default detail to
+    // all 60 source frames per 60-frame window.
+    if (savedVersion < 15) {
+        const sourceRendering = isPlainObject(savedConfig.RENDERING)
+            ? savedConfig.RENDERING
+            : {};
+        const oldTrailFrames = Math.max(
+            0,
+            Math.round(Number(sourceRendering.TRAILS_PERCENT ?? 0) || 0),
+        );
+
+        migratedConfig.RENDERING = mergeConfig(
+            defaultConfig.RENDERING,
+            migratedConfig.RENDERING || {},
+        );
+        migratedConfig.RENDERING.TRAIL_LENGTH_FRAMES = oldTrailFrames;
+        migratedConfig.RENDERING.TRAIL_DETAIL = 60;
+        delete migratedConfig.RENDERING.TRAILS_PERCENT;
     }
 
     return migratedConfig;

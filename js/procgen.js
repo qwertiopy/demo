@@ -71,9 +71,9 @@ export function spawnEnemyPointFromCell(cellX, cellY, type) {
 export function updateProceduralGeneration(playerX) {
 	const startX = Math.max(
 		0,
-		Math.floor(playerX) - Config.RENDER_DISTANCE_BACK,
+		Math.floor(playerX) - Config.RENDERING.DISTANCE_BACK_BLOCKS,
 	);
-	const endX = Math.floor(playerX) + Config.RENDER_DISTANCE_FRONT;
+	const endX = Math.floor(playerX) + Config.RENDERING.DISTANCE_FRONT_BLOCKS;
 
 	const ceilingY = 0;
 	const corridorWidthBlocks = 10;
@@ -150,13 +150,16 @@ export function updateProceduralGeneration(playerX) {
 export function cleanupProceduralGeneration(playerX) {
 	const startX = Math.max(
 		0,
-		Math.floor(playerX) - Config.RENDER_DISTANCE_BACK,
+		Math.floor(playerX) - Config.RENDERING.DISTANCE_BACK_BLOCKS,
 	);
-	const endX = Math.floor(playerX) + Config.RENDER_DISTANCE_FRONT;
+	const endX = Math.floor(playerX) + Config.RENDERING.DISTANCE_FRONT_BLOCKS;
 
-	const SAFE_BUFFER = 0;
-	const safeStartX = startX - SAFE_BUFFER;
-	const safeEndX = endX + SAFE_BUFFER;
+	const cleanupBuffer = Math.max(
+		0,
+		Number(Config.RENDERING.CLEANUP_BUFFER_BLOCKS) || 0,
+	);
+	const safeStartX = startX - cleanupBuffer;
+	const safeEndX = endX + cleanupBuffer;
 
 	GameState.walls = GameState.walls.filter(
 		(w) => w.x >= safeStartX && w.x <= safeEndX,

@@ -18,7 +18,26 @@ import {
 import { initInput, loadLevel, processAutofire } from "./input.js";
 import { isActionDown, loadHotkeys } from "./hotkeys.js";
 import { draw } from "./render.js";
-import { canvas } from "./dom.js";
+import {
+	canvas,
+	performanceFps,
+	performanceTargetFps,
+	performanceMsPerTick,
+	performanceEntityCount,
+	performanceEnemyCount,
+	performanceBulletCount,
+} from "./dom.js";
+import {
+	captureVisualSnapshot,
+	pushTrailSnapshot,
+	getLiveTrailEntries,
+	getTrailQuadDetail,
+	recordReplaySnapshot,
+	initReplayControls,
+	isReplayPlaybackActive,
+	getReplaySnapshotForRender,
+	getReplayTrailEntries,
+} from "./replay.js";
 
 // Runs one simulation step: procedural generation, player movement, enemy AI/movement, camera tracking, and projectile processing.
 export function update(currentTime, dt) {
@@ -73,38 +92,167 @@ export function update(currentTime, dt) {
 	}
 }
 
-// Keeps camera world dimensions consistent with the intrinsic canvas size,
-// the true 64 px/block world scale, and the configurable render zoom.
+// Applies intrinsic render resolution and derives the camera viewport from the
+// centralized rendering config. At zoom 1, one block uses BLOCK_SIZE_PX true
+// internal canvas pixels.
 export function syncCameraViewport() {
-	const renderZoom = Math.max(0.01, Number(Config.RENDER_ZOOM) || 1);
-	const renderedBlockSizePx = Config.BLOCK_SIZE_PX * renderZoom;
+	const rendering = Config.RENDERING;
+	const canvasWidthPx = Math.max(1, Math.round(Number(rendering.CANVAS_WIDTH_PX) || 1920));
+	const canvasHeightPx = Math.max(1, Math.round(Number(rendering.CANVAS_HEIGHT_PX) || 1080));
+	const blockSizePx = Math.max(1, Number(rendering.BLOCK_SIZE_PX) || 64);
+	const renderZoom = Math.max(0.01, Number(rendering.ZOOM) || 1);
+	const renderedBlockSizePx = blockSizePx * renderZoom;
 
-	camera.widthBlocks = canvas.width / renderedBlockSizePx;
-	camera.heightBlocks = canvas.height / renderedBlockSizePx;
+	canvas.width = canvasWidthPx;
+	canvas.height = canvasHeightPx;
+	camera.widthBlocks = canvasWidthPx / renderedBlockSizePx;
+	camera.heightBlocks = canvasHeightPx / renderedBlockSizePx;
 }
 
-let lastFrameTime = null;
+let lastAnimationFrameTime = null;
+let lastTickTime = null;
+let tickAccumulatorMs = 0;
 
-// Caps the simulation timestep at 50 ms so stalls or tab switches cannot create a huge physics step.
+// Small tolerance prevents a nominal 60 Hz rAF interval such as 16.66 ms from
+// accidentally missing a 16.67 ms target deadline and falling to ~30 FPS.
+const FRAME_PACING_EPSILON_MS = 0.5;
+const PERFORMANCE_UPDATE_INTERVAL_MS = 500;
+
+const PerformanceStats = {
+	windowStartedAt: null,
+	tickDurationTotalMs: 0,
+	tickDurationSamples: 0,
+};
+
+// Caps unexpected stalls while still allowing deliberately low target FPS
+// values to use their intended timestep rather than entering slow motion.
 export const MAX_DT_SECONDS = 0.05;
 
-// requestAnimationFrame loop that calculates frame delta time, updates the simulation, renders a frame, and schedules the next frame.
-export function gameLoop(currentTime) {
-	let dt = 0;
+export function getTargetFps() {
+	return Math.max(
+		1,
+		Math.round(Number(Config.RENDERING?.TARGET_FPS ?? 60) || 60),
+	);
+}
 
-	if (lastFrameTime !== null) {
-		dt = (currentTime - lastFrameTime) / 1000;
-		dt = Math.min(Math.max(dt, 0), MAX_DT_SECONDS);
+function updatePerformanceUi(currentTime, tickDurationMs, targetFps) {
+	if (PerformanceStats.windowStartedAt === null) {
+		PerformanceStats.windowStartedAt = currentTime;
 	}
 
-	lastFrameTime = currentTime;
+	if (Number.isFinite(tickDurationMs) && tickDurationMs > 0) {
+		PerformanceStats.tickDurationTotalMs += tickDurationMs;
+		PerformanceStats.tickDurationSamples += 1;
+	}
+
+	if (performanceTargetFps) {
+		performanceTargetFps.textContent = `Target FPS: ${targetFps}`;
+	}
+
+	const enemyCount = GameState.enemies.length;
+	const playerBulletCount = GameState.bullets.length;
+	const enemyBulletCount = GameState.enemyBullets.length;
+	const bulletCount = playerBulletCount + enemyBulletCount;
+	const entityCount = enemyCount + bulletCount;
+
+	if (performanceEntityCount) {
+		performanceEntityCount.textContent = `Entities: ${entityCount}`;
+	}
+	if (performanceEnemyCount) {
+		performanceEnemyCount.textContent = `Enemies: ${enemyCount}`;
+	}
+	if (performanceBulletCount) {
+		performanceBulletCount.textContent =
+			`Bullets: ${bulletCount} (Player: ${playerBulletCount} / Enemy: ${enemyBulletCount})`;
+	}
+
+	const windowMs = currentTime - PerformanceStats.windowStartedAt;
+	if (windowMs < PERFORMANCE_UPDATE_INTERVAL_MS) return;
+
+	const measuredMsPerTick =
+		PerformanceStats.tickDurationSamples > 0
+			? PerformanceStats.tickDurationTotalMs /
+				PerformanceStats.tickDurationSamples
+			: 0;
+	const measuredFps =
+		measuredMsPerTick > 0 ? 1000 / measuredMsPerTick : 0;
+
+	if (performanceFps) {
+		performanceFps.textContent = `FPS: ${measuredFps.toFixed(1)}`;
+	}
+	if (performanceMsPerTick) {
+		performanceMsPerTick.textContent = `ms/tick: ${measuredMsPerTick.toFixed(2)}`;
+	}
+
+	PerformanceStats.windowStartedAt = currentTime;
+	PerformanceStats.tickDurationTotalMs = 0;
+	PerformanceStats.tickDurationSamples = 0;
+}
+
+// requestAnimationFrame loop with an explicit target tick/render rate. rAF is
+// still used for browser scheduling, but simulation + rendering only run when
+// enough target-frame time has accumulated. Actual FPS therefore cannot exceed
+// the browser/display's rAF rate.
+export function gameLoop(currentTime) {
+	requestAnimationFrame(gameLoop);
+
+	const targetFps = getTargetFps();
+	const targetFrameMs = 1000 / targetFps;
+
+	if (lastAnimationFrameTime === null) {
+		lastAnimationFrameTime = currentTime;
+		// Render immediately on startup rather than waiting one target interval.
+		tickAccumulatorMs = targetFrameMs;
+	} else {
+		const rafElapsedMs = Math.max(0, currentTime - lastAnimationFrameTime);
+		lastAnimationFrameTime = currentTime;
+		tickAccumulatorMs += rafElapsedMs;
+	}
+
+	if (tickAccumulatorMs + FRAME_PACING_EPSILON_MS < targetFrameMs) {
+		return;
+	}
+
+	// If we are only fractionally early because of rAF timestamp precision,
+	// treat this as the target deadline. Otherwise preserve fractional overshoot
+	// so 60 FPS targets schedule correctly even on 120/144 Hz displays.
+	if (tickAccumulatorMs < targetFrameMs) {
+		tickAccumulatorMs = targetFrameMs;
+	}
+	tickAccumulatorMs %= targetFrameMs;
+
+	const tickDurationMs =
+		lastTickTime === null
+			? targetFrameMs
+			: Math.max(0, currentTime - lastTickTime);
+	lastTickTime = currentTime;
+	updatePerformanceUi(currentTime, tickDurationMs, targetFps);
+
+	if (isReplayPlaybackActive()) {
+		const replaySnapshot = getReplaySnapshotForRender(currentTime);
+		draw(replaySnapshot, getReplayTrailEntries(), {
+			replayActive: true,
+			quadTrailEntries: getReplayTrailEntries(getTrailQuadDetail()),
+		});
+		return;
+	}
+
+	const maxDtForTarget = Math.max(MAX_DT_SECONDS, targetFrameMs / 1000);
+	const dt = Math.min(
+		Math.max(tickDurationMs / 1000, 0),
+		maxDtForTarget,
+	);
 
 	if (dt > 0) {
 		update(currentTime, dt);
 	}
 
-	draw();
-	requestAnimationFrame(gameLoop);
+	const snapshot = captureVisualSnapshot(currentTime);
+	pushTrailSnapshot(snapshot);
+	recordReplaySnapshot(snapshot, currentTime);
+	draw(snapshot, getLiveTrailEntries(), {
+		quadTrailEntries: getLiveTrailEntries(getTrailQuadDetail()),
+	});
 }
 
 // Serializes the current Config object into a downloadable custom_config.json browser download.
@@ -137,6 +285,10 @@ export async function initGame() {
 		const loadedData = loadLocalConfig(defaultConfig);
 
 		Object.assign(Config, loadedData);
+		Config.RENDERING = {
+			...(Config.RENDERING || {}),
+			TARGET_FPS: getTargetFps(),
+		};
 
 		player.speed = Config.PLAYER_SPEED;
 		player.size = Config.PLAYER_SIZE_BLOCKS;
@@ -144,6 +296,7 @@ export async function initGame() {
 
 		await loadHotkeys();
 		initInput();
+		initReplayControls();
 		loadLevel();
 		requestAnimationFrame(gameLoop);
 

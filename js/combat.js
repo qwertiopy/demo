@@ -684,7 +684,6 @@ function collidesWithWallUsingPenetrationBudget(
 // Hardcoded laser presentation/range values. Weapon balance is controlled by
 // the configurable warmup/cooldown/damage/penetration stats instead.
 export const LASER_MAX_RANGE_BLOCKS = 60;
-export const LASER_FLASH_DURATION_MS = 90;
 
 // Ray/AABB slab intersection. The optional radius expands the rectangle so a
 // laser with a visible thickness also gets a matching collision thickness.
@@ -929,7 +928,7 @@ function resolveLaserShot(shot, currentTime) {
 			color: stats.color ?? "white",
 			radius,
 			createdAt: currentTime,
-			durationMs: LASER_FLASH_DURATION_MS,
+			durationMs: Math.max(0, Number(Config.RENDERING.LASER_FLASH_DURATION_MS) || 0),
 		});
 
 		remainingRange = Math.max(0, remainingRange - beamDistance);

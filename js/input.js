@@ -4,8 +4,9 @@ import { Config } from "./config.js";
 import { GameState, player, camera } from "./state.js";
 import {
 	canvas,
-	editorUI,
-	hideUIBtn,
+	configUI,
+	debugUI,
+	cycleUIBtn,
 	levelDataInput,
 	loadLevelBtn,
 	godModeToggle,
@@ -23,11 +24,30 @@ import {
 	getActiveWeaponStats,
 	selectWeapon,
 } from "./weapons.js";
+import { isReplayPlaybackActive } from "./replay.js";
 
-// Shows or hides the editor/debug UI and updates the matching GameState flag.
+const UI_MODES = ["none", "debug", "config"];
+
+// Applies one of the three overlay modes. Debug mode owns coordinates/spawn
+// helpers plus performance/entity stats; config mode only shows config controls.
+export function setUIMode(mode) {
+	const normalizedMode = UI_MODES.includes(mode) ? mode : "none";
+	GameState.uiMode = normalizedMode;
+
+	const showConfigUI = normalizedMode === "config";
+	const showDebugUI = normalizedMode === "debug";
+
+	configUI.hidden = !showConfigUI;
+	debugUI.hidden = !showDebugUI;
+	GameState.showEditorHelpers = showDebugUI;
+}
+
+// Cycles none -> debug -> config -> none. Starting from the default config mode,
+// the first press still behaves like the old Hide UI action and hides all overlays.
 export function toggleUI() {
-	GameState.showEditorHelpers = !GameState.showEditorHelpers;
-	editorUI.style.display = GameState.showEditorHelpers ? "block" : "none";
+	const currentIndex = UI_MODES.indexOf(GameState.uiMode);
+	const nextIndex = (currentIndex + 1 + UI_MODES.length) % UI_MODES.length;
+	setUIMode(UI_MODES[nextIndex]);
 }
 
 // Parses level JSON, resets runtime entities and procedural state, then loads either a seeded procedural level or explicit walls/spawns.
@@ -73,7 +93,7 @@ export function loadLevel() {
 
 // Restarts the current level from its configured player spawn after death.
 export function respawnGame() {
-	if (player.hp > 0) return;
+	if (isReplayPlaybackActive() || player.hp > 0) return;
 
 	GameState.pressedInputs.clear();
 	GameState.MaxDistance = -1;
@@ -100,8 +120,8 @@ export function refreshAimFromMousePosition() {
 	const rect = canvas.getBoundingClientRect();
 	if (rect.width <= 0 || rect.height <= 0) return false;
 
-	const renderZoom = Math.max(0.01, Number(Config.RENDER_ZOOM) || 1);
-	const renderedBlockSizePx = Config.BLOCK_SIZE_PX * renderZoom;
+	const renderZoom = Math.max(0.01, Number(Config.RENDERING.ZOOM) || 1);
+	const renderedBlockSizePx = Config.RENDERING.BLOCK_SIZE_PX * renderZoom;
 
 	GameState.aimWorldX =
 		((GameState.mouseClientX - rect.left) * (canvas.width / rect.width)) /
@@ -123,7 +143,9 @@ function updateAimFromMouseEvent(event) {
 }
 
 export function fireActiveWeapon(currentTime = performance.now()) {
-	if (GameState.isPlayerDead || player.hp <= 0) return false;
+	if (isReplayPlaybackActive() || GameState.isPlayerDead || player.hp <= 0) {
+		return false;
+	}
 
 	const now = Number.isFinite(currentTime) ? currentTime : performance.now();
 	// Recalculate world aim from the last known screen-space mouse position every
@@ -182,6 +204,11 @@ function selectWeaponFromAction(actionId) {
 // resolved before shooting so a deliberately double-bound select+shoot input
 // fires the newly selected weapon.
 function triggerPressedActions(actions) {
+	if (isReplayPlaybackActive()) {
+		if (actions.includes("toggleUI")) toggleUI();
+		return;
+	}
+
 	actions.forEach((actionId) => selectWeaponFromAction(actionId));
 
 	if (actions.includes("respawn")) respawnGame();
@@ -245,11 +272,13 @@ export function initInput() {
 
 	canvas.addEventListener("contextmenu", (event) => event.preventDefault());
 
-	// Clicking the debug editor should not also trigger game mouse bindings.
-	editorUI.addEventListener("mousedown", (event) => event.stopPropagation());
-	editorUI.addEventListener("mouseup", (event) => event.stopPropagation());
+	setUIMode(GameState.uiMode);
 
-	hideUIBtn.addEventListener("click", toggleUI);
+	// Clicking the config/editor panel should not also trigger game mouse bindings.
+	configUI.addEventListener("mousedown", (event) => event.stopPropagation());
+	configUI.addEventListener("mouseup", (event) => event.stopPropagation());
+
+	cycleUIBtn.addEventListener("click", toggleUI);
 	loadLevelBtn.addEventListener("click", loadLevel);
 	respawnBtn.addEventListener("click", (event) => {
 		event.stopPropagation();
