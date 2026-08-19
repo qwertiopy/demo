@@ -143,7 +143,49 @@ export function getRandomSpreadOffset(spreadRadians = 0) {
 	return (Math.random() - 0.5) * spread;
 }
 
-// Creates a projectile aimed from a shooter's center toward a world-space target and stores velocity, damage, bounce, and lifetime data.
+function getBulletCount(stats) {
+	return Math.max(1, Math.floor(Number(stats?.bulletCount ?? 1) || 1));
+}
+
+function getDeterministicVolleyOffsets(count) {
+	if (count <= 1) return [0];
+
+	const totalSpan = Math.min(1, 0.1 * (count - 1));
+	const start = -totalSpan / 2;
+	const step = totalSpan / (count - 1);
+	return Array.from({ length: count }, (_, index) => start + step * index);
+}
+
+function getProjectileVolleyAngles(baseAngle, stats) {
+	const count = getBulletCount(stats);
+	const spread = Math.max(0, Number(stats?.spread ?? 0) || 0);
+
+	if (spread > 0) {
+		return Array.from(
+			{ length: count },
+			() => baseAngle + getRandomSpreadOffset(spread),
+		);
+	}
+
+	return getDeterministicVolleyOffsets(count).map((offset) => baseAngle + offset);
+}
+
+function normalizeSignedAngle(angle) {
+	let result = Number(angle) || 0;
+	while (result < -Math.PI) result += Math.PI * 2;
+	while (result >= Math.PI) result -= Math.PI * 2;
+	return result;
+}
+
+function shortestAngleDelta(fromAngle, toAngle) {
+	return normalizeSignedAngle(toAngle - fromAngle);
+}
+
+function getLaserConeHalfAngleFromCount(count) {
+	return Math.min(Math.PI, Math.max(0, count - 1) * 0.1);
+}
+
+// Creates one projectile or a whole configured volley from the shooter's center.
 export function shoot(shooter, targetX, targetY, bulletArray, stats) {
 	if (GameState.isPlayerDead) return;
 
@@ -151,8 +193,11 @@ export function shoot(shooter, targetX, targetY, bulletArray, stats) {
 	const centerY = shooter.y + shooter.size / 2;
 	const targetDx = targetX - centerX;
 	const targetDy = targetY - centerY;
-	const spreadOffset = getRandomSpreadOffset(stats.spread ?? 0);
-	const angle = Math.atan2(targetDy, targetDx) + spreadOffset;
+	const baseAngle = Math.atan2(targetDy, targetDx);
+	const requestedAngles = getProjectileVolleyAngles(baseAngle, stats);
+	const volleyAngles = bulletArray === GameState.bullets
+		? requestedAngles.slice(0, 100)
+		: requestedAngles;
 	const throwable = stats.throwable === true;
 	const speed = throwable ? 0 : (stats.speed ?? 12);
 	const throwDistanceMultiplier = Math.max(
@@ -173,63 +218,68 @@ export function shoot(shooter, targetX, targetY, bulletArray, stats) {
 		: null;
 	const createdAt = performance.now();
 
-	// clamps max number of bullets to 100 (?????)
-	if (bulletArray === GameState.bullets && GameState.bullets.length >= 100) {
-		GameState.bullets.shift();
+	// Preserve the existing 100-player-projectile cap without allowing a volley
+	// to overshoot it. Very large configured volleys are themselves capped at 100.
+	if (bulletArray === GameState.bullets) {
+		while (GameState.bullets.length + volleyAngles.length > 100) {
+			GameState.bullets.shift();
+		}
 	}
 
-	// Throwable vx/vy are intentionally zero: their movement is driven by the
-	// closed-form throw-distance equation in processBullets(). throwDirX/Y are
-	// unit direction components and can still be reflected by wall bounces.
-	bulletArray.push({
-		x: centerX,
-		y: centerY,
-		radius: stats.radiusBlocks ?? 0.08,
-		vx: Math.cos(angle) * speed,
-		vy: Math.sin(angle) * speed,
-		color: stats.color ?? "white",
-		damage: stats.damage ?? 1,
-		bounces: 0,
-		maxBounces: stats.maxBounces ?? 0,
-		throwBounces: 0,
-		hitTargets: new Set(),
-		createdAt,
-		lifetimeMs: stats.lifetimeMs ?? 60000,
-		explosionRadiusBlocks: stats.explosionRadiusBlocks ?? 0,
-		detonationTimeMs: stats.detonationTimeMs ?? 0,
-		explosionDurationMs: stats.explosionDurationMs ?? 0,
-		explosionDamage: stats.explosionDamage ?? 0,
-		detonatesOnImpact: stats.detonatesOnImpact ?? false,
-		penetrationBlocks: Math.max(0, Number(stats.penetrationBlocks ?? 0) || 0),
-		remainingPenetrationBlocks: Math.max(
-			0,
-			Number(stats.penetrationBlocks ?? 0) || 0,
-		),
-		finishPenetratedWall: false,
-		throwable,
-		throwDirX: Math.cos(angle),
-		throwDirY: Math.sin(angle),
-		throwDistanceBlocks,
-		throwDistanceMultiplier,
-		throwTravelledBlocks: 0,
-		throwLegStartedAt: createdAt,
-		throwDeceleration,
-		throwInitialSpeed: throwKinematics?.initialSpeed ?? 0,
-		throwFlightDurationMs: throwKinematics?.durationMs ?? 0,
-		throwComplete: !throwable || throwDistanceBlocks === 0,
-		dv: 0,
-		bulletCollision: stats.bulletCollision === true,
+	for (const angle of volleyAngles) {
+		// Throwable vx/vy are intentionally zero: their movement is driven by the
+		// closed-form throw-distance equation in processBullets(). throwDirX/Y are
+		// unit direction components and can still be reflected by wall bounces.
+		bulletArray.push({
+			x: centerX,
+			y: centerY,
+			radius: stats.radiusBlocks ?? 0.08,
+			vx: Math.cos(angle) * speed,
+			vy: Math.sin(angle) * speed,
+			color: stats.color ?? "white",
+			damage: stats.damage ?? 1,
+			bounces: 0,
+			maxBounces: stats.maxBounces ?? 0,
+			throwBounces: 0,
+			hitTargets: new Set(),
+			createdAt,
+			lifetimeMs: stats.lifetimeMs ?? 60000,
+			explosionRadiusBlocks: stats.explosionRadiusBlocks ?? 0,
+			detonationTimeMs: stats.detonationTimeMs ?? 0,
+			explosionDurationMs: stats.explosionDurationMs ?? 0,
+			explosionDamage: stats.explosionDamage ?? 0,
+			detonatesOnImpact: stats.detonatesOnImpact ?? false,
+			penetrationBlocks: Math.max(0, Number(stats.penetrationBlocks ?? 0) || 0),
+			remainingPenetrationBlocks: Math.max(
+				0,
+				Number(stats.penetrationBlocks ?? 0) || 0,
+			),
+			finishPenetratedWall: false,
+			throwable,
+			throwDirX: Math.cos(angle),
+			throwDirY: Math.sin(angle),
+			throwDistanceBlocks,
+			throwDistanceMultiplier,
+			throwTravelledBlocks: 0,
+			throwLegStartedAt: createdAt,
+			throwDeceleration,
+			throwInitialSpeed: throwKinematics?.initialSpeed ?? 0,
+			throwFlightDurationMs: throwKinematics?.durationMs ?? 0,
+			throwComplete: !throwable || throwDistanceBlocks === 0,
+			dv: 0,
+			bulletCollision: stats.bulletCollision === true,
 
-		get width() {
-			return this.radius * 2;
-		},
-		get height() {
-			return this.radius * 2;
-		},
-		get size() {
-			return this.radius * 2;
-		},
-	});
+			get width() {
+				return this.radius * 2;
+			},
+			get height() {
+				return this.radius * 2;
+			},
+			get size() {
+				return this.radius * 2;
+			},
+		});
+	}
 }
 
 // Tests whether two line segments intersect; used to determine whether a wall edge blocks a shot or enemy vision
@@ -367,6 +417,7 @@ export function updateEnemies(currentTime, dt) {
 					damage: e.typeStats.bulletDamage,
 					maxBounces: 0,
 					spread: e.typeStats.spread ?? 0,
+					bulletCount: e.typeStats.bulletCount ?? 1,
 					explosionRadiusBlocks:
 						e.typeStats.bulletExplosionRadiusBlocks ?? 0,
 					detonationTimeMs: e.typeStats.bulletDetonationTimeMs ?? 0,
@@ -643,12 +694,11 @@ export function getPenetratedCollisionRect(
 // penetration remaining, the normal wall collision action is triggered.
 function collidesWithWallUsingPenetrationBudget(
 	bullet,
-	mover,
 	wall,
 	penetrationStepState,
 	isBouncy,
 ) {
-	if (!isColliding(mover, wall)) return false;
+	if (!projectileCircleOverlapsWall(bullet, wall)) return false;
 
 	// A bouncy projectile that spent its final penetration while already inside
 	// wall material is allowed to finish exiting that material. Once completely
@@ -867,7 +917,306 @@ function createLaserExplosionAt(x, y, stats, currentTime) {
 	);
 }
 
-function resolveLaserShot(shot, currentTime) {
+// Cone lasers deliberately use first-wall visibility only. Bounce and
+// penetration remain available for singular beams and are ignored for cones.
+function getLaserConeWallStop(
+	originX,
+	originY,
+	dirX,
+	dirY,
+	maxRangeBlocks = LASER_MAX_RANGE_BLOCKS,
+) {
+	let closestDistance = Math.max(0, Number(maxRangeBlocks) || 0);
+
+	for (const wall of GameState.walls) {
+		const hit = rayRectIntersection(originX, originY, dirX, dirY, wall, 0);
+		if (!hit || hit.entryDistance > closestDistance) continue;
+		closestDistance = Math.max(0, hit.entryDistance);
+	}
+
+	return closestDistance;
+}
+
+function pointToRectDistanceSquared(pointX, pointY, rect) {
+	const width = rect.width ?? rect.size ?? 0;
+	const height = rect.height ?? rect.size ?? 0;
+	const minX = rect.x;
+	const maxX = rect.x + width;
+	const minY = rect.y;
+	const maxY = rect.y + height;
+	const dx = pointX < minX ? minX - pointX : pointX > maxX ? pointX - maxX : 0;
+	const dy = pointY < minY ? minY - pointY : pointY > maxY ? pointY - maxY : 0;
+	return dx * dx + dy * dy;
+}
+
+function getLaserConeCriticalAngles(
+	originX,
+	originY,
+	centerAngle,
+	halfAngle,
+	maxRangeBlocks = LASER_MAX_RANGE_BLOCKS,
+) {
+	const fullCircle = halfAngle >= Math.PI - 1e-9;
+	const ANGLE_EPSILON = 1e-5;
+	const maxRangeSquared = maxRangeBlocks * maxRangeBlocks;
+	const localAngles = [];
+
+	function addLocalAngle(localAngle) {
+		if (fullCircle) {
+			localAngles.push(normalizeSignedAngle(localAngle));
+			return;
+		}
+
+		localAngles.push(Math.max(-halfAngle, Math.min(halfAngle, localAngle)));
+	}
+
+	if (fullCircle) {
+		// A few range anchors keep an unobstructed full-circle cone well formed.
+		for (let i = 0; i < 8; i++) {
+			addLocalAngle(-Math.PI + (i * Math.PI) / 4);
+		}
+	} else {
+		addLocalAngle(-halfAngle);
+		addLocalAngle(halfAngle);
+	}
+
+	for (const wall of GameState.walls) {
+		if (
+			pointToRectDistanceSquared(originX, originY, wall) >
+			maxRangeSquared
+		) {
+			continue;
+		}
+
+		const width = wall.width ?? wall.size ?? 0;
+		const height = wall.height ?? wall.size ?? 0;
+		const corners = [
+			{ x: wall.x, y: wall.y },
+			{ x: wall.x + width, y: wall.y },
+			{ x: wall.x + width, y: wall.y + height },
+			{ x: wall.x, y: wall.y + height },
+		];
+
+		for (const corner of corners) {
+			const absoluteAngle = Math.atan2(
+				corner.y - originY,
+				corner.x - originX,
+			);
+			const localAngle = shortestAngleDelta(centerAngle, absoluteAngle);
+
+			if (
+				!fullCircle &&
+				(localAngle < -halfAngle - ANGLE_EPSILON ||
+					localAngle > halfAngle + ANGLE_EPSILON)
+			) {
+				continue;
+			}
+
+			// The rays immediately either side of a corner capture the visibility
+			// discontinuity without brute-force sampling the whole cone.
+			addLocalAngle(localAngle - ANGLE_EPSILON);
+			addLocalAngle(localAngle);
+			addLocalAngle(localAngle + ANGLE_EPSILON);
+		}
+	}
+
+	localAngles.sort((a, b) => a - b);
+	const deduped = [];
+	for (const angle of localAngles) {
+		if (
+			deduped.length === 0 ||
+			Math.abs(angle - deduped[deduped.length - 1]) > 1e-7
+		) {
+			deduped.push(angle);
+		}
+	}
+
+	return deduped.map((localAngle) => centerAngle + localAngle);
+}
+
+function buildLaserConeVisibilityPolygon(
+	originX,
+	originY,
+	centerAngle,
+	halfAngle,
+	maxRangeBlocks = LASER_MAX_RANGE_BLOCKS,
+) {
+	const fullCircle = halfAngle >= Math.PI - 1e-9;
+	const criticalAngles = getLaserConeCriticalAngles(
+		originX,
+		originY,
+		centerAngle,
+		halfAngle,
+		maxRangeBlocks,
+	);
+	const edgePoints = criticalAngles.map((angle) => {
+		const dirX = Math.cos(angle);
+		const dirY = Math.sin(angle);
+		const distance = getLaserConeWallStop(
+			originX,
+			originY,
+			dirX,
+			dirY,
+			maxRangeBlocks,
+		);
+
+		return {
+			x: originX + dirX * distance,
+			y: originY + dirY * distance,
+		};
+	});
+
+	return fullCircle
+		? edgePoints
+		: [{ x: originX, y: originY }, ...edgePoints];
+}
+
+function pointInPolygon(pointX, pointY, polygon) {
+	let inside = false;
+
+	for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+		const a = polygon[i];
+		const b = polygon[j];
+		const crossesY = (a.y > pointY) !== (b.y > pointY);
+		if (!crossesY) continue;
+
+		const edgeX =
+			((b.x - a.x) * (pointY - a.y)) / (b.y - a.y) + a.x;
+		if (pointX < edgeX) inside = !inside;
+	}
+
+	return inside;
+}
+
+function pointInRect(point, rect) {
+	const width = rect.width ?? rect.size ?? 0;
+	const height = rect.height ?? rect.size ?? 0;
+	return (
+		point.x >= rect.x &&
+		point.x <= rect.x + width &&
+		point.y >= rect.y &&
+		point.y <= rect.y + height
+	);
+}
+
+function orientation(a, b, c) {
+	return (b.x - a.x) * (c.y - a.y) -
+		(b.y - a.y) * (c.x - a.x);
+}
+
+function pointOnSegment(a, b, point) {
+	const EPSILON = 1e-9;
+	return (
+		Math.abs(orientation(a, b, point)) <= EPSILON &&
+		point.x >= Math.min(a.x, b.x) - EPSILON &&
+		point.x <= Math.max(a.x, b.x) + EPSILON &&
+		point.y >= Math.min(a.y, b.y) - EPSILON &&
+		point.y <= Math.max(a.y, b.y) + EPSILON
+	);
+}
+
+function segmentsIntersectInclusive(a, b, c, d) {
+	const EPSILON = 1e-9;
+	const o1 = orientation(a, b, c);
+	const o2 = orientation(a, b, d);
+	const o3 = orientation(c, d, a);
+	const o4 = orientation(c, d, b);
+
+	if (
+		((o1 > EPSILON && o2 < -EPSILON) ||
+			(o1 < -EPSILON && o2 > EPSILON)) &&
+		((o3 > EPSILON && o4 < -EPSILON) ||
+			(o3 < -EPSILON && o4 > EPSILON))
+	) {
+		return true;
+	}
+
+	return (
+		pointOnSegment(a, b, c) ||
+		pointOnSegment(a, b, d) ||
+		pointOnSegment(c, d, a) ||
+		pointOnSegment(c, d, b)
+	);
+}
+
+function rectIntersectsPolygon(rect, polygon) {
+	if (!Array.isArray(polygon) || polygon.length < 3) return false;
+
+	const width = rect.width ?? rect.size ?? 0;
+	const height = rect.height ?? rect.size ?? 0;
+	const rectPoints = [
+		{ x: rect.x, y: rect.y },
+		{ x: rect.x + width, y: rect.y },
+		{ x: rect.x + width, y: rect.y + height },
+		{ x: rect.x, y: rect.y + height },
+	];
+
+	if (rectPoints.some((point) => pointInPolygon(point.x, point.y, polygon))) {
+		return true;
+	}
+
+	if (polygon.some((point) => pointInRect(point, rect))) {
+		return true;
+	}
+
+	const rectEdges = [
+		[rectPoints[0], rectPoints[1]],
+		[rectPoints[1], rectPoints[2]],
+		[rectPoints[2], rectPoints[3]],
+		[rectPoints[3], rectPoints[0]],
+	];
+
+	for (let i = 0; i < polygon.length; i++) {
+		const polygonEdgeStart = polygon[i];
+		const polygonEdgeEnd = polygon[(i + 1) % polygon.length];
+
+		for (const [rectEdgeStart, rectEdgeEnd] of rectEdges) {
+			if (
+				segmentsIntersectInclusive(
+					polygonEdgeStart,
+					polygonEdgeEnd,
+					rectEdgeStart,
+					rectEdgeEnd,
+				)
+			) {
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
+function resolveLaserConeShot(shot, currentTime) {
+	const originX = shot.shooter.x + shot.shooter.size / 2;
+	const originY = shot.shooter.y + shot.shooter.size / 2;
+	const polygon = buildLaserConeVisibilityPolygon(
+		originX,
+		originY,
+		shot.centerAngle,
+		shot.coneHalfAngle,
+	);
+
+	for (const target of GameState.enemies) {
+		if (target.hp <= 0) continue;
+		if (rectIntersectsPolygon(target, polygon)) {
+			target.hp -= shot.stats.damage ?? 1;
+		}
+	}
+
+	GameState.laserBeams.push({
+		type: "cone",
+		points: polygon,
+		color: shot.stats.color ?? "white",
+		createdAt: currentTime,
+		durationMs: Math.max(
+			0,
+			Number(Config.RENDERING.LASER_FLASH_DURATION_MS) || 0,
+		),
+	});
+}
+
+function resolveLaserBeamShot(shot, currentTime) {
 	const shooter = shot.shooter;
 	let originX = shooter.x + shooter.size / 2;
 	let originY = shooter.y + shooter.size / 2;
@@ -921,6 +1270,7 @@ function resolveLaserShot(shot, currentTime) {
 		const endY = originY + dirY * beamDistance;
 
 		GameState.laserBeams.push({
+			type: "beam",
 			x1: originX,
 			y1: originY,
 			x2: endX,
@@ -960,6 +1310,15 @@ function resolveLaserShot(shot, currentTime) {
 	}
 }
 
+function resolveLaserShot(shot, currentTime) {
+	if ((shot.coneHalfAngle ?? 0) > 0) {
+		resolveLaserConeShot(shot, currentTime);
+		return;
+	}
+
+	resolveLaserBeamShot(shot, currentTime);
+}
+
 // Starts a player laser shot. Aim direction is locked at trigger time. Warmup
 // is a delayed state transition, while the beam itself is resolved as hitscan.
 // Cooldown begins at the exact scheduled end of warmup (shot.fireAt), so the
@@ -982,14 +1341,20 @@ export function requestLaserShot(
 
 	const centerX = shooter.x + shooter.size / 2;
 	const centerY = shooter.y + shooter.size / 2;
-	const angle = Math.atan2(targetY - centerY, targetX - centerX) +
-		getRandomSpreadOffset(stats.spread ?? 0);
+	const bulletCount = getBulletCount(stats);
+	const baseAngle = Math.atan2(targetY - centerY, targetX - centerX);
+	const centerAngle = baseAngle + getRandomSpreadOffset(stats.spread ?? 0);
+	const coneHalfAngle = bulletCount > 1
+		? getLaserConeHalfAngleFromCount(bulletCount)
+		: 0;
 	const warmupMs = Math.max(0, Number(stats.laserWarmupMs ?? 0) || 0);
 	const shot = {
 		shooter,
 		weaponIndex: index,
-		dirX: Math.cos(angle),
-		dirY: Math.sin(angle),
+		dirX: Math.cos(centerAngle),
+		dirY: Math.sin(centerAngle),
+		centerAngle,
+		coneHalfAngle,
 		stats: { ...stats },
 		startedAt: currentTime,
 		fireAt: currentTime + warmupMs,
@@ -1049,6 +1414,55 @@ function projectileRect(bullet) {
 		y: bullet.y - bullet.radius,
 		size: bullet.radius * 2,
 	};
+}
+
+// Wall collision uses the projectile's rendered circular hitbox. projectileRect
+// remains for entity damage so this bugfix does not change target hitboxes.
+function projectileCircleOverlapsWall(bullet, wall) {
+	const width = wall.width ?? wall.size ?? 0;
+	const height = wall.height ?? wall.size ?? 0;
+	const closestX = Math.max(wall.x, Math.min(bullet.x, wall.x + width));
+	const closestY = Math.max(wall.y, Math.min(bullet.y, wall.y + height));
+	const dx = bullet.x - closestX;
+	const dy = bullet.y - closestY;
+	const radius = Math.max(0, Number(bullet.radius) || 0);
+
+	// Tangency is a resolved contact rather than overlap. This lets a bounced
+	// projectile move away from or along a wall without immediately re-hitting.
+	return dx * dx + dy * dy < radius * radius - 1e-10;
+}
+
+// The old wall response moved the projectile a whole substep into the wall and
+// then undid the entire substep, which could make a hit happen up to 0.2 blocks
+// away from the visible wall. Once an overlap is detected, binary-search only
+// that substep to place the circle immediately before its true contact point.
+function resolveProjectileAxisWallContact(
+	bullet,
+	wall,
+	axis,
+	startCoordinate,
+	endCoordinate,
+) {
+	let clearCoordinate = startCoordinate;
+	let collidingCoordinate = endCoordinate;
+	const originalCoordinate = axis === "x" ? bullet.x : bullet.y;
+
+	for (let i = 0; i < 16; i++) {
+		const midpoint = (clearCoordinate + collidingCoordinate) / 2;
+		if (axis === "x") bullet.x = midpoint;
+		else bullet.y = midpoint;
+
+		if (projectileCircleOverlapsWall(bullet, wall)) {
+			collidingCoordinate = midpoint;
+		} else {
+			clearCoordinate = midpoint;
+		}
+	}
+
+	if (axis === "x") bullet.x = originalCoordinate;
+	else bullet.y = originalCoordinate;
+
+	return clearCoordinate;
 }
 
 // Substeps projectile movement, reflects bullets from walls, applies damage to
@@ -1152,6 +1566,7 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 				? b.throwDirX * throwableStepDistance
 				: b.vx * stepDt;
 
+			const startX = b.x;
 			b.x += moveX;
 			mockRect.x = b.x - b.radius;
 			mockRect.y = b.y - b.radius;
@@ -1159,7 +1574,6 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 			const hitWallX = moveX === 0 ? null : GameState.walls.find((w) =>
 				collidesWithWallUsingPenetrationBudget(
 					b,
-					mockRect,
 					w,
 					penetrationStepState,
 					bouncy,
@@ -1167,7 +1581,13 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 			);
 
 			if (hitWallX) {
-				b.x -= moveX;
+				b.x = resolveProjectileAxisWallContact(
+					b,
+					hitWallX,
+					"x",
+					startX,
+					b.x,
+				);
 				mockRect.x = b.x - b.radius;
 
 				if (b.throwable) {
@@ -1198,6 +1618,7 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 				? b.throwDirY * throwableStepDistance
 				: b.vy * stepDt;
 
+			const startY = b.y;
 			b.y += moveY;
 			mockRect.x = b.x - b.radius;
 			mockRect.y = b.y - b.radius;
@@ -1205,7 +1626,6 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 			const hitWallY = moveY === 0 ? null : GameState.walls.find((w) =>
 				collidesWithWallUsingPenetrationBudget(
 					b,
-					mockRect,
 					w,
 					penetrationStepState,
 					bouncy,
@@ -1213,7 +1633,13 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 			);
 
 			if (hitWallY) {
-				b.y -= moveY;
+				b.y = resolveProjectileAxisWallContact(
+					b,
+					hitWallY,
+					"y",
+					startY,
+					b.y,
+				);
 				mockRect.y = b.y - b.radius;
 
 				if (b.throwable) {
@@ -1244,7 +1670,7 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 			if (b.finishPenetratedWall && bouncy) {
 				mockRect.x = b.x - b.radius;
 				mockRect.y = b.y - b.radius;
-				if (!GameState.walls.some((w) => isColliding(mockRect, w))) {
+				if (!GameState.walls.some((w) => projectileCircleOverlapsWall(b, w))) {
 					b.finishPenetratedWall = false;
 				}
 			}

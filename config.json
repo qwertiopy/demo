@@ -14,12 +14,12 @@
         "CLEANUP_BUFFER_BLOCKS": 0,
         "LASER_FLASH_DURATION_MS": 90,
         "TRAIL_LENGTH_FRAMES": 10,
-        "TRAIL_DETAIL": 20,
+        "TRAIL_DETAIL": 60,
         "TRAIL_QUAD_DETAIL": 30
     },
     "WEAPONS": [
         {
-            "speed": 5,
+            "speed": 10,
             "radiusBlocks": 0.08,
             "color": "crimson",
             "damage": 3,
@@ -36,31 +36,33 @@
             "throwDeceleration": 20,
             "laser": false,
             "laserWarmupMs": 0,
-            "cooldownMs": 0,
-            "penetrationBlocks": 1,
-            "bulletCollision": false
+            "cooldownMs": 100,
+            "penetrationBlocks": 0,
+            "bulletCollision": false,
+            "bulletCount": 1
         },
         {
             "speed": 15,
             "radiusBlocks": 0.08,
             "color": "crimson",
             "damage": 1,
-            "maxBounces": 9,
+            "maxBounces": 0,
             "spread": 0.5,
             "lifetimeMs": 60000,
-            "explosionRadiusBlocks": 1,
+            "explosionRadiusBlocks": 0,
             "detonationTimeMs": 0,
             "explosionDurationMs": 250,
-            "explosionDamage": 3,
-            "detonatesOnImpact": true,
+            "explosionDamage": 0,
+            "detonatesOnImpact": false,
             "throwable": false,
             "throwDistanceMultiplier": 1,
             "throwDeceleration": 20,
             "laser": false,
             "laserWarmupMs": 0,
-            "cooldownMs": 0,
+            "cooldownMs": 500,
             "penetrationBlocks": 0,
-            "bulletCollision": false
+            "bulletCollision": false,
+            "bulletCount": 10
         },
         {
             "speed": 10,
@@ -82,7 +84,8 @@
             "laserWarmupMs": 0,
             "cooldownMs": 0,
             "penetrationBlocks": 0,
-            "bulletCollision": false
+            "bulletCollision": false,
+            "bulletCount": 1
         },
         {
             "speed": 10,
@@ -104,7 +107,8 @@
             "laserWarmupMs": 0,
             "cooldownMs": 0,
             "penetrationBlocks": 0,
-            "bulletCollision": false
+            "bulletCollision": false,
+            "bulletCount": 10
         },
         {
             "speed": 10,
@@ -126,7 +130,8 @@
             "laserWarmupMs": 0,
             "cooldownMs": 0,
             "penetrationBlocks": 0,
-            "bulletCollision": false
+            "bulletCollision": false,
+            "bulletCount": 1
         },
         {
             "speed": 10,
@@ -148,7 +153,8 @@
             "laserWarmupMs": 0,
             "cooldownMs": 0,
             "penetrationBlocks": 0,
-            "bulletCollision": false
+            "bulletCollision": false,
+            "bulletCount": 1
         },
         {
             "speed": 10,
@@ -170,7 +176,8 @@
             "laserWarmupMs": 0,
             "cooldownMs": 0,
             "penetrationBlocks": 0,
-            "bulletCollision": false
+            "bulletCollision": false,
+            "bulletCount": 1
         },
         {
             "speed": 10,
@@ -192,7 +199,8 @@
             "laserWarmupMs": 0,
             "cooldownMs": 0,
             "penetrationBlocks": 0,
-            "bulletCollision": false
+            "bulletCollision": false,
+            "bulletCount": 1
         },
         {
             "speed": 10,
@@ -214,7 +222,8 @@
             "laserWarmupMs": 0,
             "cooldownMs": 0,
             "penetrationBlocks": 0,
-            "bulletCollision": false
+            "bulletCollision": false,
+            "bulletCount": 1
         },
         {
             "speed": 10,
@@ -236,7 +245,8 @@
             "laserWarmupMs": 0,
             "cooldownMs": 0,
             "penetrationBlocks": 0,
-            "bulletCollision": false
+            "bulletCollision": false,
+            "bulletCount": 1
         }
     ],
     "STRUCTURE_DENSITY_BLOCKS": 5,

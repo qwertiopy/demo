@@ -9,6 +9,19 @@ function cloneConfig(value) {
 
 const VALID_STRUCTURE_FLAGS = new Set([0, 1, 2, 3, 4, 5]);
 
+function normalizeWeaponBulletCount(weapon) {
+	if (!isPlainObject(weapon)) return weapon;
+	return {
+		...weapon,
+		bulletCount: weapon.bulletCount === undefined ? 1 : weapon.bulletCount,
+	};
+}
+
+function normalizeWeaponBulletCounts(weapons) {
+	if (!Array.isArray(weapons)) return weapons;
+	return weapons.map((weapon) => normalizeWeaponBulletCount(weapon));
+}
+
 function validateStructureLibrary(structures) {
 	if (!Array.isArray(structures)) {
 		throw new Error("STRUCTURE_LIBRARY must be an array.");
@@ -61,6 +74,7 @@ function validateWeapons(weapons) {
 		"laserWarmupMs",
 		"cooldownMs",
 		"penetrationBlocks",
+		"bulletCount",
 	];
 
 	weapons.forEach((weapon, index) => {
@@ -89,6 +103,12 @@ function validateWeapons(weapons) {
 		if (weapon.maxBounces < 0 || !Number.isInteger(weapon.maxBounces)) {
 			throw new Error(
 				`Weapon ${index + 1}.maxBounces must be a non-negative integer.`,
+			);
+		}
+
+		if (weapon.bulletCount < 1 || !Number.isInteger(weapon.bulletCount)) {
+			throw new Error(
+				`Weapon ${index + 1}.bulletCount must be an integer greater than or equal to 1.`,
 			);
 		}
 
@@ -379,6 +399,7 @@ async function init() {
 			showStatus("config.json defaults loaded. No local save yet.");
 		}
 
+		config.WEAPONS = normalizeWeaponBulletCounts(config.WEAPONS);
 		syncConfigToUI();
 	} catch (error) {
 		showStatus("Failed to load config.json: " + error.message, true);
@@ -579,8 +600,9 @@ function readConfigFromUI() {
 	config.STRUCTURE_DENSITY_BLOCKS = structureDensity;
 
 	if (advancedData.WEAPONS !== undefined) {
-		validateWeapons(advancedData.WEAPONS);
-		config.WEAPONS = advancedData.WEAPONS;
+		const normalizedWeapons = normalizeWeaponBulletCounts(advancedData.WEAPONS);
+		validateWeapons(normalizedWeapons);
+		config.WEAPONS = normalizedWeapons;
 	}
 
 	if (advancedData.ENEMY_TYPES !== undefined) {
@@ -640,6 +662,7 @@ function resetConfig() {
 
 	localStorage.removeItem(CONFIG_STORAGE_KEY);
 	config = cloneConfig(defaultConfig);
+	config.WEAPONS = normalizeWeaponBulletCounts(config.WEAPONS);
 	syncConfigToUI();
 	showStatus("Local save cleared. Restored config.json defaults.");
 }

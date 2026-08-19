@@ -141,6 +141,34 @@ function drawLaserWarmup(warmup, blockSizePx, alphaMultiplier) {
 	ctx.save();
 	ctx.globalAlpha =
 		alphaMultiplier * Math.min(1, Math.max(0, Number(warmup.alpha) || 0));
+
+	if (warmup.type === "cone") {
+		const originX = warmup.originX * blockSizePx;
+		const originY = warmup.originY * blockSizePx;
+		const range = Math.max(0, Number(warmup.range) || 0) * blockSizePx;
+		const halfAngle = Math.max(0, Number(warmup.halfAngle) || 0);
+		ctx.fillStyle = warmup.color;
+		ctx.beginPath();
+
+		if (halfAngle >= Math.PI - 1e-9) {
+			ctx.arc(originX, originY, range, 0, Math.PI * 2);
+		} else {
+			ctx.moveTo(originX, originY);
+			ctx.arc(
+				originX,
+				originY,
+				range,
+				warmup.centerAngle - halfAngle,
+				warmup.centerAngle + halfAngle,
+			);
+			ctx.closePath();
+		}
+
+		ctx.fill();
+		ctx.restore();
+		return;
+	}
+
 	ctx.strokeStyle = warmup.color;
 	ctx.lineWidth = Math.max(1, warmup.radius * 2 * blockSizePx);
 	ctx.setLineDash([6, 8]);
@@ -155,6 +183,23 @@ function drawLaserBeam(beam, blockSizePx, alphaMultiplier) {
 	ctx.save();
 	ctx.globalAlpha =
 		alphaMultiplier * Math.min(1, Math.max(0, Number(beam.alpha) || 0));
+
+	if (beam.type === "cone") {
+		const points = beam.points || [];
+		if (points.length >= 3) {
+			ctx.fillStyle = beam.color;
+			ctx.beginPath();
+			ctx.moveTo(points[0].x * blockSizePx, points[0].y * blockSizePx);
+			for (let i = 1; i < points.length; i++) {
+				ctx.lineTo(points[i].x * blockSizePx, points[i].y * blockSizePx);
+			}
+			ctx.closePath();
+			ctx.fill();
+		}
+		ctx.restore();
+		return;
+	}
+
 	ctx.strokeStyle = beam.color;
 	ctx.lineWidth = Math.max(2, beam.radius * 2 * blockSizePx);
 	ctx.beginPath();

@@ -24,6 +24,7 @@ const FALLBACK_BULLET_STATS = {
     cooldownMs: 0,
     penetrationBlocks: 0,
     bulletCollision: false,
+    bulletCount: 1,
 };
 
 export function getWeaponCount() {

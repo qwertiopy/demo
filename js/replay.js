@@ -155,16 +155,32 @@ export function captureVisualSnapshot(currentTime) {
 				0.015,
 				Number(shot.stats.radiusBlocks ?? 0.03) || 0.03,
 			);
+			const alpha = 0.16 + progress * 0.34;
+
+			if ((shot.coneHalfAngle ?? 0) > 0) {
+				return {
+					renderId: getRenderId(shot, "laser-warmup"),
+					type: "cone",
+					originX,
+					originY,
+					centerAngle: shot.centerAngle,
+					halfAngle: shot.coneHalfAngle,
+					range: LASER_TELEGRAPH_RANGE_BLOCKS,
+					color: shot.stats.color ?? "white",
+					alpha,
+				};
+			}
 
 			return {
 				renderId: getRenderId(shot, "laser-warmup"),
+				type: "beam",
 				x1: originX,
 				y1: originY,
 				x2: originX + shot.dirX * LASER_TELEGRAPH_RANGE_BLOCKS,
 				y2: originY + shot.dirY * LASER_TELEGRAPH_RANGE_BLOCKS,
 				color: shot.stats.color ?? "white",
 				radius,
-				alpha: 0.16 + progress * 0.34,
+				alpha,
 			};
 		}),
 		laserBeams: GameState.laserBeams.map((beam) => {
@@ -174,8 +190,22 @@ export function captureVisualSnapshot(currentTime) {
 				1 - age / Math.max(1, Number(beam.durationMs) || 1),
 			);
 
+			if (beam.type === "cone") {
+				return {
+					renderId: getRenderId(beam, "laser-beam"),
+					type: "cone",
+					points: (beam.points || []).map((point) => ({
+						x: point.x,
+						y: point.y,
+					})),
+					color: beam.color,
+					alpha,
+				};
+			}
+
 			return {
 				renderId: getRenderId(beam, "laser-beam"),
+				type: "beam",
 				x1: beam.x1,
 				y1: beam.y1,
 				x2: beam.x2,
