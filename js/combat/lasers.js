@@ -11,9 +11,132 @@ import {
 	shortestAngleDelta,
 } from "./weapon-utils.js";
 
-// Hardcoded laser presentation/range values. Weapon balance is controlled by
-// the configurable warmup/cooldown/damage/penetration stats instead.
-export const LASER_MAX_RANGE_BLOCKS = 60;
+// Laser range is no longer capped by an arbitrary gameplay distance. Rays extend
+// to the edge of the currently loaded world, while a shared per-frame calculation
+// budget limits worst-case CPU work. One budget unit represents one potentially
+// expensive laser/world or laser/entity geometry check.
+export const DEFAULT_LASER_CALCULATION_BUDGET_PER_FRAME = 100000;
+
+let laserCalculationBudgetRemaining = DEFAULT_LASER_CALCULATION_BUDGET_PER_FRAME;
+let laserLoadedWorldBoundsCached = false;
+let cachedLaserLoadedWorldBounds = null;
+let laserLoadedWorldBoundsTruncated = false;
+
+export function getLaserCalculationBudgetPerFrame() {
+	return Math.max(
+		1,
+		Math.floor(
+			Number(
+				Config.RENDERING?.LASER_CALCULATION_BUDGET_PER_FRAME ??
+					DEFAULT_LASER_CALCULATION_BUDGET_PER_FRAME,
+			) || DEFAULT_LASER_CALCULATION_BUDGET_PER_FRAME,
+		),
+	);
+}
+
+export function resetLaserCalculationBudget() {
+	laserCalculationBudgetRemaining = getLaserCalculationBudgetPerFrame();
+	laserLoadedWorldBoundsCached = false;
+	cachedLaserLoadedWorldBounds = null;
+	laserLoadedWorldBoundsTruncated = false;
+}
+
+export function getLaserCalculationBudgetRemaining() {
+	return laserCalculationBudgetRemaining;
+}
+
+function consumeLaserCalculationBudget(units = 1) {
+	const cost = Math.max(1, Math.floor(Number(units) || 1));
+	if (laserCalculationBudgetRemaining < cost) return false;
+	laserCalculationBudgetRemaining -= cost;
+	return true;
+}
+
+function getLaserLoadedWorldBounds() {
+	if (laserLoadedWorldBoundsCached) return cachedLaserLoadedWorldBounds;
+
+	laserLoadedWorldBoundsCached = true;
+	laserLoadedWorldBoundsTruncated = false;
+
+	if (GameState.walls.length > 0) {
+		let minX = Infinity;
+		let minY = Infinity;
+		let maxX = -Infinity;
+		let maxY = -Infinity;
+
+		for (const wall of GameState.walls) {
+			if (!consumeLaserCalculationBudget()) {
+				laserLoadedWorldBoundsTruncated = true;
+				cachedLaserLoadedWorldBounds = null;
+				return null;
+			}
+
+			const width = wall.width ?? wall.size ?? 0;
+			const height = wall.height ?? wall.size ?? 0;
+			minX = Math.min(minX, wall.x);
+			minY = Math.min(minY, wall.y);
+			maxX = Math.max(maxX, wall.x + width);
+			maxY = Math.max(maxY, wall.y + height);
+		}
+
+		if (Number.isFinite(minX) && Number.isFinite(maxX)) {
+			cachedLaserLoadedWorldBounds = {
+				x: minX,
+				y: minY,
+				width: maxX - minX,
+				height: maxY - minY,
+			};
+		}
+	}
+
+	return cachedLaserLoadedWorldBounds;
+}
+
+function getLaserFallbackLoadedRangeBlocks() {
+	const rendering = Config.RENDERING || {};
+	return Math.max(
+		1,
+		Number(rendering.DISTANCE_FRONT_BLOCKS ?? 35) +
+			Number(rendering.DISTANCE_BACK_BLOCKS ?? 20) +
+			Number(rendering.CLEANUP_BUFFER_BLOCKS ?? 0),
+	);
+}
+
+function getLaserLoadedRangeBlocks(originX, originY, dirX, dirY) {
+	const bounds = getLaserLoadedWorldBounds();
+	if (!bounds) {
+		return laserLoadedWorldBoundsTruncated
+			? 0
+			: getLaserFallbackLoadedRangeBlocks();
+	}
+
+	const hit = rayRectIntersection(originX, originY, dirX, dirY, bounds, 0);
+	if (!hit) return 0;
+	return Math.max(0, hit.exitDistance);
+}
+
+function getLaserLoadedWorldRadiusBlocks(originX, originY) {
+	const bounds = getLaserLoadedWorldBounds();
+	if (!bounds) {
+		return laserLoadedWorldBoundsTruncated
+			? 0
+			: getLaserFallbackLoadedRangeBlocks();
+	}
+
+	const corners = [
+		{ x: bounds.x, y: bounds.y },
+		{ x: bounds.x + bounds.width, y: bounds.y },
+		{ x: bounds.x + bounds.width, y: bounds.y + bounds.height },
+		{ x: bounds.x, y: bounds.y + bounds.height },
+	];
+
+	return Math.max(
+		1,
+		...corners.map((corner) =>
+			Math.hypot(corner.x - originX, corner.y - originY),
+		),
+	);
+}
 
 // Ray/AABB slab intersection. The optional radius expands the rectangle so a
 // laser with a visible thickness also gets a matching collision thickness.
@@ -96,17 +219,30 @@ export function getLaserWallStopWithPenetrationBudget(
 	dirY,
 	radius,
 	penetrationBlocks,
-	maxRangeBlocks = LASER_MAX_RANGE_BLOCKS,
+	maxRangeBlocks = null,
 	bouncy = false,
 ) {
 	let remainingPenetrationBlocks = Math.max(
 		0,
 		Number(penetrationBlocks) || 0,
 	);
-	const maxRange = Math.max(0, Number(maxRangeBlocks) || 0);
+	const maxRange = maxRangeBlocks === null || maxRangeBlocks === undefined
+		? getLaserLoadedRangeBlocks(originX, originY, dirX, dirY)
+		: Math.max(0, Number(maxRangeBlocks) || 0);
 	const wallIntervals = [];
 
 	for (const wall of GameState.walls) {
+		if (!consumeLaserCalculationBudget()) {
+			return {
+				distance: 0,
+				impactedWall: false,
+				remainingPenetrationBlocks,
+				normalX: 0,
+				normalY: 0,
+				truncated: true,
+			};
+		}
+
 		const hit = rayRectIntersection(
 			originX,
 			originY,
@@ -170,6 +306,7 @@ export function getLaserWallStopWithPenetrationBudget(
 			remainingPenetrationBlocks: 0,
 			normalX: interval.normalX,
 			normalY: interval.normalY,
+			truncated: false,
 		};
 	}
 
@@ -179,6 +316,7 @@ export function getLaserWallStopWithPenetrationBudget(
 		remainingPenetrationBlocks,
 		normalX: 0,
 		normalY: 0,
+		truncated: false,
 	};
 }
 
@@ -199,46 +337,25 @@ function createLaserExplosionAt(x, y, stats, currentTime) {
 
 // Cone lasers deliberately use first-wall visibility only. Bounce and
 // penetration remain available for singular beams and are ignored for cones.
-function getLaserConeWallStop(
-	originX,
-	originY,
-	dirX,
-	dirY,
-	maxRangeBlocks = LASER_MAX_RANGE_BLOCKS,
-) {
+function getLaserConeWallStop(originX, originY, dirX, dirY, maxRangeBlocks) {
 	let closestDistance = Math.max(0, Number(maxRangeBlocks) || 0);
 
 	for (const wall of GameState.walls) {
+		if (!consumeLaserCalculationBudget()) {
+			return { distance: 0, truncated: true };
+		}
+
 		const hit = rayRectIntersection(originX, originY, dirX, dirY, wall, 0);
 		if (!hit || hit.entryDistance > closestDistance) continue;
 		closestDistance = Math.max(0, hit.entryDistance);
 	}
 
-	return closestDistance;
+	return { distance: closestDistance, truncated: false };
 }
 
-function pointToRectDistanceSquared(pointX, pointY, rect) {
-	const width = rect.width ?? rect.size ?? 0;
-	const height = rect.height ?? rect.size ?? 0;
-	const minX = rect.x;
-	const maxX = rect.x + width;
-	const minY = rect.y;
-	const maxY = rect.y + height;
-	const dx = pointX < minX ? minX - pointX : pointX > maxX ? pointX - maxX : 0;
-	const dy = pointY < minY ? minY - pointY : pointY > maxY ? pointY - maxY : 0;
-	return dx * dx + dy * dy;
-}
-
-function getLaserConeCriticalAngles(
-	originX,
-	originY,
-	centerAngle,
-	halfAngle,
-	maxRangeBlocks = LASER_MAX_RANGE_BLOCKS,
-) {
+function getLaserConeCriticalAngles(originX, originY, centerAngle, halfAngle) {
 	const fullCircle = halfAngle >= Math.PI - 1e-9;
 	const ANGLE_EPSILON = 1e-5;
-	const maxRangeSquared = maxRangeBlocks * maxRangeBlocks;
 	const localAngles = [];
 
 	function addLocalAngle(localAngle) {
@@ -251,7 +368,7 @@ function getLaserConeCriticalAngles(
 	}
 
 	if (fullCircle) {
-		// A few range anchors keep an unobstructed full-circle cone well formed.
+		// A few world-boundary anchors keep an unobstructed full-circle cone well formed.
 		for (let i = 0; i < 8; i++) {
 			addLocalAngle(-Math.PI + (i * Math.PI) / 4);
 		}
@@ -261,11 +378,8 @@ function getLaserConeCriticalAngles(
 	}
 
 	for (const wall of GameState.walls) {
-		if (
-			pointToRectDistanceSquared(originX, originY, wall) >
-			maxRangeSquared
-		) {
-			continue;
+		if (!consumeLaserCalculationBudget()) {
+			return { angles: [], truncated: true };
 		}
 
 		const width = wall.width ?? wall.size ?? 0;
@@ -311,28 +425,36 @@ function getLaserConeCriticalAngles(
 		}
 	}
 
-	return deduped.map((localAngle) => centerAngle + localAngle);
+	return {
+		angles: deduped.map((localAngle) => centerAngle + localAngle),
+		truncated: false,
+	};
 }
 
-function buildLaserConeVisibilityPolygon(
-	originX,
-	originY,
-	centerAngle,
-	halfAngle,
-	maxRangeBlocks = LASER_MAX_RANGE_BLOCKS,
-) {
+function buildLaserConeVisibilityPolygon(originX, originY, centerAngle, halfAngle) {
 	const fullCircle = halfAngle >= Math.PI - 1e-9;
-	const criticalAngles = getLaserConeCriticalAngles(
+	const critical = getLaserConeCriticalAngles(
 		originX,
 		originY,
 		centerAngle,
 		halfAngle,
-		maxRangeBlocks,
 	);
-	const edgePoints = criticalAngles.map((angle) => {
+
+	if (critical.truncated) {
+		return { polygon: [], truncated: true };
+	}
+
+	const edgePoints = [];
+	for (const angle of critical.angles) {
 		const dirX = Math.cos(angle);
 		const dirY = Math.sin(angle);
-		const distance = getLaserConeWallStop(
+		const maxRangeBlocks = getLaserLoadedRangeBlocks(
+			originX,
+			originY,
+			dirX,
+			dirY,
+		);
+		const wallStop = getLaserConeWallStop(
 			originX,
 			originY,
 			dirX,
@@ -340,15 +462,22 @@ function buildLaserConeVisibilityPolygon(
 			maxRangeBlocks,
 		);
 
-		return {
-			x: originX + dirX * distance,
-			y: originY + dirY * distance,
-		};
-	});
+		if (wallStop.truncated) {
+			return { polygon: [], truncated: true };
+		}
 
-	return fullCircle
-		? edgePoints
-		: [{ x: originX, y: originY }, ...edgePoints];
+		edgePoints.push({
+			x: originX + dirX * wallStop.distance,
+			y: originY + dirY * wallStop.distance,
+		});
+	}
+
+	return {
+		polygon: fullCircle
+			? edgePoints
+			: [{ x: originX, y: originY }, ...edgePoints],
+		truncated: false,
+	};
 }
 
 function pointInPolygon(pointX, pointY, polygon) {
@@ -470,23 +599,28 @@ function rectIntersectsPolygon(rect, polygon) {
 function resolveLaserConeShot(shot, currentTime) {
 	const originX = shot.shooter.x + shot.shooter.size / 2;
 	const originY = shot.shooter.y + shot.shooter.size / 2;
-	const polygon = buildLaserConeVisibilityPolygon(
+	const visibility = buildLaserConeVisibilityPolygon(
 		originX,
 		originY,
 		shot.centerAngle,
 		shot.coneHalfAngle,
 	);
 
+	// If the shared frame budget is exhausted, fail conservatively rather than
+	// drawing or damaging through wall geometry we did not finish checking.
+	if (visibility.truncated || visibility.polygon.length < 3) return;
+
 	for (const target of GameState.enemies) {
 		if (target.hp <= 0) continue;
-		if (rectIntersectsPolygon(target, polygon)) {
+		if (!consumeLaserCalculationBudget()) break;
+		if (rectIntersectsPolygon(target, visibility.polygon)) {
 			target.hp -= shot.stats.damage ?? 1;
 		}
 	}
 
 	GameState.laserBeams.push({
 		type: "cone",
-		points: polygon,
+		points: visibility.polygon,
 		color: shot.stats.color ?? "white",
 		createdAt: currentTime,
 		durationMs: Math.max(
@@ -508,13 +642,20 @@ function resolveLaserBeamShot(shot, currentTime) {
 		0,
 		Number(stats.penetrationBlocks ?? 0) || 0,
 	);
-	let remainingRange = LASER_MAX_RANGE_BLOCKS;
 	const maxBounces = Math.max(0, Math.floor(Number(stats.maxBounces ?? 0) || 0));
 	let bounces = 0;
 	const hitTargets = new Set();
 	const RAY_EPSILON = 1e-6;
 
-	while (remainingRange > RAY_EPSILON) {
+	while (true) {
+		const segmentRange = getLaserLoadedRangeBlocks(
+			originX,
+			originY,
+			dirX,
+			dirY,
+		);
+		if (segmentRange <= RAY_EPSILON) break;
+
 		const wallStop = getLaserWallStopWithPenetrationBudget(
 			originX,
 			originY,
@@ -522,14 +663,17 @@ function resolveLaserBeamShot(shot, currentTime) {
 			dirY,
 			radius,
 			remainingPenetrationBlocks,
-			remainingRange,
+			segmentRange,
 			maxBounces > 0,
 		);
+		if (wallStop.truncated) break;
+
 		const beamDistance = wallStop.distance;
 		remainingPenetrationBlocks = wallStop.remainingPenetrationBlocks;
 
 		for (const target of GameState.enemies) {
 			if (target.hp <= 0 || hitTargets.has(target)) continue;
+			if (!consumeLaserCalculationBudget()) break;
 
 			const hit = rayRectIntersection(
 				originX,
@@ -558,10 +702,12 @@ function resolveLaserBeamShot(shot, currentTime) {
 			color: stats.color ?? "white",
 			radius,
 			createdAt: currentTime,
-			durationMs: Math.max(0, Number(Config.RENDERING.LASER_FLASH_DURATION_MS) || 0),
+			durationMs: Math.max(
+				0,
+				Number(Config.RENDERING.LASER_FLASH_DURATION_MS) || 0,
+			),
 		});
 
-		remainingRange = Math.max(0, remainingRange - beamDistance);
 		if (!wallStop.impactedWall) break;
 
 		if (bounces < maxBounces) {
@@ -579,7 +725,6 @@ function resolveLaserBeamShot(shot, currentTime) {
 
 			originX = endX + dirX * RAY_EPSILON;
 			originY = endY + dirY * RAY_EPSILON;
-			remainingRange = Math.max(0, remainingRange - RAY_EPSILON);
 			continue;
 		}
 
@@ -628,13 +773,19 @@ export function requestLaserShot(
 		? getLaserConeHalfAngleFromCount(bulletCount)
 		: 0;
 	const warmupMs = Math.max(0, Number(stats.laserWarmupMs ?? 0) || 0);
+	const dirX = Math.cos(centerAngle);
+	const dirY = Math.sin(centerAngle);
+	const telegraphRangeBlocks = coneHalfAngle > 0
+		? getLaserLoadedWorldRadiusBlocks(centerX, centerY)
+		: getLaserLoadedRangeBlocks(centerX, centerY, dirX, dirY);
 	const shot = {
 		shooter,
 		weaponIndex: index,
-		dirX: Math.cos(centerAngle),
-		dirY: Math.sin(centerAngle),
+		dirX,
+		dirY,
 		centerAngle,
 		coneHalfAngle,
+		telegraphRangeBlocks,
 		stats: { ...stats },
 		startedAt: currentTime,
 		fireAt: currentTime + warmupMs,

@@ -120,6 +120,15 @@
                 </div>
 
                 <div class="config-row">
+                    <label for="cfg_RENDER_LASER_CALCULATION_BUDGET_PER_FRAME">Laser Calculation Budget / Frame</label>
+                    <input type="number" id="cfg_RENDER_LASER_CALCULATION_BUDGET_PER_FRAME" min="1" step="1" />
+                    <p class="config-help compact-help">
+                        Maximum laser geometry/collision checks shared by all laser shots
+                        in one simulation frame. Default: 100000.
+                    </p>
+                </div>
+
+                <div class="config-row">
                     <label for="cfg_RENDER_TRAIL_LENGTH_FRAMES">Trail Length (frames)</label>
                     <input type="number" id="cfg_RENDER_TRAIL_LENGTH_FRAMES" min="0" step="1" />
                     <p class="config-help compact-help">

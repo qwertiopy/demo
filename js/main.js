@@ -13,6 +13,7 @@ import {
 	processBullets,
 	processExplosions,
 	processLasers,
+	resetLaserCalculationBudget,
 	resolveProjectileVectorCollisions,
 } from "./combat.js";
 import { initInput, loadLevel, processAutofire } from "./input.js";
@@ -41,6 +42,8 @@ import {
 
 // Runs one simulation step: procedural generation, player movement, enemy AI/movement, camera tracking, and projectile processing.
 export function update(currentTime, dt) {
+	resetLaserCalculationBudget();
+
 	if (player.hp <= 0) {
 		GameState.isPlayerDead = true;
 		return;

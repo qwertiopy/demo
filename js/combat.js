@@ -36,7 +36,10 @@ export {
 } from "./combat/enemies.js";
 
 export {
-	LASER_MAX_RANGE_BLOCKS,
+	DEFAULT_LASER_CALCULATION_BUDGET_PER_FRAME,
+	getLaserCalculationBudgetPerFrame,
+	getLaserCalculationBudgetRemaining,
+	resetLaserCalculationBudget,
 	rayRectIntersection,
 	getLaserWallStopWithPenetrationBudget,
 	requestLaserShot,

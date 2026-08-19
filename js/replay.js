@@ -13,7 +13,6 @@ import {
 } from "./dom.js";
 
 export const REPLAY_VERSION = 1;
-const LASER_TELEGRAPH_RANGE_BLOCKS = 60;
 
 // Stable IDs let consecutive visual snapshots identify the same moving object.
 // This is used by trail interpolation and is also serialized into replay files.
@@ -165,7 +164,7 @@ export function captureVisualSnapshot(currentTime) {
 					originY,
 					centerAngle: shot.centerAngle,
 					halfAngle: shot.coneHalfAngle,
-					range: LASER_TELEGRAPH_RANGE_BLOCKS,
+					range: Math.max(0, Number(shot.telegraphRangeBlocks) || 0),
 					color: shot.stats.color ?? "white",
 					alpha,
 				};
@@ -176,8 +175,8 @@ export function captureVisualSnapshot(currentTime) {
 				type: "beam",
 				x1: originX,
 				y1: originY,
-				x2: originX + shot.dirX * LASER_TELEGRAPH_RANGE_BLOCKS,
-				y2: originY + shot.dirY * LASER_TELEGRAPH_RANGE_BLOCKS,
+				x2: originX + shot.dirX * Math.max(0, Number(shot.telegraphRangeBlocks) || 0),
+				y2: originY + shot.dirY * Math.max(0, Number(shot.telegraphRangeBlocks) || 0),
 				color: shot.stats.color ?? "white",
 				radius,
 				alpha,

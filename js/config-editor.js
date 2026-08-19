@@ -435,6 +435,8 @@ function syncConfigToUI() {
 		rendering.CLEANUP_BUFFER_BLOCKS ?? 0;
 	document.getElementById("cfg_RENDER_LASER_FLASH_DURATION_MS").value =
 		rendering.LASER_FLASH_DURATION_MS ?? 90;
+	document.getElementById("cfg_RENDER_LASER_CALCULATION_BUDGET_PER_FRAME").value =
+		rendering.LASER_CALCULATION_BUDGET_PER_FRAME ?? 100000;
 	document.getElementById("cfg_RENDER_TRAIL_LENGTH_FRAMES").value =
 		rendering.TRAIL_LENGTH_FRAMES ?? 0;
 	document.getElementById("cfg_RENDER_TRAIL_DETAIL").value =
@@ -499,6 +501,9 @@ function readConfigFromUI() {
 	const laserFlashDurationMs = parseFloat(
 		document.getElementById("cfg_RENDER_LASER_FLASH_DURATION_MS").value,
 	);
+	const laserCalculationBudgetPerFrame = parseFloat(
+		document.getElementById("cfg_RENDER_LASER_CALCULATION_BUDGET_PER_FRAME").value,
+	);
 	const trailLengthFrames = parseFloat(
 		document.getElementById("cfg_RENDER_TRAIL_LENGTH_FRAMES").value,
 	);
@@ -538,6 +543,13 @@ function readConfigFromUI() {
 
 	if (!Number.isInteger(targetFps) || targetFps <= 0) {
 		throw new Error("Target FPS must be a positive integer.");
+	}
+
+	if (
+		!Number.isInteger(laserCalculationBudgetPerFrame) ||
+		laserCalculationBudgetPerFrame <= 0
+	) {
+		throw new Error("Laser Calculation Budget / Frame must be a positive integer.");
 	}
 
 	for (const [label, value] of [
@@ -593,6 +605,7 @@ function readConfigFromUI() {
 		ENVIRONMENT_OVERSCAN_BLOCKS: environmentOverscan,
 		CLEANUP_BUFFER_BLOCKS: cleanupBuffer,
 		LASER_FLASH_DURATION_MS: laserFlashDurationMs,
+		LASER_CALCULATION_BUDGET_PER_FRAME: laserCalculationBudgetPerFrame,
 		TRAIL_LENGTH_FRAMES: trailLengthFrames,
 		TRAIL_DETAIL: trailDetail,
 		TRAIL_QUAD_DETAIL: trailQuadDetail,

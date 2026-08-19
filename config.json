@@ -13,6 +13,7 @@
         "ENVIRONMENT_OVERSCAN_BLOCKS": 2,
         "CLEANUP_BUFFER_BLOCKS": 0,
         "LASER_FLASH_DURATION_MS": 90,
+        "LASER_CALCULATION_BUDGET_PER_FRAME": 1000000,
         "TRAIL_LENGTH_FRAMES": 10,
         "TRAIL_DETAIL": 60,
         "TRAIL_QUAD_DETAIL": 30
@@ -108,7 +109,7 @@
             "cooldownMs": 0,
             "penetrationBlocks": 0,
             "bulletCollision": false,
-            "bulletCount": 10
+            "bulletCount": 100
         },
         {
             "speed": 10,
@@ -249,7 +250,7 @@
             "bulletCount": 1
         }
     ],
-    "STRUCTURE_DENSITY_BLOCKS": 5,
+    "STRUCTURE_DENSITY_BLOCKS": 0,
     "ENEMY_TYPES": {
         "g-bot": {
             "sizeBlocks": 0.5,
