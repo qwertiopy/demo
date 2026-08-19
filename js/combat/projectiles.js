@@ -220,56 +220,9 @@ export function getPenetratedCollisionRect(
 	};
 }
 
-// Moving projectiles have one total wall-penetration budget measured in
-// blocks of travel while overlapping wall material. Each simulation substep
-// starts by deciding whether penetration is still available. If it is, every
-// wall collision in that substep is phased through and the intended path
-// distance for that substep is deducted once from the remaining budget. This
-// avoids double-charging at tile seams/corners while making continuous travel
-// inside walls consume penetration continuously. Once a substep begins with no
-// penetration remaining, the normal wall collision action is triggered.
-function collidesWithWallUsingPenetrationBudget(
-	bullet,
-	wall,
-	penetrationStepState,
-	isBouncy,
-) {
-	if (!projectileCircleOverlapsWall(bullet, wall)) return false;
-
-	// A bouncy projectile that spent its final penetration while already inside
-	// wall material is allowed to finish exiting that material. Once completely
-	// clear, the next wall contact executes the normal bounce action.
-	if (bullet.finishPenetratedWall && isBouncy) return false;
-
-	if (penetrationStepState.phaseThisStep) {
-		if (!penetrationStepState.consumed) {
-			const remaining = Math.max(
-				0,
-				Number(
-					bullet.remainingPenetrationBlocks ??
-						bullet.penetrationBlocks ??
-						0,
-				) || 0,
-			);
-			bullet.remainingPenetrationBlocks = Math.max(
-				0,
-				remaining - penetrationStepState.travelDistanceBlocks,
-			);
-			penetrationStepState.consumed = true;
-
-			if (bullet.remainingPenetrationBlocks <= 0 && isBouncy) {
-				bullet.finishPenetratedWall = true;
-			}
-		}
-		return false;
-	}
-
-	return true;
-}
-
-// Maximum projectile travel per collision substep; limiting this prevents fast bullets from tunneling through walls or targets
-// this can also be done by using the line of sight function to see if the bullet intersected a wall at any point between 2 steps, and if it did, reversing its direction or deleting it
-// i think doing it that way is more robust and allows for faster bullets and is also generally less buggy because it relies on continuous mathematical calculations - cyn
+// Maximum projectile travel per collision substep; limiting this prevents fast
+// bullets from tunneling through targets. Wall collision itself is now swept
+// continuously across the whole 2D substep rather than resolving X then Y.
 export const BULLET_MAX_STEP_BLOCKS = 0.2;
 
 // Returns whether a projectile has bounce behaviour available. Throwables are
@@ -294,7 +247,8 @@ function projectileRect(bullet) {
 }
 
 // Wall collision uses the projectile's rendered circular hitbox. projectileRect
-// remains for entity damage so this bugfix does not change target hitboxes.
+// remains for entity damage so wall-hitbox accuracy does not change target
+// hitboxes.
 function projectileCircleOverlapsWall(bullet, wall) {
 	const width = wall.width ?? wall.size ?? 0;
 	const height = wall.height ?? wall.size ?? 0;
@@ -309,37 +263,263 @@ function projectileCircleOverlapsWall(bullet, wall) {
 	return dx * dx + dy * dy < radius * radius - 1e-10;
 }
 
-// The old wall response moved the projectile a whole substep into the wall and
-// then undid the entire substep, which could make a hit happen up to 0.2 blocks
-// away from the visible wall. Once an overlap is detected, binary-search only
-// that substep to place the circle immediately before its true contact point.
-function resolveProjectileAxisWallContact(
-	bullet,
-	wall,
-	axis,
-	startCoordinate,
-	endCoordinate,
+const WALL_TOI_EPSILON = 1e-8;
+const WALL_APPROACH_EPSILON = 1e-12;
+const WALL_CONTACT_NUDGE = 1e-8;
+const MAX_WALL_IMPACTS_PER_SUBSTEP = 8;
+
+function reflectVector(x, y, normalX, normalY) {
+	const dot = x * normalX + y * normalY;
+	return {
+		x: x - 2 * dot * normalX,
+		y: y - 2 * dot * normalY,
+	};
+}
+
+function getOverlapNormal(bullet, wall, moveX, moveY) {
+	const width = wall.width ?? wall.size ?? 0;
+	const height = wall.height ?? wall.size ?? 0;
+	const left = wall.x;
+	const right = wall.x + width;
+	const top = wall.y;
+	const bottom = wall.y + height;
+	const closestX = Math.max(left, Math.min(bullet.x, right));
+	const closestY = Math.max(top, Math.min(bullet.y, bottom));
+	const dx = bullet.x - closestX;
+	const dy = bullet.y - closestY;
+	const distance = Math.hypot(dx, dy);
+
+	if (distance > WALL_APPROACH_EPSILON) {
+		return { normalX: dx / distance, normalY: dy / distance };
+	}
+
+	// This fallback is only expected when a projectile begins a non-penetrating
+	// step already inside wall material. Push against the incoming motion rather
+	// than choosing an arbitrary wall face.
+	if (Math.abs(moveX) >= Math.abs(moveY)) {
+		return { normalX: moveX >= 0 ? -1 : 1, normalY: 0 };
+	}
+
+	return { normalX: 0, normalY: moveY >= 0 ? -1 : 1 };
+}
+
+function firstRayCircleHit(
+	startX,
+	startY,
+	moveX,
+	moveY,
+	centerX,
+	centerY,
+	radius,
 ) {
-	let clearCoordinate = startCoordinate;
-	let collidingCoordinate = endCoordinate;
-	const originalCoordinate = axis === "x" ? bullet.x : bullet.y;
+	const a = moveX * moveX + moveY * moveY;
+	if (a <= WALL_APPROACH_EPSILON) return null;
 
-	for (let i = 0; i < 16; i++) {
-		const midpoint = (clearCoordinate + collidingCoordinate) / 2;
-		if (axis === "x") bullet.x = midpoint;
-		else bullet.y = midpoint;
+	const relX = startX - centerX;
+	const relY = startY - centerY;
+	const b = 2 * (relX * moveX + relY * moveY);
+	const c = relX * relX + relY * relY - radius * radius;
+	const discriminant = b * b - 4 * a * c;
+	if (discriminant < 0) return null;
 
-		if (projectileCircleOverlapsWall(bullet, wall)) {
-			collidingCoordinate = midpoint;
-		} else {
-			clearCoordinate = midpoint;
+	const sqrtDiscriminant = Math.sqrt(Math.max(0, discriminant));
+	const denominator = 2 * a;
+	const first = (-b - sqrtDiscriminant) / denominator;
+	const second = (-b + sqrtDiscriminant) / denominator;
+
+	if (first >= -WALL_TOI_EPSILON && first <= 1 + WALL_TOI_EPSILON) {
+		return Math.max(0, Math.min(1, first));
+	}
+	if (second >= -WALL_TOI_EPSILON && second <= 1 + WALL_TOI_EPSILON) {
+		return Math.max(0, Math.min(1, second));
+	}
+
+	return null;
+}
+
+// Exact swept-circle vs axis-aligned rectangle collision for one movement
+// segment. Faces are tested as offset line segments and corners as circles,
+// which preserves the true rounded Minkowski boundary instead of treating the
+// projectile as a square-expanded AABB.
+function sweptCircleWallHit(bullet, moveX, moveY, wall) {
+	if (projectileCircleOverlapsWall(bullet, wall)) {
+		const normal = getOverlapNormal(bullet, wall, moveX, moveY);
+		return { time: 0, ...normal };
+	}
+
+	const radius = Math.max(0, Number(bullet.radius) || 0);
+	const width = wall.width ?? wall.size ?? 0;
+	const height = wall.height ?? wall.size ?? 0;
+	const left = wall.x;
+	const right = wall.x + width;
+	const top = wall.y;
+	const bottom = wall.y + height;
+	const startX = bullet.x;
+	const startY = bullet.y;
+	const candidates = [];
+
+	const addCandidate = (time, normalX, normalY) => {
+		if (!Number.isFinite(time)) return;
+		if (time < -WALL_TOI_EPSILON || time > 1 + WALL_TOI_EPSILON) return;
+		if (moveX * normalX + moveY * normalY >= -WALL_APPROACH_EPSILON) {
+			return;
+		}
+		candidates.push({
+			time: Math.max(0, Math.min(1, time)),
+			normalX,
+			normalY,
+		});
+	};
+
+	if (moveX > WALL_APPROACH_EPSILON) {
+		const time = (left - radius - startX) / moveX;
+		const y = startY + moveY * time;
+		if (y >= top - WALL_TOI_EPSILON && y <= bottom + WALL_TOI_EPSILON) {
+			addCandidate(time, -1, 0);
+		}
+	} else if (moveX < -WALL_APPROACH_EPSILON) {
+		const time = (right + radius - startX) / moveX;
+		const y = startY + moveY * time;
+		if (y >= top - WALL_TOI_EPSILON && y <= bottom + WALL_TOI_EPSILON) {
+			addCandidate(time, 1, 0);
 		}
 	}
 
-	if (axis === "x") bullet.x = originalCoordinate;
-	else bullet.y = originalCoordinate;
+	if (moveY > WALL_APPROACH_EPSILON) {
+		const time = (top - radius - startY) / moveY;
+		const x = startX + moveX * time;
+		if (x >= left - WALL_TOI_EPSILON && x <= right + WALL_TOI_EPSILON) {
+			addCandidate(time, 0, -1);
+		}
+	} else if (moveY < -WALL_APPROACH_EPSILON) {
+		const time = (bottom + radius - startY) / moveY;
+		const x = startX + moveX * time;
+		if (x >= left - WALL_TOI_EPSILON && x <= right + WALL_TOI_EPSILON) {
+			addCandidate(time, 0, 1);
+		}
+	}
 
-	return clearCoordinate;
+	const corners = [
+		{ x: left, y: top, xSide: -1, ySide: -1 },
+		{ x: right, y: top, xSide: 1, ySide: -1 },
+		{ x: right, y: bottom, xSide: 1, ySide: 1 },
+		{ x: left, y: bottom, xSide: -1, ySide: 1 },
+	];
+
+	for (const corner of corners) {
+		const time = firstRayCircleHit(
+			startX,
+			startY,
+			moveX,
+			moveY,
+			corner.x,
+			corner.y,
+			radius,
+		);
+		if (time === null) continue;
+
+		const hitX = startX + moveX * time;
+		const hitY = startY + moveY * time;
+		const inCornerRegionX = corner.xSide < 0
+			? hitX <= left + WALL_TOI_EPSILON
+			: hitX >= right - WALL_TOI_EPSILON;
+		const inCornerRegionY = corner.ySide < 0
+			? hitY <= top + WALL_TOI_EPSILON
+			: hitY >= bottom - WALL_TOI_EPSILON;
+		if (!inCornerRegionX || !inCornerRegionY) continue;
+
+		const normalDx = hitX - corner.x;
+		const normalDy = hitY - corner.y;
+		const normalLength = Math.hypot(normalDx, normalDy);
+		if (normalLength <= WALL_APPROACH_EPSILON) continue;
+
+		addCandidate(
+			time,
+			normalDx / normalLength,
+			normalDy / normalLength,
+		);
+	}
+
+	if (candidates.length === 0) return null;
+	candidates.sort((a, b) => a.time - b.time);
+	return candidates[0];
+}
+
+// Find the earliest collision against the UNION of all wall rectangles. When
+// multiple connected wall tiles are reached at the same time, combine their
+// normals into one contact manifold. This is what prevents an internal seam or
+// shared vertex from being mistaken for the side of whichever wall happened to
+// appear first in GameState.walls.
+function findEarliestProjectileWallHit(bullet, moveX, moveY) {
+	let earliestTime = Infinity;
+	const simultaneousHits = [];
+
+	for (const wall of GameState.walls) {
+		const hit = sweptCircleWallHit(bullet, moveX, moveY, wall);
+		if (!hit) continue;
+
+		if (hit.time < earliestTime - WALL_TOI_EPSILON) {
+			earliestTime = hit.time;
+			simultaneousHits.length = 0;
+			simultaneousHits.push(hit);
+		} else if (Math.abs(hit.time - earliestTime) <= WALL_TOI_EPSILON) {
+			simultaneousHits.push(hit);
+		}
+	}
+
+	if (simultaneousHits.length === 0) return null;
+
+	let normalX = 0;
+	let normalY = 0;
+	let mostOpposing = simultaneousHits[0];
+	let mostOpposingDot = Infinity;
+
+	for (const hit of simultaneousHits) {
+		const approachDot = moveX * hit.normalX + moveY * hit.normalY;
+		if (approachDot >= -WALL_APPROACH_EPSILON) continue;
+
+		normalX += hit.normalX;
+		normalY += hit.normalY;
+		if (approachDot < mostOpposingDot) {
+			mostOpposingDot = approachDot;
+			mostOpposing = hit;
+		}
+	}
+
+	const normalLength = Math.hypot(normalX, normalY);
+	if (normalLength <= WALL_APPROACH_EPSILON) {
+		normalX = mostOpposing.normalX;
+		normalY = mostOpposing.normalY;
+	} else {
+		normalX /= normalLength;
+		normalY /= normalLength;
+	}
+
+	return {
+		time: earliestTime,
+		normalX,
+		normalY,
+	};
+}
+
+function consumeProjectilePenetrationStep(bullet, travelDistanceBlocks, isBouncy) {
+	const remaining = Math.max(
+		0,
+		Number(
+			bullet.remainingPenetrationBlocks ??
+				bullet.penetrationBlocks ??
+				0,
+		) || 0,
+	);
+
+	bullet.remainingPenetrationBlocks = Math.max(
+		0,
+		remaining - travelDistanceBlocks,
+	);
+
+	if (bullet.remainingPenetrationBlocks <= 0 && isBouncy) {
+		bullet.finishPenetratedWall = true;
+	}
 }
 
 // Substeps projectile movement, reflects bullets from walls, applies damage to
@@ -440,137 +620,132 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 			const intendedStepDistance = b.throwable
 				? throwableStepDistance
 				: Math.hypot(b.vx * stepDt, b.vy * stepDt);
-			const penetrationStepState = {
-				phaseThisStep:
-					Math.max(
-						0,
-						Number(
-							b.remainingPenetrationBlocks ??
-								b.penetrationBlocks ??
-								0,
-						) || 0,
-					) > 0,
-				travelDistanceBlocks: intendedStepDistance,
-				consumed: false,
-			};
-
+			const phaseThisStep =
+				Math.max(
+					0,
+					Number(
+						b.remainingPenetrationBlocks ??
+							b.penetrationBlocks ??
+							0,
+					) || 0,
+				) > 0;
 			const mockRect = projectileRect(b);
-			const moveX = b.throwable
+			let moveX = b.throwable
 				? b.throwDirX * throwableStepDistance
 				: b.vx * stepDt;
-
-			const startX = b.x;
-			b.x += moveX;
-			mockRect.x = b.x - b.radius;
-			mockRect.y = b.y - b.radius;
-
-			const hitWallX = moveX === 0 ? null : GameState.walls.find((w) =>
-				collidesWithWallUsingPenetrationBudget(
-					b,
-					w,
-					penetrationStepState,
-					bouncy,
-				),
-			);
-
-			if (hitWallX) {
-				b.x = resolveProjectileAxisWallContact(
-					b,
-					hitWallX,
-					"x",
-					startX,
-					b.x,
-				);
-				mockRect.x = b.x - b.radius;
-
-				// Preserve the exact contact point before the projectile reflects or is
-				// removed. A render-frame snapshot alone would otherwise cut the corner.
-				recordTrailCheckpoint();
-
-				if (b.throwable) {
-					// Wall bounces are unlimited for throwables. maxBounces instead
-					// controls boomerang reversals at throw-leg endpoints.
-					b.throwDirX *= -1;
-					triggerSuccessfulBounceExplosion(
-						b,
-						isPlayerBullets,
-						currentTime,
-					);
-				} else if (b.bounces < b.maxBounces) {
-					b.vx *= -1;
-					b.bounces++;
-					triggerSuccessfulBounceExplosion(
-						b,
-						isPlayerBullets,
-						currentTime,
-					);
-				} else {
-					removeBullet = true;
-					detonateOnRemoval = b.detonatesOnImpact;
-					break;
-				}
-			}
-
-			const moveY = b.throwable
+			let moveY = b.throwable
 				? b.throwDirY * throwableStepDistance
 				: b.vy * stepDt;
 
-			const startY = b.y;
-			b.y += moveY;
-			mockRect.x = b.x - b.radius;
-			mockRect.y = b.y - b.radius;
-
-			const hitWallY = moveY === 0 ? null : GameState.walls.find((w) =>
-				collidesWithWallUsingPenetrationBudget(
+			if (b.finishPenetratedWall && bouncy) {
+				// Preserve the existing rule: after a bouncy projectile spends its last
+				// penetration while inside wall material, phase until the whole circle
+				// has cleared the connected wall mass before enabling collision again.
+				b.x += moveX;
+				b.y += moveY;
+			} else if (phaseThisStep) {
+				const penetrationContact = findEarliestProjectileWallHit(
 					b,
-					w,
-					penetrationStepState,
-					bouncy,
-				),
-			);
-
-			if (hitWallY) {
-				b.y = resolveProjectileAxisWallContact(
-					b,
-					hitWallY,
-					"y",
-					startY,
-					b.y,
+					moveX,
+					moveY,
 				);
-				mockRect.y = b.y - b.radius;
 
-				// Preserve the exact contact point before the projectile reflects or is
-				// removed. A render-frame snapshot alone would otherwise cut the corner.
-				recordTrailCheckpoint();
+				b.x += moveX;
+				b.y += moveY;
 
-				if (b.throwable) {
-					b.throwDirY *= -1;
+				if (penetrationContact) {
+					consumeProjectilePenetrationStep(
+						b,
+						intendedStepDistance,
+						bouncy,
+					);
+				}
+			} else {
+				let impactCount = 0;
+
+				while (
+					Math.hypot(moveX, moveY) > WALL_APPROACH_EPSILON &&
+					impactCount < MAX_WALL_IMPACTS_PER_SUBSTEP
+				) {
+					const wallHit = findEarliestProjectileWallHit(b, moveX, moveY);
+
+					if (!wallHit) {
+						b.x += moveX;
+						b.y += moveY;
+						break;
+					}
+
+					b.x += moveX * wallHit.time;
+					b.y += moveY * wallHit.time;
+
+					// Preserve the exact swept-circle contact before reflection/removal. This
+					// also gives trails the true shared-corner point rather than an axis-wise
+					// approximation.
+					recordTrailCheckpoint();
+
+					const canBounce = b.throwable || b.bounces < b.maxBounces;
+					if (!canBounce) {
+						removeBullet = true;
+						detonateOnRemoval = b.detonatesOnImpact;
+						break;
+					}
+
+					if (b.throwable) {
+						const reflectedDirection = reflectVector(
+							b.throwDirX,
+							b.throwDirY,
+							wallHit.normalX,
+							wallHit.normalY,
+						);
+						const magnitude = Math.hypot(
+							reflectedDirection.x,
+							reflectedDirection.y,
+						) || 1;
+						b.throwDirX = reflectedDirection.x / magnitude;
+						b.throwDirY = reflectedDirection.y / magnitude;
+					} else {
+						const reflectedVelocity = reflectVector(
+							b.vx,
+							b.vy,
+							wallHit.normalX,
+							wallHit.normalY,
+						);
+						b.vx = reflectedVelocity.x;
+						b.vy = reflectedVelocity.y;
+						b.bounces++;
+					}
+
 					triggerSuccessfulBounceExplosion(
 						b,
 						isPlayerBullets,
 						currentTime,
 					);
-				} else if (b.bounces < b.maxBounces) {
-					b.vy *= -1;
-					b.bounces++;
-					triggerSuccessfulBounceExplosion(
-						b,
-						isPlayerBullets,
-						currentTime,
+
+					const remainingFraction = Math.max(0, 1 - wallHit.time);
+					const reflectedRemainder = reflectVector(
+						moveX * remainingFraction,
+						moveY * remainingFraction,
+						wallHit.normalX,
+						wallHit.normalY,
 					);
-				} else {
-					removeBullet = true;
-					detonateOnRemoval = b.detonatesOnImpact;
-					break;
+					moveX = reflectedRemainder.x;
+					moveY = reflectedRemainder.y;
+
+					// Move an imperceptible distance onto the clear side of the contact
+					// manifold so floating-point tangency cannot immediately report t=0 on
+					// the same connected wall surface.
+					b.x += wallHit.normalX * WALL_CONTACT_NUDGE;
+					b.y += wallHit.normalY * WALL_CONTACT_NUDGE;
+					impactCount++;
 				}
 			}
 
-			// Once a bouncy projectile has spent its last penetration inside wall
-			// material, keep phasing until its entire hitbox is clear. Only then is
-			// the next wall contact allowed to execute a bounce/collision action.
+			if (removeBullet) break;
+
+			mockRect.x = b.x - b.radius;
+			mockRect.y = b.y - b.radius;
+
 			if (b.finishPenetratedWall && bouncy) {
-				mockRect.x = b.x - b.radius;
-				mockRect.y = b.y - b.radius;
 				if (!GameState.walls.some((w) => projectileCircleOverlapsWall(b, w))) {
 					b.finishPenetratedWall = false;
 				}
