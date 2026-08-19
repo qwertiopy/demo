@@ -144,6 +144,15 @@ export function captureVisualSnapshot(currentTime) {
 				color: projectile.color,
 			}),
 		),
+		projectileTrailEvents: (GameState.projectileTrailEvents || []).map(
+			(event) => ({
+				renderId: getRenderId(event.projectile, "projectile"),
+				x: event.x,
+				y: event.y,
+				radius: event.radius,
+				color: event.color,
+			}),
+		),
 		laserWarmups: GameState.laserWarmups.map((shot) => {
 			const originX = shot.shooter.x + shot.shooter.size / 2;
 			const originY = shot.shooter.y + shot.shooter.size / 2;
@@ -274,6 +283,7 @@ function makeDynamicTrailSnapshot(snapshot) {
 		player: snapshot.player,
 		enemies: snapshot.enemies,
 		projectiles: snapshot.projectiles,
+		projectileTrailEvents: snapshot.projectileTrailEvents || [],
 		laserWarmups: snapshot.laserWarmups,
 		laserBeams: snapshot.laserBeams,
 		explosions: snapshot.explosions,
@@ -317,7 +327,10 @@ export function clearTrailHistory() {
 // terminal sample. This prevents a visible gap at the head of low-detail trails
 // on frames that are intentionally skipped by Trail Detail. Alpha is still based
 // on actual source-frame age, not the number of sampled frames.
-export function getLiveTrailEntries(detail = getTrailDetail()) {
+export function getLiveTrailEntries(
+	detail = getTrailDetail(),
+	preserveProjectileEvents = true,
+) {
 	const trailLength = getTrailLengthFrames();
 	detail = Math.min(60, Math.max(0, Math.round(Number(detail) || 0)));
 	const history = ReplayRuntime.trailHistory;
@@ -330,7 +343,12 @@ export function getLiveTrailEntries(detail = getTrailDetail()) {
 	for (const entry of history) {
 		const ageFrames = current.sequence - entry.sequence;
 		if (ageFrames < 0 || ageFrames > trailLength) continue;
-		if (!isTrailDetailFrame(entry.sequence, detail)) continue;
+		const hasProjectileTrailEvents =
+			preserveProjectileEvents &&
+			(entry.snapshot.projectileTrailEvents?.length ?? 0) > 0;
+		if (!isTrailDetailFrame(entry.sequence, detail) && !hasProjectileTrailEvents) {
+			continue;
+		}
 
 		entries.push({
 			snapshot: entry.snapshot,
@@ -612,7 +630,10 @@ export function getReplaySnapshotForRender(currentTime) {
 
 // Replay trails are taken straight from already-recorded preceding snapshots,
 // avoiding duplicate history entries if display FPS differs from recorded FPS.
-export function getReplayTrailEntries(detail = getTrailDetail()) {
+export function getReplayTrailEntries(
+	detail = getTrailDetail(),
+	preserveProjectileEvents = true,
+) {
 	if (!ReplayRuntime.playbackActive || !ReplayRuntime.loadedReplay) return [];
 
 	const trailLength = getTrailLengthFrames();
@@ -628,7 +649,12 @@ export function getReplayTrailEntries(detail = getTrailDetail()) {
 		const frameNumber = Number.isFinite(Number(frames[index]?.frame))
 			? Math.max(0, Math.floor(Number(frames[index].frame)))
 			: index;
-		if (!isTrailDetailFrame(frameNumber, detail)) continue;
+		const hasProjectileTrailEvents =
+			preserveProjectileEvents &&
+			(frames[index]?.projectileTrailEvents?.length ?? 0) > 0;
+		if (!isTrailDetailFrame(frameNumber, detail) && !hasProjectileTrailEvents) {
+			continue;
+		}
 
 		const ageFrames = currentIndex - index;
 		entries.push({

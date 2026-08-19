@@ -550,6 +550,94 @@ function collectRibbonRuns(trailEntries, getItems, makeSample) {
 	return completedRuns;
 }
 
+// Projectile trails can contain multiple ordered samples inside one render frame:
+// the frame-start position plus exact wall-impact/reversal/terminal checkpoints.
+// Unlike matchingByRenderId(), keep every sample for the same renderId so a
+// bounce is drawn through the real contact point and a dying projectile reaches
+// its final position even though it is absent from the current entity snapshot.
+function collectProjectileRibbonRuns(trailEntries, blockSizePx) {
+	const activeRuns = new Map();
+	const completedRuns = [];
+
+	for (let entryIndex = 0; entryIndex < trailEntries.length; entryIndex++) {
+		const entry = trailEntries[entryIndex];
+		const samplesById = new Map();
+
+		const appendItem = (item) => {
+			const sample = projectileRibbonSample(item, entry.alpha, blockSizePx);
+			if (!sample || sample.renderId === undefined || sample.renderId === null) {
+				return;
+			}
+
+			let samples = samplesById.get(sample.renderId);
+			if (!samples) {
+				samples = [];
+				samplesById.set(sample.renderId, samples);
+			}
+
+			const previous = samples.at(-1);
+			if (
+				previous &&
+				Math.hypot(sample.cx - previous.cx, sample.cy - previous.cy) < 1e-9
+			) {
+				samples[samples.length - 1] = sample;
+			} else {
+				samples.push(sample);
+			}
+		};
+
+		for (const event of entry.snapshot.projectileTrailEvents || []) {
+			appendItem(event);
+		}
+		for (const projectile of entry.snapshot.projectiles || []) {
+			appendItem(projectile);
+		}
+
+		const seenIds = new Set(samplesById.keys());
+		for (const [renderId, frameSamples] of samplesById) {
+			const active = activeRuns.get(renderId);
+
+			if (active && active.lastEntryIndex === entryIndex - 1) {
+				for (const sample of frameSamples) {
+					const previous = active.samples.at(-1);
+					if (
+						previous &&
+						Math.hypot(sample.cx - previous.cx, sample.cy - previous.cy) < 1e-9
+					) {
+						active.samples[active.samples.length - 1] = sample;
+					} else {
+						active.samples.push(sample);
+					}
+				}
+				active.lastEntryIndex = entryIndex;
+				continue;
+			}
+
+			if (active?.samples.length >= 2) {
+				completedRuns.push(active.samples);
+			}
+			activeRuns.set(renderId, {
+				lastEntryIndex: entryIndex,
+				samples: [...frameSamples],
+			});
+		}
+
+		for (const [renderId, active] of activeRuns) {
+			if (seenIds.has(renderId)) continue;
+			if (active.lastEntryIndex < entryIndex) {
+				if (active.samples.length >= 2) completedRuns.push(active.samples);
+				activeRuns.delete(renderId);
+			}
+		}
+	}
+
+	for (const active of activeRuns.values()) {
+		if (active.samples.length >= 2) completedRuns.push(active.samples);
+	}
+
+	return completedRuns;
+}
+
 function drawGradientQuad(previous, next, oldEdges, newEdges) {
 	ctx.save();
 	ctx.globalAlpha = 1;
@@ -817,11 +905,9 @@ function drawTrailRibbons(trailEntries, rendering, excludedProjectileIds = null)
 		(snapshot) => snapshot.enemies || [],
 		(actor, alpha) => actorRibbonSample(actor, alpha, blockSizePx),
 	);
-	const projectileRuns = collectRibbonRuns(
+	const projectileRuns = collectProjectileRibbonRuns(
 		trailEntries,
-		(snapshot) => snapshot.projectiles || [],
-		(projectile, alpha) =>
-			projectileRibbonSample(projectile, alpha, blockSizePx),
+		blockSizePx,
 	);
 
 	for (const run of playerRuns) drawRibbonRun(run);
@@ -841,11 +927,9 @@ function drawTrailsHybrid(trailEntries, quadTrailEntries, rendering) {
 	const straightProjectileIds = new Set();
 
 	if (trailEntries.length >= 2) {
-		const projectileRuns = collectRibbonRuns(
+		const projectileRuns = collectProjectileRibbonRuns(
 			trailEntries,
-			(snapshot) => snapshot.projectiles || [],
-			(projectile, alpha) =>
-				projectileRibbonSample(projectile, alpha, blockSizePx),
+			blockSizePx,
 		);
 
 		for (const run of projectileRuns) {

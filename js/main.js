@@ -43,6 +43,7 @@ import {
 // Runs one simulation step: procedural generation, player movement, enemy AI/movement, camera tracking, and projectile processing.
 export function update(currentTime, dt) {
 	resetLaserCalculationBudget();
+	GameState.projectileTrailEvents.length = 0;
 
 	if (player.hp <= 0) {
 		GameState.isPlayerDead = true;
@@ -235,7 +236,7 @@ export function gameLoop(currentTime) {
 		const replaySnapshot = getReplaySnapshotForRender(currentTime);
 		draw(replaySnapshot, getReplayTrailEntries(), {
 			replayActive: true,
-			quadTrailEntries: getReplayTrailEntries(getTrailQuadDetail()),
+			quadTrailEntries: getReplayTrailEntries(getTrailQuadDetail(), false),
 		});
 		return;
 	}
@@ -254,7 +255,7 @@ export function gameLoop(currentTime) {
 	pushTrailSnapshot(snapshot);
 	recordReplaySnapshot(snapshot, currentTime);
 	draw(snapshot, getLiveTrailEntries(), {
-		quadTrailEntries: getLiveTrailEntries(getTrailQuadDetail()),
+		quadTrailEntries: getLiveTrailEntries(getTrailQuadDetail(), false),
 	});
 }
 

@@ -13,6 +13,7 @@ export const GameState = {
 	activeWeaponIndex: 0,
 	bullets: [],
 	enemyBullets: [],
+	projectileTrailEvents: [],
 	explosions: [],
 	laserWarmups: [],
 	laserBeams: [],

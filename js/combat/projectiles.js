@@ -11,6 +11,20 @@ import {
 	getThrowableTravelDistance,
 } from "./weapon-utils.js";
 
+// Trails are sampled once per render frame, but projectile wall impacts and
+// removals can happen between those samples. Keep a tiny transient path for
+// any projectile that bounces or dies during this simulation update so the
+// renderer can preserve the exact impact/reversal/terminal point.
+function pushProjectileTrailEvent(projectile, x = projectile.x, y = projectile.y) {
+	GameState.projectileTrailEvents.push({
+		projectile,
+		x,
+		y,
+		radius: projectile.radius,
+		color: projectile.color,
+	});
+}
+
 // Creates one projectile or a whole configured volley from the shooter's center.
 export function shoot(shooter, targetX, targetY, bulletArray, stats) {
 	if (GameState.isPlayerDead) return;
@@ -336,10 +350,26 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 		const b = bulletArray[i];
 		const targets = isPlayerBullets ? GameState.enemies : [player];
 
+		const frameStartX = b.x;
+		const frameStartY = b.y;
+		let trailEventPathStarted = false;
+
+		const beginTrailEventPath = () => {
+			if (trailEventPathStarted) return;
+			pushProjectileTrailEvent(b, frameStartX, frameStartY);
+			trailEventPathStarted = true;
+		};
+
+		const recordTrailCheckpoint = () => {
+			beginTrailEventPath();
+			pushProjectileTrailEvent(b);
+		};
+
 		if (
 			b.detonationTimeMs > 0 &&
 			currentTime - b.createdAt >= b.detonationTimeMs
 		) {
+			recordTrailCheckpoint();
 			detonateBullet(b, isPlayerBullets, currentTime);
 			bulletArray.splice(i, 1);
 			continue;
@@ -453,6 +483,10 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 				);
 				mockRect.x = b.x - b.radius;
 
+				// Preserve the exact contact point before the projectile reflects or is
+				// removed. A render-frame snapshot alone would otherwise cut the corner.
+				recordTrailCheckpoint();
+
 				if (b.throwable) {
 					// Wall bounces are unlimited for throwables. maxBounces instead
 					// controls boomerang reversals at throw-leg endpoints.
@@ -504,6 +538,10 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 					b.y,
 				);
 				mockRect.y = b.y - b.radius;
+
+				// Preserve the exact contact point before the projectile reflects or is
+				// removed. A render-frame snapshot alone would otherwise cut the corner.
+				recordTrailCheckpoint();
 
 				if (b.throwable) {
 					b.throwDirY *= -1;
@@ -580,6 +618,7 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 				);
 
 				if ((b.throwBounces ?? 0) < configuredBoomerangBounces) {
+					recordTrailCheckpoint();
 					// A throwable bounce reverses direction by 180 degrees. The first
 					// outbound leg is D and ends at v=0. Each bounce leg is 2D: it
 					// accelerates from 0 to the original launch speed over the first D,
@@ -600,6 +639,7 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 					b.throwComplete = true;
 
 					if (b.detonatesOnImpact) {
+						recordTrailCheckpoint();
 						detonateBullet(b, isPlayerBullets, currentTime);
 						bulletArray.splice(i, 1);
 						continue;
@@ -611,6 +651,7 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 		}
 
 		if (currentTime - b.createdAt > b.lifetimeMs) {
+			recordTrailCheckpoint();
 			bulletArray.splice(i, 1);
 			continue;
 		}
