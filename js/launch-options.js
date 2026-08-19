@@ -8,7 +8,7 @@ function clone(value) {
 
 export function createDefaultLaunchOptions() {
 	return {
-		gameModeId: "standard",
+		gameModeId: "sandbox",
 		godMode: false,
 		level: null,
 	};
@@ -18,11 +18,14 @@ export function normalizeLaunchOptions(value) {
 	const defaults = createDefaultLaunchOptions();
 	if (!value || typeof value !== "object" || Array.isArray(value)) return defaults;
 
+	const requestedGameModeId =
+		typeof value.gameModeId === "string" && value.gameModeId.length > 0
+			? value.gameModeId
+			: defaults.gameModeId;
+
 	return {
 		gameModeId:
-			typeof value.gameModeId === "string" && value.gameModeId.length > 0
-				? value.gameModeId
-				: defaults.gameModeId,
+			requestedGameModeId === "standard" ? "sandbox" : requestedGameModeId,
 		godMode: value.godMode === true,
 		level:
 			value.level && typeof value.level === "object" && !Array.isArray(value.level)

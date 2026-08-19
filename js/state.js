@@ -28,7 +28,7 @@ export const GameState = {
 	levelSeed: 12345,
 	currentSeed: 12345,
 	uiMode: "none",
-	gameModeId: "standard",
+	gameModeId: "sandbox",
 	showEditorHelpers: false,
 	isInvincible: false,
 	MaxDistance: -1,

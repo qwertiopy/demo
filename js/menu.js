@@ -119,7 +119,7 @@ function readLaunchOptionsFromUi() {
 
 	const selectedMode = document.querySelector('input[name="gameMode"]:checked');
 	launchOptions = {
-		gameModeId: selectedMode?.value || launchOptions.gameModeId || "standard",
+		gameModeId: selectedMode?.value || launchOptions.gameModeId || "sandbox",
 		godMode: godModeToggle.checked,
 		level: parsedLevel,
 	};
@@ -159,7 +159,7 @@ function syncReplaySetupUi(message = "") {
 		replaySetupDetails.textContent = "Record one in-game or load a .replay file.";
 	} else {
 		const frameCount = activeReplay.frames.length;
-		const mode = activeReplay.gameModeId || "standard";
+		const mode = getGameMode(activeReplay.gameModeId || "sandbox").label;
 		const duration = formatReplayDuration(replayDurationMs(activeReplay));
 		replaySetupTitle.textContent = `${frameCount.toLocaleString()} frames · ${duration}`;
 		replaySetupDetails.textContent = `Mode: ${mode} · Created: ${activeReplay.createdAt || "unknown"}`;

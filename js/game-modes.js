@@ -1,12 +1,25 @@
 // Game-mode registry. Add future modes here without changing menu navigation.
-// A mode can optionally transform the launch level and configure runtime state.
+// A mode can optionally transform the launch level, choose its config policy,
+// and configure runtime state.
 
 const GAME_MODE_DEFINITIONS = [
 	{
-		id: "standard",
-		label: "Standard",
-		description: "Default sandbox/procedural gameplay using the configured level and weapons.",
+		id: "sandbox",
+		label: "Sandbox",
+		description: "Editable sandbox gameplay using the saved browser config and configured level.",
 		available: true,
+		allowsEditedConfig: true,
+		prepareLevel(level) {
+			return level;
+		},
+		configureRuntime() {},
+	},
+	{
+		id: "endless",
+		label: "Endless",
+		description: "Endless gameplay using the factory config.json. Browser config edits are ignored.",
+		available: true,
+		allowsEditedConfig: false,
 		prepareLevel(level) {
 			return level;
 		},
@@ -14,18 +27,26 @@ const GAME_MODE_DEFINITIONS = [
 	},
 ];
 
+function normalizeLegacyGameModeId(id) {
+	// The original menu called Sandbox "standard". Keep old session/replay links
+	// working while making sandbox the canonical mode id going forward.
+	return id === "standard" ? "sandbox" : id;
+}
+
 export function getGameModes() {
 	return GAME_MODE_DEFINITIONS.map((mode) => ({ ...mode }));
 }
 
 export function getGameMode(id) {
+	const normalizedId = normalizeLegacyGameModeId(id);
 	return (
-		GAME_MODE_DEFINITIONS.find((mode) => mode.id === id && mode.available) ||
-		GAME_MODE_DEFINITIONS[0]
+		GAME_MODE_DEFINITIONS.find(
+			(mode) => mode.id === normalizedId && mode.available,
+		) || GAME_MODE_DEFINITIONS[0]
 	);
 }
 
-export function resolveGameModeId(search = window.location.search, fallbackId = "standard") {
+export function resolveGameModeId(search = window.location.search, fallbackId = "sandbox") {
 	const params = new URLSearchParams(search);
 	const requested = params.get("mode") || fallbackId;
 	return getGameMode(requested).id;

@@ -5,6 +5,7 @@ import { readLaunchOptions, writeLaunchOptions } from "./launch-options.js";
 import { loadDefaultLevelDefinition } from "./level.js";
 import {
 	configureGameModeRuntime,
+	getGameMode,
 	prepareLevelForGameMode,
 	resolveGameModeId,
 } from "./game-modes.js";
@@ -289,13 +290,6 @@ export async function initGame() {
 		}
 
 		const defaultConfig = await response.json();
-		const loadedData = loadLocalConfig(defaultConfig);
-
-		Object.assign(Config, loadedData);
-		Config.RENDERING = {
-			...(Config.RENDERING || {}),
-			TARGET_FPS: getTargetFps(),
-		};
 
 		let launchOptions = readLaunchOptions();
 		if (!launchOptions.level) {
@@ -307,6 +301,16 @@ export async function initGame() {
 			window.location.search,
 			launchOptions.gameModeId,
 		);
+		const gameMode = getGameMode(gameModeId);
+		const loadedData = gameMode.allowsEditedConfig
+			? loadLocalConfig(defaultConfig)
+			: defaultConfig;
+
+		Object.assign(Config, loadedData);
+		Config.RENDERING = {
+			...(Config.RENDERING || {}),
+			TARGET_FPS: getTargetFps(),
+		};
 		const levelDefinition = prepareLevelForGameMode(
 			gameModeId,
 			launchOptions.level,
@@ -332,7 +336,11 @@ export async function initGame() {
 		loadLevel(levelDefinition);
 		requestAnimationFrame(gameLoop);
 
-		console.log(`Game starting in ${gameModeId} mode.`);
+		console.log(
+			`Game starting in ${gameModeId} mode using ${
+				gameMode.allowsEditedConfig ? "sandbox-edited config" : "factory config.json"
+			}.`,
+		);
 	} catch (error) {
 		console.error("Failed to initialize game:", error);
 		alert("Could not initialize the game. Check the console for details.");
