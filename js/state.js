@@ -27,7 +27,8 @@ export const GameState = {
 	placedStructures: [],
 	levelSeed: 12345,
 	currentSeed: 12345,
-	uiMode: "config",
+	uiMode: "none",
+	gameModeId: "standard",
 	showEditorHelpers: false,
 	isInvincible: false,
 	MaxDistance: -1,
@@ -41,8 +42,8 @@ export const player = {
 	size: Config.PLAYER_SIZE_BLOCKS,
 	speed: Config.PLAYER_SPEED,
 	color: "royalblue",
-	hp: 100,
-	maxHp: 100,
+	hp: 10,
+	maxHp: 10,
 };
 
 // Mutable camera state expressed in world blocks; the render system follows the player by updating these coordinates.

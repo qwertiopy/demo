@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Demo — Main Menu</title>
+		<link rel="stylesheet" href="css/config.css" />
+		<link rel="stylesheet" href="css/menu.css" />
+	</head>
+	<body>
+		<main class="menu-container">
+			<header class="menu-header">
+				<div>
+					<p class="menu-kicker">DEMO</p>
+					<h1>Main Menu</h1>
+				</div>
+				<nav class="menu-tabs" aria-label="Main menu sections">
+					<button type="button" data-menu-tab="play">Play</button>
+					<button type="button" data-menu-tab="level">Level Setup</button>
+					<button type="button" data-menu-tab="replays">Replays</button>
+					<button type="button" data-menu-tab="config">Config</button>
+					<a href="hotkeys.html">Controls</a>
+				</nav>
+			</header>
+
+			<section class="menu-panel" data-menu-panel="play">
+				<div class="menu-panel-heading">
+					<div>
+						<h2>Game Mode</h2>
+						<p>Select a mode, then launch using the saved level setup and configuration.</p>
+					</div>
+				</div>
+				<div id="gameModeList" class="game-mode-grid"></div>
+
+				<div class="launch-summary">
+					<div>
+						<span class="summary-label">Launch options</span>
+						<span id="launchSummary">Standard level</span>
+					</div>
+					<button id="launchGameBtn" class="primary-launch" type="button">Launch Game</button>
+				</div>
+				<div id="launchStatus" class="menu-status"></div>
+			</section>
+
+			<section class="menu-panel" data-menu-panel="level" hidden>
+				<div class="menu-panel-heading">
+					<div>
+						<h2>Level Setup</h2>
+						<p>Factory level data is loaded from <code>level.json</code>. Changes here apply to this browser session.</p>
+					</div>
+				</div>
+
+				<label class="menu-toggle">
+					<input type="checkbox" id="menuGodModeToggle" />
+					<span>Invincibility (God Mode)</span>
+				</label>
+
+				<label for="menuLevelData" class="menu-field-label">Level JSON</label>
+				<textarea id="menuLevelData" rows="18" spellcheck="false"></textarea>
+
+				<div class="menu-actions">
+					<button id="saveLaunchOptionsBtn" class="apply-btn" type="button">Save Launch Options</button>
+					<button id="resetLaunchOptionsBtn" class="reset-btn" type="button">Reset Level Setup</button>
+				</div>
+			</section>
+
+			<section class="menu-panel" data-menu-panel="replays" hidden>
+				<div class="menu-panel-heading">
+					<div>
+						<h2>Replay Setup</h2>
+						<p>Load, save, and launch replays here. Playback runs on its own dedicated player page.</p>
+					</div>
+				</div>
+
+				<div class="replay-setup-card">
+					<div class="replay-setup-summary">
+						<span class="summary-label">Active replay</span>
+						<strong id="replaySetupTitle">No replay loaded</strong>
+						<span id="replaySetupDetails">Record one in-game or load a .replay file.</span>
+					</div>
+
+					<div class="menu-actions replay-setup-actions">
+						<button id="replaySetupLoadBtn" class="apply-btn" type="button">Load Replay</button>
+						<button id="replaySetupSaveBtn" class="export-btn" type="button" disabled>Save Replay</button>
+						<button id="replaySetupPlayBtn" class="primary-launch" type="button" disabled>Play Replay</button>
+						<button id="replaySetupClearBtn" class="reset-btn" type="button" disabled>Clear</button>
+					</div>
+					<input id="replaySetupFileInput" type="file" accept=".replay,application/json" hidden />
+					<div id="replaySetupStatus" class="menu-status">Checking replay storage...</div>
+				</div>
+			</section>
+
+			<section class="menu-panel config-host" data-menu-panel="config" hidden>
+				<div class="menu-panel-heading">
+					<div>
+						<h2>Game Configuration</h2>
+						<p>All runtime configuration previously hosted by the standalone config page lives here.</p>
+					</div>
+				</div>
+                <section class="config-section">
+                    <h2>Player</h2>
+                
+                    <div class="config-row">
+                        <label for="cfg_PLAYER_SPEED">
+                            Player Speed (blocks/sec)
+                        </label>
+                        <input type="number" id="cfg_PLAYER_SPEED" step="0.01" />
+                    </div>
+                
+                    <div class="config-row">
+                        <label for="cfg_PLAYER_BULLET_SPEED">
+                            Fallback Bullet Speed (blocks/sec)
+                        </label>
+                        <input
+                            type="number"
+                            id="cfg_PLAYER_BULLET_SPEED"
+                            step="0.01"
+                        />
+                        <p class="config-help compact-help">
+                            The 10 weapon entries below normally provide their own
+                            bullet speed. This value is only used as a fallback if a
+                            weapon has no speed value.
+                        </p>
+                    </div>
+                </section>
+                
+                <section class="config-section">
+                    <h2>Rendering</h2>
+                
+                    <div class="config-row">
+                        <label for="cfg_RENDER_CANVAS_WIDTH_PX">Canvas Width (px)</label>
+                        <input type="number" id="cfg_RENDER_CANVAS_WIDTH_PX" min="1" step="1" />
+                    </div>
+                
+                    <div class="config-row">
+                        <label for="cfg_RENDER_CANVAS_HEIGHT_PX">Canvas Height (px)</label>
+                        <input type="number" id="cfg_RENDER_CANVAS_HEIGHT_PX" min="1" step="1" />
+                    </div>
+                
+                    <div class="config-row">
+                        <label for="cfg_RENDER_BLOCK_SIZE_PX">Block Size (px)</label>
+                        <input type="number" id="cfg_RENDER_BLOCK_SIZE_PX" min="1" step="1" />
+                        <p class="config-help compact-help">
+                            At zoom 1, this is the true number of internal canvas pixels
+                            used by one world block. Default: 64.
+                        </p>
+                    </div>
+                
+                    <div class="config-row">
+                        <label for="cfg_RENDER_ZOOM">Render Zoom</label>
+                        <input type="number" id="cfg_RENDER_ZOOM" min="0.01" step="0.05" />
+                        <p class="config-help compact-help">
+                            With the default 1920×1080 canvas and 64 px blocks, 1x shows
+                            30 × 16.875 world blocks.
+                        </p>
+                    </div>
+                
+                    <div class="config-row">
+                        <label for="cfg_RENDER_TARGET_FPS">Target FPS</label>
+                        <input type="number" id="cfg_RENDER_TARGET_FPS" min="1" step="1" />
+                        <p class="config-help compact-help">
+                            Target simulation/render tick rate. Actual FPS can be lower if
+                            the browser or display cannot keep up. Default: 60.
+                        </p>
+                    </div>
+                
+                    <div class="config-row">
+                        <label for="cfg_RENDER_DISTANCE_FRONT_BLOCKS">Front Render Distance (blocks)</label>
+                        <input type="number" id="cfg_RENDER_DISTANCE_FRONT_BLOCKS" min="0" step="1" />
+                    </div>
+                
+                    <div class="config-row">
+                        <label for="cfg_RENDER_DISTANCE_BACK_BLOCKS">Back Render Distance (blocks)</label>
+                        <input type="number" id="cfg_RENDER_DISTANCE_BACK_BLOCKS" min="0" step="1" />
+                    </div>
+                
+                    <div class="config-row">
+                        <label for="cfg_RENDER_ENVIRONMENT_OVERSCAN_BLOCKS">Environment Overscan (blocks)</label>
+                        <input type="number" id="cfg_RENDER_ENVIRONMENT_OVERSCAN_BLOCKS" min="0" step="1" />
+                        <p class="config-help compact-help">
+                            Extra background/grid blocks drawn beyond the camera viewport.
+                        </p>
+                    </div>
+                
+                    <div class="config-row">
+                        <label for="cfg_RENDER_CLEANUP_BUFFER_BLOCKS">Cleanup Buffer (blocks)</label>
+                        <input type="number" id="cfg_RENDER_CLEANUP_BUFFER_BLOCKS" min="0" step="1" />
+                        <p class="config-help compact-help">
+                            Extra horizontal distance retained outside the procedural
+                            generation window before entities/projectiles are unloaded.
+                        </p>
+                    </div>
+                
+                    <div class="config-row">
+                        <label for="cfg_RENDER_LASER_FLASH_DURATION_MS">Laser Flash Duration (ms)</label>
+                        <input type="number" id="cfg_RENDER_LASER_FLASH_DURATION_MS" min="0" step="1" />
+                    </div>
+                
+                    <div class="config-row">
+                        <label for="cfg_RENDER_LASER_CALCULATION_BUDGET_PER_FRAME">Laser Calculation Budget / Frame</label>
+                        <input type="number" id="cfg_RENDER_LASER_CALCULATION_BUDGET_PER_FRAME" min="1" step="1" />
+                        <p class="config-help compact-help">
+                            Maximum laser geometry/collision checks shared by all laser shots
+                            in one simulation frame. Default: 100000.
+                        </p>
+                    </div>
+                
+                    <div class="config-row">
+                        <label for="cfg_RENDER_TRAIL_LENGTH_FRAMES">Trail Length (frames)</label>
+                        <input type="number" id="cfg_RENDER_TRAIL_LENGTH_FRAMES" min="0" step="1" />
+                        <p class="config-help compact-help">
+                            Number of rendered frames retained for trails. Opacity fades
+                            linearly from the current frame to 0 at the oldest retained frame.
+                        </p>
+                    </div>
+                
+                    <div class="config-row">
+                        <label for="cfg_RENDER_TRAIL_DETAIL">Trail Detail (frames per 60)</label>
+                        <input type="number" id="cfg_RENDER_TRAIL_DETAIL" min="0" max="60" step="1" />
+                        <p class="config-help compact-help">
+                            Sampling density used by the straight-projectile fast path.
+                            60 uses every frame; 30 uses frames 0, 2, 4, ... .
+                        </p>
+                    </div>
+                
+                    <div class="config-row">
+                        <label for="cfg_RENDER_TRAIL_QUAD_DETAIL">Quad Trail Detail (frames per 60)</label>
+                        <input type="number" id="cfg_RENDER_TRAIL_QUAD_DETAIL" min="0" max="60" step="1" />
+                        <p class="config-help compact-help">
+                            Sampling density for ribbon quads: player/enemy trails and
+                            projectiles that continuously turn between sampled frames.
+                            Bounces/boomerangs use straight strips; 30 samples every second frame.
+                        </p>
+                    </div>
+                </section>
+                
+                <section class="config-section">
+                    <h2>World</h2>
+                
+                    <div class="config-row">
+                        <label for="cfg_STRUCTURE_DENSITY_BLOCKS">
+                            Structure Density
+                        </label>
+                        <input
+                            type="number"
+                            id="cfg_STRUCTURE_DENSITY_BLOCKS"
+                            step="1"
+                        />
+                    </div>
+                </section>
+                
+                <section class="config-section">
+                    <h2>Advanced Configuration</h2>
+                
+                    <p class="config-help">
+                        <strong>WEAPONS</strong> contains exactly 10 player weapons.
+                        Each entry is bullet stats: speed, radiusBlocks, color,
+                        damage, maxBounces, spread, lifetimeMs,
+                        explosionRadiusBlocks, detonationTimeMs,
+                        explosionDurationMs, explosionDamage, detonatesOnImpact,
+                        throwable, throwDistanceMultiplier, throwDeceleration, laser,
+                        laserWarmupMs, cooldownMs, penetrationBlocks, and
+                        bulletCollision.
+                    </p>
+                
+                    <p class="config-help">
+                        Spread: <strong>spread</strong> is a random total angular cone
+                        width in radians. Every shot samples a random offset from
+                        -spread/2 to +spread/2, including player bullets, enemy bullets,
+                        and lasers.
+                    </p>
+                
+                    <p class="config-help">
+                        Explosives: <strong>detonationTimeMs = 0</strong> disables
+                        the timed fuse. If <strong>detonatesOnImpact</strong> is
+                        true, the projectile detonates when a wall collision would
+                        exceed maxBounces. Explosion radius is measured in blocks.
+                    </p>
+                
+                    <p class="config-help">
+                        Throwables: set <strong>throwable = true</strong>. Normal
+                        projectile speed is ignored. Throw distance is the shooter-to-aim
+                        distance multiplied by <strong>throwDistanceMultiplier</strong>.
+                        <strong>throwDeceleration</strong> is a constant physical
+                        deceleration in blocks/sec². The required initial throw speed
+                        and flight duration are calculated automatically so the
+                        projectile reaches its target path distance at exactly zero
+                        speed. For throwables, <strong>maxBounces</strong> controls
+                        boomerang reversals at the end of each throw leg; wall bounces
+                        themselves are unlimited.
+                    </p>
+                
+                
+                    <p class="config-help">
+                        Lasers: set <strong>laser = true</strong>. Firing starts a
+                        warmup for <strong>laserWarmupMs</strong>, then resolves an
+                        instantaneous beam. <strong>cooldownMs</strong> applies to every
+                        weapon: ordinary projectiles and throwables start cooldown when
+                        fired, while lasers start cooldown when the beam fires after
+                        warmup. Cooldowns are tracked separately per weapon. Laser aim
+                        is locked when the shot is started. <strong>maxBounces</strong>
+                        also controls laser wall reflections.
+                    </p>
+                
+                    <p class="config-help">
+                        Penetration: <strong>penetrationBlocks</strong> is one total
+                        wall-travel budget. Moving bullets subtract their intended
+                        substep distance while overlapping walls; enemies never consume
+                        penetration and are damaged immediately on overlap. A bouncy
+                        bullet that exhausts penetration inside a wall finishes exiting
+                        that wall before its next wall collision can bounce. Laser
+                        hitscan consumes the same wall-distance budget along its ray.
+                    </p>
+                
+                
+                    <p class="config-help">
+                        Projectile collision: set <strong>bulletCollision = true</strong>
+                        to make that projectile physically collide with every other
+                        player or enemy projectile on every simulation frame. Only one
+                        projectile in a pair needs the flag enabled for the pair to
+                        collide. Projectile/projectile contact does not deal damage or
+                        consume wall penetration.
+                    </p>
+                
+                    <p class="config-help">
+                        Structure grid flags: <strong>0</strong> = empty,
+                        <strong>1</strong> = wall, <strong>2</strong> = random enemy,
+                        <strong>3</strong> = g-bot, <strong>4</strong> = j-bot,
+                        <strong>5</strong> = h-bot.
+                    </p>
+                
+                    <textarea
+                        id="cfg_ADVANCED"
+                        rows="20"
+                        spellcheck="false"
+                        placeholder='{"WEAPONS": [...], "ENEMY_TYPES": {...}}'
+                    ></textarea>
+                </section>
+                
+                <section class="config-actions">
+                    <button id="applyConfigBtn" class="apply-btn">
+                        Save Locally
+                    </button>
+                
+                    <button id="exportConfigBtn" class="export-btn">
+                        Export config.json
+                    </button>
+                
+                    <button id="resetConfigBtn" class="reset-btn">
+                        Reset to config.json
+                    </button>
+                </section>
+                
+                <div id="statusMessage"></div>
+			</section>
+		</main>
+
+		<script type="module" src="js/menu.js"></script>
+		<script type="module" src="js/config-editor.js"></script>
+	</body>
+</html>

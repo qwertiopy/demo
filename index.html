@@ -13,63 +13,7 @@
 		<canvas id="gameCanvas" width="1920" height="1080"></canvas>
 		<button id="respawnBtn" type="button" hidden>Respawn?</button>
 
-		<!-- CONFIG / LEVEL EDITOR UI -->
-		<div id="configUI" class="ui-panel">
-			<h3>Level Editor & Config</h3>
-
-			<label>
-				<input type="checkbox" id="godModeToggle" />
-				Toggle Invincibility (God Mode)
-			</label>
-
-			<br /><br />
-
-
-			<textarea id="levelData" rows="10" cols="35">
-{
-    "seed": 12345,
-    "playerSpawn": { "x": 1, "y": 1 },
-    "enemySpawns": [],
-    "enemySpawnRate": 0.5,
-    "walls": []
-}
-            </textarea>
-
-			<br />
-
-			<button id="loadLevelBtn">Load Level / Apply</button>
-
-			<button id="cycleUIBtn" style="margin-left: 5px">Cycle UI Mode</button>
-
-			<div class="replay-controls">
-				<strong>Replay</strong>
-				<div>
-					<button id="replayRecordBtn" type="button">Start Recording</button>
-					<button id="replayStopSaveBtn" type="button" disabled>Stop &amp; Save</button>
-				</div>
-				<div>
-					<button id="replayLoadBtn" type="button">Load Replay</button>
-					<button id="replayPlayPauseBtn" type="button" disabled>Play Replay</button>
-					<button id="replayStopBtn" type="button" disabled>Stop Replay</button>
-				</div>
-				<input
-					id="replayFileInput"
-					type="file"
-					accept=".replay,application/json"
-					hidden
-				/>
-				<div id="replayStatus">Replay idle.</div>
-			</div>
-
-			<div class="editor-links">
-				<a href="config.html" class="config-link">Open Config Editor</a>
-				<a href="hotkeys.html" class="config-link"
-					>Open Hotkey Editor</a
-				>
-			</div>
-		</div>
-
-		<!-- DEBUG STATS UI -->
+		<!-- DEBUG UI -->
 		<div id="debugUI" class="debug-ui" hidden>
 			<div id="performanceStats" class="performance-stats">
 				<span id="performanceFps">FPS: --</span>
@@ -78,6 +22,17 @@
 				<span id="performanceEntityCount">Entities: --</span>
 				<span id="performanceEnemyCount">Enemies: --</span>
 				<span id="performanceBulletCount">Bullets: -- (Player: -- / Enemy: --)</span>
+			</div>
+
+			<div class="debug-runtime-controls">
+				<strong>Replay Recording</strong>
+				<div class="debug-button-row">
+					<button id="replayRecordBtn" type="button">Start Recording</button>
+					<button id="replayStopRecordingBtn" type="button" disabled>Stop Recording</button>
+				</div>
+				<div id="replayStatus">Replay recording idle.</div>
+				<a class="debug-menu-link" href="menu.html#replays">Replay Setup</a>
+				<a class="debug-menu-link" href="menu.html">Main Menu</a>
 			</div>
 		</div>
 

@@ -1,6 +1,13 @@
 // Entry point: update loop, initialization, config/hotkey loading, and config export.
 
 import { Config, loadLocalConfig } from "./config.js";
+import { readLaunchOptions, writeLaunchOptions } from "./launch-options.js";
+import { loadDefaultLevelDefinition } from "./level.js";
+import {
+	configureGameModeRuntime,
+	prepareLevelForGameMode,
+	resolveGameModeId,
+} from "./game-modes.js";
 import { GameState, player, camera } from "./state.js";
 import { handleWallCollisions } from "./utils.js";
 import {
@@ -35,9 +42,6 @@ import {
 	getTrailQuadDetail,
 	recordReplaySnapshot,
 	initReplayControls,
-	isReplayPlaybackActive,
-	getReplaySnapshotForRender,
-	getReplayTrailEntries,
 } from "./replay.js";
 
 // Runs one simulation step: procedural generation, player movement, enemy AI/movement, camera tracking, and projectile processing.
@@ -240,15 +244,6 @@ export function gameLoop(currentTime) {
 	lastTickTime = currentTime;
 	updatePerformanceUi(currentTime, tickDurationMs, targetFps);
 
-	if (isReplayPlaybackActive()) {
-		const replaySnapshot = getReplaySnapshotForRender(currentTime);
-		draw(replaySnapshot, getReplayTrailEntries(), {
-			replayActive: true,
-			quadTrailEntries: getReplayTrailEntries(getTrailQuadDetail(), false),
-		});
-		return;
-	}
-
 	const maxDtForTarget = Math.max(MAX_DT_SECONDS, targetFrameMs / 1000);
 	const dt = Math.min(
 		Math.max(tickDurationMs / 1000, 0),
@@ -302,17 +297,42 @@ export async function initGame() {
 			TARGET_FPS: getTargetFps(),
 		};
 
+		let launchOptions = readLaunchOptions();
+		if (!launchOptions.level) {
+			launchOptions.level = await loadDefaultLevelDefinition();
+			launchOptions = writeLaunchOptions(launchOptions);
+		}
+
+		const gameModeId = resolveGameModeId(
+			window.location.search,
+			launchOptions.gameModeId,
+		);
+		const levelDefinition = prepareLevelForGameMode(
+			gameModeId,
+			launchOptions.level,
+		);
+
+		GameState.gameModeId = gameModeId;
+		GameState.isInvincible = launchOptions.godMode === true;
 		player.speed = Config.PLAYER_SPEED;
 		player.size = Config.PLAYER_SIZE_BLOCKS;
 		syncCameraViewport();
 
+		configureGameModeRuntime(gameModeId, {
+			Config,
+			GameState,
+			player,
+			camera,
+			launchOptions,
+		});
+
 		await loadHotkeys();
 		initInput();
 		initReplayControls();
-		loadLevel();
+		loadLevel(levelDefinition);
 		requestAnimationFrame(gameLoop);
 
-		console.log("Config and hotkeys loaded successfully. Game starting...");
+		console.log(`Game starting in ${gameModeId} mode.`);
 	} catch (error) {
 		console.error("Failed to initialize game:", error);
 		alert("Could not initialize the game. Check the console for details.");

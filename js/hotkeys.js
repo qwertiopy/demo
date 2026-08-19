@@ -11,7 +11,7 @@ export const HOTKEY_ACTIONS = [
 	{ id: "shoot", label: "Shoot", group: "Combat" },
 	{ id: "autofire", label: "Auto Fire", group: "Combat" },
 	{ id: "respawn", label: "Respawn", group: "Interface" },
-	{ id: "toggleUI", label: "Cycle UI Mode", group: "Interface" },
+	{ id: "toggleUI", label: "Toggle Debug UI", group: "Interface" },
 	{ id: "weapon1", label: "Select Weapon 1", group: "Weapons" },
 	{ id: "weapon2", label: "Select Weapon 2", group: "Weapons" },
 	{ id: "weapon3", label: "Select Weapon 3", group: "Weapons" },

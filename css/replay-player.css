@@ -1,0 +1,121 @@
+.replay-player-controls {
+	position: fixed;
+	left: 50%;
+	bottom: 16px;
+	transform: translateX(-50%);
+	width: min(760px, 94vw);
+	padding: 12px 14px;
+	border: 1px solid #41484d;
+	border-radius: 8px;
+	background: rgba(0, 0, 0, 0.88);
+	color: white;
+	font-family: sans-serif;
+	z-index: 30;
+}
+
+.replay-ui-hidden .replay-player-controls {
+	display: none;
+}
+
+.replay-player-heading,
+.replay-player-buttons,
+.replay-player-readout,
+.replay-speed-control {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.replay-player-heading {
+	justify-content: space-between;
+}
+
+.replay-player-readout {
+	gap: 14px;
+}
+
+.replay-player-heading span,
+#replayStatus {
+	font: 11px monospace;
+	color: #aaa;
+}
+
+.replay-timeline-row {
+	margin-top: 10px;
+}
+
+#replayTimeline {
+	display: block;
+	width: 100%;
+	margin: 0;
+	cursor: pointer;
+}
+
+#replayTimeline:disabled {
+	cursor: default;
+	opacity: 0.45;
+}
+
+.replay-player-buttons {
+	flex-wrap: wrap;
+	justify-content: flex-start;
+	margin-top: 9px;
+}
+
+.replay-player-buttons button,
+.replay-player-buttons a,
+.replay-speed-control select {
+	padding: 6px 10px;
+	border: 1px solid #444;
+	border-radius: 4px;
+	background: #222;
+	color: white;
+	font: 12px sans-serif;
+	text-decoration: none;
+	cursor: pointer;
+}
+
+.replay-speed-control {
+	gap: 6px;
+	font-size: 12px;
+	color: #bbb;
+}
+
+.replay-speed-control select {
+	padding-right: 6px;
+}
+
+.replay-player-buttons button:hover:not(:disabled),
+.replay-player-buttons a:hover,
+.replay-speed-control select:hover:not(:disabled) {
+	border-color: cyan;
+	color: cyan;
+}
+
+.replay-player-buttons button:disabled,
+.replay-speed-control select:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+
+#replayStatus {
+	margin-top: 8px;
+	text-align: left;
+}
+
+@media (max-width: 620px) {
+	.replay-player-controls {
+		bottom: 8px;
+		padding: 10px;
+	}
+
+	.replay-player-heading {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+
+	.replay-player-readout {
+		width: 100%;
+		justify-content: space-between;
+	}
+}

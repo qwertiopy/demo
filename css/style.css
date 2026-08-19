@@ -6,16 +6,12 @@ html,
 body {
 	margin: 0;
 	padding: 0;
-
 	width: 100vw;
 	height: 100vh;
-
 	background-color: #111;
-
 	display: flex;
 	justify-content: center;
 	align-items: center;
-
 	overflow: hidden;
 }
 
@@ -25,134 +21,32 @@ body {
 
 canvas {
 	background-color: #eee;
-
-	/* Keep a 1920x1080 internal canvas, but fit it inside the browser viewport. */
 	width: min(100vw, calc(100vh * 16 / 9));
 	height: min(100vh, calc(100vw * 9 / 16));
-
 	aspect-ratio: 16 / 9;
-
 	image-rendering: pixelated;
-
-	/* Prevent default browser interactions */
 	user-select: none;
 	-webkit-user-drag: none;
-
 	outline: none;
 	touch-action: none;
 }
 
 /* ==========================================
-   3. GAME UI
+   3. RESPAWN
    ========================================== */
-
-.ui-panel {
-	position: absolute;
-
-	top: 10px;
-	left: 10px;
-
-	background: rgba(0, 0, 0, 0.85);
-
-	padding: 15px;
-
-	border-radius: 8px;
-
-	color: white;
-
-	font-family: sans-serif;
-	font-size: 14px;
-
-	z-index: 10;
-}
-
-/* ==========================================
-   4. EDITOR UI
-   ========================================== */
-
-.ui-panel h3 {
-	margin-top: 0;
-	color: cyan;
-}
-
-#levelData {
-	font-family: monospace;
-
-	background: #222;
-	color: #0f0;
-
-	padding: 5px;
-
-	border: 1px solid #555;
-	border-radius: 4px;
-
-	width: 100%;
-	box-sizing: border-box;
-}
-
-/* ==========================================
-   5. BUTTONS
-   ========================================== */
-
-.ui-panel button {
-	margin-top: 10px;
-
-	padding: 8px 12px;
-
-	cursor: pointer;
-
-	background: #444;
-	color: white;
-
-	border: none;
-	border-radius: 4px;
-}
-
-.ui-panel button:hover {
-	background: #666;
-}
-
-/* ==========================================
-   6. CONFIG LINK
-   ========================================== */
-
-.config-link {
-	display: inline-block;
-
-	margin-top: 12px;
-
-	color: cyan;
-
-	text-decoration: none;
-}
-
-.config-link:hover {
-	text-decoration: underline;
-}
-.editor-links {
-	display: flex;
-	gap: 14px;
-	flex-wrap: wrap;
-}
 
 #respawnBtn {
 	position: fixed;
 	left: 50%;
 	top: calc(50% + 85px);
 	transform: translateX(-50%);
-
 	padding: 10px 22px;
-
 	cursor: pointer;
-
 	background: #444;
 	color: white;
-
 	border: 1px solid cyan;
 	border-radius: 4px;
-
 	font: 18px monospace;
-
 	z-index: 20;
 }
 
@@ -160,38 +54,21 @@ canvas {
 	background: #666;
 }
 
-
-.replay-controls {
-	margin-top: 14px;
-	padding-top: 10px;
-	border-top: 1px solid #555;
-}
-
-.replay-controls > div {
-	display: flex;
-	gap: 6px;
-	flex-wrap: wrap;
-}
-
-#replayStatus {
-	margin-top: 8px;
-	font: 12px monospace;
-	color: #ccc;
-}
-
+/* ==========================================
+   4. DEBUG / RUNTIME UI
+   ========================================== */
 
 .debug-ui {
 	position: fixed;
 	right: 10px;
 	bottom: 10px;
-
-	background: rgba(0, 0, 0, 0.85);
+	min-width: 280px;
+	background: rgba(0, 0, 0, 0.88);
 	padding: 10px 12px;
 	border-radius: 8px;
-
 	color: white;
 	z-index: 10;
-	pointer-events: none;
+	font-family: sans-serif;
 }
 
 .performance-stats {
@@ -202,8 +79,60 @@ canvas {
 	font: 12px monospace;
 	color: #ccc;
 	text-align: right;
+	pointer-events: none;
 }
 
 .performance-stats span {
 	white-space: nowrap;
+}
+
+.debug-runtime-controls {
+	margin-top: 10px;
+	padding-top: 9px;
+	border-top: 1px solid #444;
+	font-size: 12px;
+}
+
+.debug-button-row {
+	display: flex;
+	justify-content: flex-end;
+	gap: 5px;
+	margin-top: 6px;
+}
+
+.debug-runtime-controls button {
+	padding: 5px 8px;
+	border: 1px solid #444;
+	border-radius: 4px;
+	background: #222;
+	color: white;
+	cursor: pointer;
+}
+
+.debug-runtime-controls button:hover:not(:disabled) {
+	border-color: cyan;
+}
+
+.debug-runtime-controls button:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+
+#replayStatus {
+	margin-top: 7px;
+	font: 11px monospace;
+	color: #aaa;
+	text-align: right;
+}
+
+.debug-menu-link {
+	display: block;
+	margin-top: 8px;
+	color: cyan;
+	text-align: right;
+	text-decoration: none;
+}
+
+.debug-menu-link:hover {
+	text-decoration: underline;
 }

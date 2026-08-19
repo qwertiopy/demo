@@ -2,16 +2,8 @@
 
 import { Config } from "./config.js";
 import { GameState, player, camera } from "./state.js";
-import {
-	canvas,
-	configUI,
-	debugUI,
-	cycleUIBtn,
-	levelDataInput,
-	loadLevelBtn,
-	godModeToggle,
-	respawnBtn,
-} from "./dom.js";
+import { canvas, debugUI, respawnBtn } from "./dom.js";
+import { readLaunchOptions } from "./launch-options.js";
 import { requestLaserShot, shoot } from "./combat.js";
 import {
 	getActionsForInput,
@@ -26,34 +18,46 @@ import {
 } from "./weapons.js";
 import { isReplayPlaybackActive } from "./replay.js";
 
-const UI_MODES = ["none", "debug", "config"];
+const UI_MODES = ["none", "debug"];
 
-// Applies one of the three overlay modes. Debug mode owns coordinates/spawn
-// helpers plus performance/entity stats; config mode only shows config controls.
+// Applies the in-game overlay mode. Configuration now lives on menu.html, so
+// the game only cycles between a clean view and runtime/debug information.
 export function setUIMode(mode) {
 	const normalizedMode = UI_MODES.includes(mode) ? mode : "none";
 	GameState.uiMode = normalizedMode;
 
-	const showConfigUI = normalizedMode === "config";
 	const showDebugUI = normalizedMode === "debug";
-
-	configUI.hidden = !showConfigUI;
 	debugUI.hidden = !showDebugUI;
 	GameState.showEditorHelpers = showDebugUI;
 }
 
-// Cycles none -> debug -> config -> none. Starting from the default config mode,
-// the first press still behaves like the old Hide UI action and hides all overlays.
+// Cycles none -> debug -> none.
 export function toggleUI() {
 	const currentIndex = UI_MODES.indexOf(GameState.uiMode);
 	const nextIndex = (currentIndex + 1 + UI_MODES.length) % UI_MODES.length;
 	setUIMode(UI_MODES[nextIndex]);
 }
 
-// Parses level JSON, resets runtime entities and procedural state, then loads either a seeded procedural level or explicit walls/spawns.
-export function loadLevel() {
+let activeLevelDefinition = null;
+
+function cloneLevelDefinition(level) {
+	return JSON.parse(JSON.stringify(level));
+}
+
+// Resets runtime entities/procedural state and loads either a seeded procedural
+// level or explicit walls/spawns. The main menu supplies the initial definition;
+// respawns reuse the same active definition without depending on game-page DOM.
+export function loadLevel(levelDefinition = null) {
 	try {
-		const data = JSON.parse(levelDataInput.value);
+		if (levelDefinition !== null) {
+			activeLevelDefinition = cloneLevelDefinition(levelDefinition);
+		}
+
+		if (activeLevelDefinition === null) {
+			activeLevelDefinition = cloneLevelDefinition(readLaunchOptions().level);
+		}
+
+		const data = cloneLevelDefinition(activeLevelDefinition);
 
 		if (data.playerSpawn) {
 			player.x = data.playerSpawn.x;
@@ -87,7 +91,8 @@ export function loadLevel() {
 
 		window.focus();
 	} catch (error) {
-		alert("Invalid JSON format. Please check your syntax.");
+		console.error("Could not load level definition:", error);
+		alert("Could not load the selected level. Return to the main menu and check Level Setup.");
 	}
 }
 
@@ -274,12 +279,10 @@ export function initInput() {
 
 	setUIMode(GameState.uiMode);
 
-	// Clicking the config/editor panel should not also trigger game mouse bindings.
-	configUI.addEventListener("mousedown", (event) => event.stopPropagation());
-	configUI.addEventListener("mouseup", (event) => event.stopPropagation());
+	// Runtime debug controls (replay/menu links) must not also trigger mouse bindings.
+	debugUI.addEventListener("mousedown", (event) => event.stopPropagation());
+	debugUI.addEventListener("mouseup", (event) => event.stopPropagation());
 
-	cycleUIBtn.addEventListener("click", toggleUI);
-	loadLevelBtn.addEventListener("click", loadLevel);
 	respawnBtn.addEventListener("click", (event) => {
 		event.stopPropagation();
 		respawnGame();
@@ -287,9 +290,4 @@ export function initInput() {
 	respawnBtn.addEventListener("mousedown", (event) => event.stopPropagation());
 	respawnBtn.addEventListener("mouseup", (event) => event.stopPropagation());
 
-	if (godModeToggle) {
-		godModeToggle.addEventListener("change", (event) => {
-			GameState.isInvincible = event.target.checked;
-		});
-	}
 }

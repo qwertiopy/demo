@@ -4,15 +4,13 @@ import { Config } from "./config.js";
 import { GameState, player, camera } from "./state.js";
 import {
 	replayRecordBtn,
-	replayStopSaveBtn,
-	replayLoadBtn,
-	replayFileInput,
+	replayStopRecordingBtn,
 	replayPlayPauseBtn,
 	replayStopBtn,
 	replayStatus,
 } from "./dom.js";
-
-export const REPLAY_VERSION = 1;
+import { REPLAY_VERSION, validateReplayData } from "./replay-file.js";
+import { saveActiveReplay } from "./replay-store.js";
 
 // Stable IDs let consecutive visual snapshots identify the same moving object.
 // This is used by trail interpolation and is also serialized into replay files.
@@ -39,6 +37,7 @@ const ReplayRuntime = {
 	playbackFrameIndex: 0,
 	playbackStartedAt: 0,
 	playbackBaseTimeMs: 0,
+	playbackSpeed: 1,
 	trailHistory: [],
 	liveTrailSequence: 0,
 };
@@ -377,8 +376,7 @@ function setReplayStatus(message) {
 
 function syncReplayButtons() {
 	if (replayRecordBtn) replayRecordBtn.disabled = ReplayRuntime.recording;
-	if (replayStopSaveBtn) replayStopSaveBtn.disabled = !ReplayRuntime.recording;
-	if (replayLoadBtn) replayLoadBtn.disabled = ReplayRuntime.recording;
+	if (replayStopRecordingBtn) replayStopRecordingBtn.disabled = !ReplayRuntime.recording;
 	if (replayPlayPauseBtn) {
 		replayPlayPauseBtn.disabled =
 			ReplayRuntime.recording || !ReplayRuntime.loadedReplay;
@@ -426,93 +424,80 @@ export function recordReplaySnapshot(snapshot, currentTime) {
 	}
 }
 
-function replayFileName() {
-	return `demo-${new Date().toISOString().replace(/[:.]/g, "-")}.replay`;
-}
-
-export function stopReplayRecordingAndSave() {
+export async function stopReplayRecording() {
 	if (!ReplayRuntime.recording) return false;
 
 	ReplayRuntime.recording = false;
+	if (ReplayRuntime.recordedFrames.length === 0) {
+		setReplayStatus("Recording stopped before any replay frames were captured.");
+		syncReplayButtons();
+		return false;
+	}
+
 	const replay = {
 		replayVersion: REPLAY_VERSION,
 		createdAt: new Date().toISOString(),
 		configSchemaVersion: Config.CONFIG_SCHEMA_VERSION,
 		levelSeed: GameState.levelSeed,
+		gameModeId: GameState.gameModeId,
 		config: clonePlain(Config),
 		frames: ReplayRuntime.recordedFrames,
 	};
 
-	const blob = new Blob([JSON.stringify(replay)], {
-		type: "application/json",
-	});
-	const url = URL.createObjectURL(blob);
-	const anchor = document.createElement("a");
-	anchor.href = url;
-	anchor.download = replayFileName();
-	document.body.appendChild(anchor);
-	anchor.click();
-	anchor.remove();
-	URL.revokeObjectURL(url);
-
 	ReplayRuntime.loadedReplay = replay;
 	ReplayRuntime.playbackFrameIndex = 0;
-	setReplayStatus(
-		`Saved ${replay.frames.length} replay frames (${(
-			blob.size /
-			1024 /
-			1024
-		).toFixed(2)} MiB).`,
-	);
+
+	try {
+		await saveActiveReplay(replay);
+		setReplayStatus(
+			`Recording stopped: ${replay.frames.length} frames. Replay is ready in Main Menu > Replays.`,
+		);
+	} catch (error) {
+		console.error("Could not store recorded replay:", error);
+		setReplayStatus(
+			`Recording stopped, but replay storage failed: ${error.message}`,
+		);
+	}
+
 	syncReplayButtons();
 	return true;
 }
 
-function validateReplayData(data) {
-	if (!data || typeof data !== "object") {
-		throw new Error("Replay file must contain a JSON object.");
-	}
-	if (Number(data.replayVersion) !== REPLAY_VERSION) {
-		throw new Error(
-			`Unsupported replay version ${data.replayVersion ?? "unknown"}.`,
-		);
-	}
-	if (!Array.isArray(data.frames) || data.frames.length === 0) {
-		throw new Error("Replay file contains no frames.");
-	}
-
-	let previousTime = -Infinity;
-	for (const [index, frame] of data.frames.entries()) {
-		const timeMs = Number(frame?.timeMs);
-		if (!Number.isFinite(timeMs) || timeMs < previousTime) {
-			throw new Error(`Replay frame ${index} has an invalid timestamp.`);
-		}
-		if (!frame?.camera || !frame?.player || !frame?.rendering) {
-			throw new Error(`Replay frame ${index} is missing visual snapshot data.`);
-		}
-		previousTime = timeMs;
-	}
+export function loadReplayData(replay) {
+	validateReplayData(replay);
+	stopReplayPlayback();
+	ReplayRuntime.loadedReplay = replay;
+	ReplayRuntime.playbackFrameIndex = 0;
+	ReplayRuntime.playbackBaseTimeMs = 0;
+	setReplayStatus(`Loaded replay: ${replay.frames.length} frames.`);
+	syncReplayButtons();
+	return replay;
 }
 
-export async function loadReplayFile(file) {
-	if (!file) return false;
+export function getLoadedReplay() {
+	return ReplayRuntime.loadedReplay;
+}
 
-	try {
-		const text = await file.text();
-		const replay = JSON.parse(text);
-		validateReplayData(replay);
+export function getReplayPlaybackState(currentTime = performance.now()) {
+	const replay = ReplayRuntime.loadedReplay;
+	const frames = replay?.frames || [];
+	const durationMs = frames.length > 0
+		? Math.max(0, Number(frames[frames.length - 1].timeMs) || 0)
+		: 0;
+	const playbackTimeMs = replay
+		? Math.min(durationMs, Math.max(0, currentPlaybackTimeMs(currentTime)))
+		: 0;
 
-		stopReplayPlayback();
-		ReplayRuntime.loadedReplay = replay;
-		ReplayRuntime.playbackFrameIndex = 0;
-		setReplayStatus(`Loaded replay: ${replay.frames.length} frames.`);
-		syncReplayButtons();
-		return true;
-	} catch (error) {
-		console.error("Failed to load replay:", error);
-		setReplayStatus(`Replay load failed: ${error.message}`);
-		return false;
-	}
+	return {
+		recording: ReplayRuntime.recording,
+		playbackActive: ReplayRuntime.playbackActive,
+		playbackPlaying: ReplayRuntime.playbackPlaying,
+		playbackFrameIndex: ReplayRuntime.playbackFrameIndex,
+		frameCount: frames.length,
+		playbackTimeMs,
+		durationMs,
+		playbackSpeed: ReplayRuntime.playbackSpeed,
+	};
 }
 
 export function startOrResumeReplayPlayback(currentTime = performance.now()) {
@@ -550,10 +535,7 @@ export function pauseReplayPlayback(currentTime = performance.now()) {
 		return false;
 	}
 
-	ReplayRuntime.playbackBaseTimeMs += Math.max(
-		0,
-		currentTime - ReplayRuntime.playbackStartedAt,
-	);
+	ReplayRuntime.playbackBaseTimeMs = currentPlaybackTimeMs(currentTime);
 	ReplayRuntime.playbackPlaying = false;
 	setReplayStatus(
 		`Replay paused at frame ${ReplayRuntime.playbackFrameIndex + 1}.`,
@@ -590,8 +572,78 @@ function currentPlaybackTimeMs(currentTime) {
 
 	return (
 		ReplayRuntime.playbackBaseTimeMs +
-		Math.max(0, currentTime - ReplayRuntime.playbackStartedAt)
+		Math.max(0, currentTime - ReplayRuntime.playbackStartedAt) *
+			ReplayRuntime.playbackSpeed
 	);
+}
+
+function findReplayFrameIndexAtTime(frames, targetTimeMs) {
+	let low = 0;
+	let high = frames.length - 1;
+	let result = 0;
+
+	while (low <= high) {
+		const middle = Math.floor((low + high) / 2);
+		const frameTime = Number(frames[middle]?.timeMs) || 0;
+
+		if (frameTime <= targetTimeMs) {
+			result = middle;
+			low = middle + 1;
+		} else {
+			high = middle - 1;
+		}
+	}
+
+	return result;
+}
+
+export function setReplayPlaybackSpeed(speed, currentTime = performance.now()) {
+	const numericSpeed = Number(speed);
+	if (!Number.isFinite(numericSpeed) || numericSpeed <= 0) return false;
+
+	if (ReplayRuntime.playbackPlaying) {
+		ReplayRuntime.playbackBaseTimeMs = currentPlaybackTimeMs(currentTime);
+		ReplayRuntime.playbackStartedAt = currentTime;
+	}
+
+	ReplayRuntime.playbackSpeed = numericSpeed;
+	return true;
+}
+
+export function seekReplayPlayback(targetTimeMs, currentTime = performance.now()) {
+	const replay = ReplayRuntime.loadedReplay;
+	if (!replay?.frames?.length) return false;
+
+	const frames = replay.frames;
+	const durationMs = Math.max(
+		0,
+		Number(frames[frames.length - 1].timeMs) || 0,
+	);
+	const target = Math.min(
+		durationMs,
+		Math.max(0, Number(targetTimeMs) || 0),
+	);
+
+	if (!ReplayRuntime.playbackActive) {
+		ReplayRuntime.playbackActive = true;
+	}
+
+	ReplayRuntime.playbackBaseTimeMs = target;
+	ReplayRuntime.playbackStartedAt = currentTime;
+	ReplayRuntime.playbackFrameIndex = findReplayFrameIndexAtTime(frames, target);
+
+	if (target >= durationMs && ReplayRuntime.playbackPlaying) {
+		ReplayRuntime.playbackPlaying = false;
+	}
+
+	clearTrailHistory();
+	syncReplayButtons();
+	return true;
+}
+
+export function skipReplayPlayback(deltaMs, currentTime = performance.now()) {
+	const currentTimeMs = currentPlaybackTimeMs(currentTime);
+	return seekReplayPlayback(currentTimeMs + (Number(deltaMs) || 0), currentTime);
 }
 
 // Advances by recorded timestamps rather than assuming a fixed FPS. That keeps
@@ -682,24 +734,10 @@ export function initReplayControls() {
 	if (!replayRecordBtn) return;
 
 	replayRecordBtn.addEventListener("click", () => startReplayRecording());
-	replayStopSaveBtn?.addEventListener("click", () =>
-		stopReplayRecordingAndSave(),
-	);
-	replayLoadBtn?.addEventListener("click", () => replayFileInput?.click());
-	replayFileInput?.addEventListener("change", async () => {
-		const file = replayFileInput.files?.[0];
-		await loadReplayFile(file);
-		replayFileInput.value = "";
+	replayStopRecordingBtn?.addEventListener("click", async () => {
+		await stopReplayRecording();
 	});
-	replayPlayPauseBtn?.addEventListener("click", () => {
-		if (ReplayRuntime.playbackPlaying) {
-			pauseReplayPlayback();
-		} else {
-			startOrResumeReplayPlayback();
-		}
-	});
-	replayStopBtn?.addEventListener("click", () => stopReplayPlayback());
 
-	setReplayStatus("Replay idle.");
+	setReplayStatus("Replay recording idle.");
 	syncReplayButtons();
 }

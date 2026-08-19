@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Demo — Replay Player</title>
+		<link rel="stylesheet" href="css/style.css" />
+		<link rel="stylesheet" href="css/replay-player.css" />
+	</head>
+	<body>
+		<canvas id="gameCanvas" width="1920" height="1080"></canvas>
+		<button id="respawnBtn" type="button" hidden>Respawn?</button>
+
+		<div id="replayPlayerControls" class="replay-player-controls">
+			<div class="replay-player-heading">
+				<strong>Replay Player</strong>
+				<div class="replay-player-readout">
+					<span id="replayPlayerFrame">Frame -- / --</span>
+					<span id="replayPlayerTime">0:00.0 / 0:00.0</span>
+				</div>
+			</div>
+
+			<div class="replay-timeline-row">
+				<input
+					id="replayTimeline"
+					type="range"
+					min="0"
+					max="1"
+					step="1"
+					value="0"
+					disabled
+					aria-label="Replay timeline"
+				/>
+			</div>
+
+			<div class="replay-player-buttons">
+				<button id="replayRewindBtn" type="button" disabled>−5s</button>
+				<button id="replayPlayPauseBtn" type="button" disabled>Play</button>
+				<button id="replaySkipBtn" type="button" disabled>+5s</button>
+				<button id="replayStopBtn" type="button" disabled>Stop</button>
+
+				<label class="replay-speed-control" for="replaySpeedSelect">
+					Speed
+					<select id="replaySpeedSelect" disabled>
+						<option value="0.25">0.25×</option>
+						<option value="0.5">0.5×</option>
+						<option value="0.75">0.75×</option>
+						<option value="1" selected>1×</option>
+						<option value="1.5">1.5×</option>
+						<option value="2">2×</option>
+						<option value="4">4×</option>
+					</select>
+				</label>
+
+				<button id="replayHideUiBtn" type="button">Hide UI (H)</button>
+				<a href="menu.html#replays">Replay Setup</a>
+			</div>
+			<div id="replayStatus">Loading replay...</div>
+		</div>
+
+		<script type="module" src="js/replay-player.js"></script>
+	</body>
+</html>
