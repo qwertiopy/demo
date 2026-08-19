@@ -233,7 +233,10 @@ function isBouncyProjectile(bullet) {
 }
 
 function triggerSuccessfulBounceExplosion(bullet, isPlayerBullets, currentTime) {
-	if ((bullet.explosionRadiusBlocks ?? 0) > 0) {
+	if (
+		bullet.detonatesOnImpact === true &&
+		(bullet.explosionRadiusBlocks ?? 0) > 0
+	) {
 		detonateBullet(bullet, isPlayerBullets, currentTime);
 	}
 }
