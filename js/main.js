@@ -57,20 +57,28 @@ export function update(currentTime, dt) {
 	let dx = 0;
 	let dy = 0;
 
-	if (isActionDown("moveUp", GameState.pressedInputs)) {
-		dy -= player.speed * dt;
-	}
+	// Any pending player laser warmup locks movement until that shot resolves.
+	// This applies to both single-beam (sniper) lasers and cone lasers.
+	const laserWarmupActive = GameState.laserWarmups.some(
+		(shot) => shot.shooter === player,
+	);
 
-	if (isActionDown("moveDown", GameState.pressedInputs)) {
-		dy += player.speed * dt;
-	}
+	if (!laserWarmupActive) {
+		if (isActionDown("moveUp", GameState.pressedInputs)) {
+			dy -= player.speed * dt;
+		}
 
-	if (isActionDown("moveLeft", GameState.pressedInputs)) {
-		dx -= player.speed * dt;
-	}
+		if (isActionDown("moveDown", GameState.pressedInputs)) {
+			dy += player.speed * dt;
+		}
 
-	if (isActionDown("moveRight", GameState.pressedInputs)) {
-		dx += player.speed * dt;
+		if (isActionDown("moveLeft", GameState.pressedInputs)) {
+			dx -= player.speed * dt;
+		}
+
+		if (isActionDown("moveRight", GameState.pressedInputs)) {
+			dx += player.speed * dt;
+		}
 	}
 
 	handleWallCollisions(player, dx, dy);
