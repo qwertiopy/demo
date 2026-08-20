@@ -1,6 +1,6 @@
 // General combat geometry and line-of-sight helpers.
 
-import { GameState } from "../state.js";
+import { queryWallsAlongSegment } from "../spatial/wall-index.js";
 
 // Tests whether two line segments intersect; used to determine whether a wall edge blocks a shot or enemy vision
 export function lineIntersects(a, b, c, d, p, q, r, s) {
@@ -15,10 +15,13 @@ export function lineIntersects(a, b, c, d, p, q, r, s) {
 	return 0 < lambda && lambda < 1 && 0 < gamma && gamma < 1;
 }
 
-// Returns false when any wall edge intersects the line between two world-space points
-// this is done in an interesting way i just trust it works im not figuring this out - cyn
+// Returns false when any nearby wall edge intersects the line between two
+// world-space points. The spatial query is broad-phase only; the original
+// edge-intersection test remains the narrow phase.
 export function hasLineOfSight(x1, y1, x2, y2) {
-	return !GameState.walls.some(
+	const candidateWalls = queryWallsAlongSegment(x1, y1, x2, y2);
+
+	return !candidateWalls.some(
 		(w) =>
 			lineIntersects(x1, y1, x2, y2, w.x, w.y, w.x + w.width, w.y) ||
 			lineIntersects(

@@ -2,6 +2,7 @@
 
 import { Config } from "./config.js";
 import { GameState, player, camera } from "./state.js";
+import { markWallIndexDirty } from "./spatial/wall-index.js";
 import { canvas, debugUI, respawnBtn } from "./dom.js";
 import { readLaunchOptions } from "./launch-options.js";
 import { requestLaserShot, shoot } from "./combat.js";
@@ -89,6 +90,7 @@ export function loadLevel(levelDefinition = null) {
 			GameState.enemySpawnRate = data.enemySpawnRate || 0;
 		}
 
+		markWallIndexDirty();
 		window.focus();
 	} catch (error) {
 		console.error("Could not load level definition:", error);

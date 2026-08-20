@@ -1,6 +1,7 @@
 // Shared simulation helpers.
 
 import { GameState } from "./state.js";
+import { queryWallsInAabb } from "./spatial/wall-index.js";
 
 // Advances the deterministic level RNG stored in GameState and returns a value in [0, 1).
 export function seededRandom() {
@@ -19,25 +20,40 @@ export function isColliding(rect1, rect2) {
 	);
 }
 
-// Moves an entity one axis at a time and resolves overlap against every wall, producing sliding-style wall collision.
+// Moves an entity one axis at a time and resolves overlap against nearby walls,
+// producing the same sliding-style collision as the old full-wall scan.
 export function handleWallCollisions(entity, dx, dy) {
+	const startX = entity.x;
 	entity.x += dx;
 
-	GameState.walls.forEach((w) => {
+	const xWalls = queryWallsInAabb(
+		Math.min(startX, entity.x),
+		entity.y,
+		Math.max(startX, entity.x) + entity.size,
+		entity.y + entity.size,
+	);
+	for (const w of xWalls) {
 		if (isColliding(entity, w)) {
 			if (dx > 0) entity.x = w.x - entity.size;
 			if (dx < 0) entity.x = w.x + w.width;
 		}
-	});
+	}
 
+	const startY = entity.y;
 	entity.y += dy;
 
-	GameState.walls.forEach((w) => {
+	const yWalls = queryWallsInAabb(
+		entity.x,
+		Math.min(startY, entity.y),
+		entity.x + entity.size,
+		Math.max(startY, entity.y) + entity.size,
+	);
+	for (const w of yWalls) {
 		if (isColliding(entity, w)) {
 			if (dy > 0) entity.y = w.y - entity.size;
 			if (dy < 0) entity.y = w.y + w.height;
 		}
-	});
+	}
 }
 
 // returns true if every part of a given rectangle is offscreen (used for rendering)

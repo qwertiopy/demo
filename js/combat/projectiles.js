@@ -1,6 +1,7 @@
 // Projectile spawning, projectile/projectile collision, penetration, wall response, and movement.
 
 import { GameState, player } from "../state.js";
+import { queryWallsInAabb } from "../spatial/wall-index.js";
 import { isColliding } from "../utils.js";
 import { detonateBullet } from "./explosions.js";
 import { findChainTarget, getAngleToTarget } from "./targeting.js";
@@ -316,6 +317,25 @@ function projectileCircleOverlapsWall(bullet, wall) {
 	return dx * dx + dy * dy < radius * radius - 1e-10;
 }
 
+function getProjectileWallCandidates(bullet, moveX = 0, moveY = 0) {
+	const radius = Math.max(0, Number(bullet.radius) || 0);
+	const endX = bullet.x + moveX;
+	const endY = bullet.y + moveY;
+
+	return queryWallsInAabb(
+		Math.min(bullet.x, endX) - radius,
+		Math.min(bullet.y, endY) - radius,
+		Math.max(bullet.x, endX) + radius,
+		Math.max(bullet.y, endY) + radius,
+	);
+}
+
+function projectileOverlapsAnyWall(bullet) {
+	return getProjectileWallCandidates(bullet).some((wall) =>
+		projectileCircleOverlapsWall(bullet, wall)
+	);
+}
+
 const WALL_TOI_EPSILON = 1e-8;
 const WALL_APPROACH_EPSILON = 1e-12;
 const WALL_CONTACT_NUDGE = 1e-8;
@@ -501,13 +521,15 @@ function sweptCircleWallHit(bullet, moveX, moveY, wall) {
 // Find the earliest collision against the UNION of all wall rectangles. When
 // multiple connected wall tiles are reached at the same time, combine their
 // normals into one contact manifold. This is what prevents an internal seam or
-// shared vertex from being mistaken for the side of whichever wall happened to
-// appear first in GameState.walls.
+// shared vertex from being mistaken for the side of whichever candidate wall
+// happened to appear first. The spatial index only narrows the broad phase; the
+// exact swept-circle manifold calculation below is unchanged.
 function findEarliestProjectileWallHit(bullet, moveX, moveY) {
 	let earliestTime = Infinity;
 	const simultaneousHits = [];
+	const candidateWalls = getProjectileWallCandidates(bullet, moveX, moveY);
 
-	for (const wall of GameState.walls) {
+	for (const wall of candidateWalls) {
 		const hit = sweptCircleWallHit(bullet, moveX, moveY, wall);
 		if (!hit) continue;
 
@@ -799,7 +821,7 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 			mockRect.y = b.y - b.radius;
 
 			if (b.finishPenetratedWall && bouncy) {
-				if (!GameState.walls.some((w) => projectileCircleOverlapsWall(b, w))) {
+				if (!projectileOverlapsAnyWall(b)) {
 					b.finishPenetratedWall = false;
 				}
 			}

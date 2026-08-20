@@ -2,6 +2,7 @@
 
 import { Config } from "./config.js";
 import { GameState } from "./state.js";
+import { markWallIndexDirty } from "./spatial/wall-index.js";
 import { seededRandom } from "./utils.js";
 
 // Maps structure-grid spawn flags to explicit enemy types; flag 2 remains a random enemy spawn.
@@ -31,6 +32,7 @@ export function spawnWall(
 		height: heightBlocks,
 		color,
 	});
+	markWallIndexDirty();
 }
 
 // Uses the seeded RNG to select one of the three enemy types
@@ -161,9 +163,13 @@ export function cleanupProceduralGeneration(playerX) {
 	const safeStartX = startX - cleanupBuffer;
 	const safeEndX = endX + cleanupBuffer;
 
-	GameState.walls = GameState.walls.filter(
+	const retainedWalls = GameState.walls.filter(
 		(w) => w.x >= safeStartX && w.x <= safeEndX,
 	);
+	if (retainedWalls.length !== GameState.walls.length) {
+		GameState.walls = retainedWalls;
+		markWallIndexDirty();
+	}
 
 	GameState.placedStructures = GameState.placedStructures.filter(
 		(s) => s.origin.x >= safeStartX && s.origin.x <= safeEndX,
