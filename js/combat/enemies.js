@@ -146,7 +146,6 @@ export function updateEnemies(currentTime, dt) {
 			}
 		}
 
-		handleWallCollisions(e, e.moveX, e.moveY);
 		return true;
 	});
 }
@@ -176,15 +175,18 @@ export function resolveEnemyVectorCollisions(dt) {
 			const minDist = r1 + r2;
 
 			if (distance < minDist) {
-				const nx =
-					distance === 0
-						? Math.cos(Math.random() * Math.PI * 2)
-						: dx / distance;
-
-				const ny =
-					distance === 0
-						? Math.sin(Math.random() * Math.PI * 2)
-						: dy / distance;
+				// Exact overlap has no geometric separation normal. Pick one angle
+				// once so nx/ny still form a unit vector instead of sampling two
+				// unrelated random directions.
+				const overlapAngle = distance === 0
+					? Math.random() * Math.PI * 2
+					: 0;
+				const nx = distance === 0
+					? Math.cos(overlapAngle)
+					: dx / distance;
+				const ny = distance === 0
+					? Math.sin(overlapAngle)
+					: dy / distance;
 
 				const overlap = minDist - (distance === 0 ? 0.001 : distance);
 
@@ -198,4 +200,12 @@ export function resolveEnemyVectorCollisions(dt) {
 			}
 		}
 	}
+
+	// Apply the displacement calculated for this tick only after enemy/enemy
+	// separation has adjusted it. Previously updateEnemies() moved with the
+	// previous tick's moveX/moveY and this freshly resolved vector waited until
+	// the next frame.
+	GameState.enemies.forEach((e) => {
+		handleWallCollisions(e, e.moveX, e.moveY);
+	});
 }
