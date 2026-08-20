@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const MAX_SUPPORTED_SCHEMA_VERSION = 16;
+const MAX_SUPPORTED_SCHEMA_VERSION = 17;
 const DEFAULT_CONFIG_PATH = "config.json";
 const CONFIG_SOURCE_PATH = path.join("js", "config.js");
 
@@ -42,6 +42,7 @@ const WEAPON_CURRENT_DEFAULTS = {
     penetrationBlocks: 0,
     bulletCollision: false,
     bulletCount: 1,
+    chain: 0,
 };
 
 const ENEMY_CURRENT_DEFAULTS = {
@@ -95,6 +96,7 @@ const WEAPON_ORDER = [
     "penetrationBlocks",
     "bulletCollision",
     "bulletCount",
+    "chain",
 ];
 
 const ENEMY_ORDER = [
@@ -312,6 +314,10 @@ function migrateWeapon(weapon, originalVersion, targetVersion, oldGlobalCooldown
         setDefault(weapon, "speedVariation", 0);
         setDefault(weapon, "radiusVariation", 0);
         setDefault(weapon, "damageVariation", 0);
+    }
+
+    if (targetVersion >= 17) {
+        setDefault(weapon, "chain", 0);
     }
 
     return reorderObject(weapon, WEAPON_ORDER);

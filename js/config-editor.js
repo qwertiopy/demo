@@ -20,6 +20,7 @@ function normalizeWeaponOptionalStats(weapon) {
 			weapon.radiusVariation === undefined ? 0 : weapon.radiusVariation,
 		damageVariation:
 			weapon.damageVariation === undefined ? 0 : weapon.damageVariation,
+		chain: weapon.chain === undefined ? 0 : weapon.chain,
 	};
 }
 
@@ -84,6 +85,7 @@ function validateWeapons(weapons) {
 		"cooldownMs",
 		"penetrationBlocks",
 		"bulletCount",
+		"chain",
 	];
 
 	weapons.forEach((weapon, index) => {
@@ -130,6 +132,12 @@ function validateWeapons(weapons) {
 		if (weapon.bulletCount < 1 || !Number.isInteger(weapon.bulletCount)) {
 			throw new Error(
 				`Weapon ${index + 1}.bulletCount must be an integer greater than or equal to 1.`,
+			);
+		}
+
+		if (weapon.chain < 0 || !Number.isInteger(weapon.chain)) {
+			throw new Error(
+				`Weapon ${index + 1}.chain must be a non-negative integer.`,
 			);
 		}
 
@@ -408,6 +416,14 @@ function migrateSavedConfig(savedConfig) {
 
 			migrated.ENEMY_TYPES = migratedEnemyTypes;
 		}
+	}
+
+	// Schema v17 adds chain=0 to every player weapon. Merge the new neutral
+	// default into existing local Sandbox configs without changing balance.
+	if (savedVersion < 17 && Array.isArray(defaultConfig.WEAPONS)) {
+		migrated.WEAPONS = defaultConfig.WEAPONS.map((defaultWeapon, index) =>
+			mergeConfig(defaultWeapon, migrated.WEAPONS?.[index] || {}),
+		);
 	}
 
 	return migrated;

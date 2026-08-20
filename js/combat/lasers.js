@@ -3,6 +3,7 @@
 import { Config } from "../config.js";
 import { GameState } from "../state.js";
 import { detonateBullet } from "./explosions.js";
+import { findProjectileChainTarget } from "./projectiles.js";
 import {
 	getBulletCount,
 	getLaserConeHalfAngleFromCount,
@@ -631,6 +632,214 @@ function resolveLaserConeShot(shot, currentTime) {
 	});
 }
 
+function getLaserTargetCenter(target) {
+	const width = target.width ?? target.size ?? 0;
+	const height = target.height ?? target.size ?? 0;
+	return {
+		x: target.x + width / 2,
+		y: target.y + height / 2,
+	};
+}
+
+function pushLaserBeamSegment(x1, y1, x2, y2, stats, radius, currentTime) {
+	GameState.laserBeams.push({
+		type: "beam",
+		x1,
+		y1,
+		x2,
+		y2,
+		color: stats.color ?? "white",
+		radius,
+		createdAt: currentTime,
+		durationMs: Math.max(
+			0,
+			Number(Config.RENDERING.LASER_FLASH_DURATION_MS) || 0,
+		),
+	});
+}
+
+function findNearestLaserTargetHit(
+	originX,
+	originY,
+	dirX,
+	dirY,
+	maxDistance,
+	radius,
+	hitTargets,
+) {
+	let bestTarget = null;
+	let bestHit = null;
+	let bestDistance = Infinity;
+
+	for (const target of GameState.enemies) {
+		if (target.hp <= 0 || hitTargets.has(target)) continue;
+		if (!consumeLaserCalculationBudget()) {
+			return { target: null, hit: null, truncated: true };
+		}
+
+		const hit = rayRectIntersection(
+			originX,
+			originY,
+			dirX,
+			dirY,
+			target,
+			radius,
+		);
+		if (!hit || hit.entryDistance > maxDistance + 1e-9) continue;
+
+		if (hit.entryDistance < bestDistance) {
+			bestTarget = target;
+			bestHit = hit;
+			bestDistance = hit.entryDistance;
+		}
+	}
+
+	return { target: bestTarget, hit: bestHit, truncated: false };
+}
+
+// A chained singular laser behaves like the moving-projectile chain rule, but
+// resolves the whole path immediately because lasers are hitscan. Every enemy
+// contact ends the current rendered segment. If another chain redirect remains,
+// the next segment aims at the best visible, unvisited enemy using the original
+// mouse angle as the reference; otherwise the beam continues straight.
+function resolveChainedLaserBeamShot(shot, currentTime) {
+	const shooter = shot.shooter;
+	let originX = shooter.x + shooter.size / 2;
+	let originY = shooter.y + shooter.size / 2;
+	let dirX = shot.dirX;
+	let dirY = shot.dirY;
+	const { stats } = shot;
+	const radius = Math.max(0, Number(stats.radiusBlocks ?? 0.03) || 0);
+	let remainingPenetrationBlocks = Math.max(
+		0,
+		Number(stats.penetrationBlocks ?? 0) || 0,
+	);
+	const maxBounces = Math.max(0, Math.floor(Number(stats.maxBounces ?? 0) || 0));
+	let bounces = 0;
+	let chainsRemaining = Math.max(
+		0,
+		Math.floor(Number(shot.chainsRemaining ?? 0) || 0),
+	);
+	const hitTargets = new Set();
+	const RAY_EPSILON = 1e-6;
+	const MAX_SEGMENTS = 10000;
+	let segmentCount = 0;
+
+	while (segmentCount++ < MAX_SEGMENTS) {
+		const segmentRange = getLaserLoadedRangeBlocks(
+			originX,
+			originY,
+			dirX,
+			dirY,
+		);
+		if (segmentRange <= RAY_EPSILON) break;
+
+		const targetHit = findNearestLaserTargetHit(
+			originX,
+			originY,
+			dirX,
+			dirY,
+			segmentRange,
+			radius,
+			hitTargets,
+		);
+		if (targetHit.truncated) break;
+
+		// Only ask the wall resolver to advance as far as the next enemy contact.
+		// This keeps the cumulative wall-penetration budget exact across the extra
+		// visual segments rather than spending penetration on geometry past a target.
+		const requestedDistance = targetHit.target
+			? Math.max(0, targetHit.hit.entryDistance)
+			: segmentRange;
+		const wallStop = getLaserWallStopWithPenetrationBudget(
+			originX,
+			originY,
+			dirX,
+			dirY,
+			radius,
+			remainingPenetrationBlocks,
+			requestedDistance,
+			maxBounces > 0,
+		);
+		if (wallStop.truncated) break;
+
+		const beamDistance = wallStop.distance;
+		remainingPenetrationBlocks = wallStop.remainingPenetrationBlocks;
+		const endX = originX + dirX * beamDistance;
+		const endY = originY + dirY * beamDistance;
+
+		pushLaserBeamSegment(
+			originX,
+			originY,
+			endX,
+			endY,
+			stats,
+			radius,
+			currentTime,
+		);
+
+		const reachedTarget = Boolean(
+			targetHit.target &&
+			!wallStop.impactedWall &&
+			beamDistance >= targetHit.hit.entryDistance - 1e-9,
+		);
+
+		if (reachedTarget) {
+			const hitTarget = targetHit.target;
+			hitTarget.hp -= stats.damage ?? 1;
+			hitTargets.add(hitTarget);
+
+			let nextTarget = null;
+			if (chainsRemaining > 0) {
+				chainsRemaining--;
+				nextTarget = findProjectileChainTarget(
+					endX,
+					endY,
+					shot.chainReferenceAngle ?? Math.atan2(dirY, dirX),
+					hitTargets,
+					"distance",
+				);
+			}
+
+			if (nextTarget) {
+				const center = getLaserTargetCenter(nextTarget);
+				const dx = center.x - endX;
+				const dy = center.y - endY;
+				const magnitude = Math.hypot(dx, dy) || 1;
+				dirX = dx / magnitude;
+				dirY = dy / magnitude;
+			}
+
+			originX = endX + dirX * RAY_EPSILON;
+			originY = endY + dirY * RAY_EPSILON;
+			continue;
+		}
+
+		if (!wallStop.impactedWall) break;
+
+		if (bounces < maxBounces) {
+			createLaserExplosionAt(endX, endY, stats, currentTime);
+
+			const dot = dirX * wallStop.normalX + dirY * wallStop.normalY;
+			dirX -= 2 * dot * wallStop.normalX;
+			dirY -= 2 * dot * wallStop.normalY;
+			const magnitude = Math.hypot(dirX, dirY) || 1;
+			dirX /= magnitude;
+			dirY /= magnitude;
+			bounces++;
+
+			originX = endX + dirX * RAY_EPSILON;
+			originY = endY + dirY * RAY_EPSILON;
+			continue;
+		}
+
+		if (stats.detonatesOnImpact) {
+			createLaserExplosionAt(endX, endY, stats, currentTime);
+		}
+		break;
+	}
+}
+
 function resolveLaserBeamShot(shot, currentTime) {
 	const shooter = shot.shooter;
 	let originX = shooter.x + shooter.size / 2;
@@ -694,20 +903,15 @@ function resolveLaserBeamShot(shot, currentTime) {
 		const endX = originX + dirX * beamDistance;
 		const endY = originY + dirY * beamDistance;
 
-		GameState.laserBeams.push({
-			type: "beam",
-			x1: originX,
-			y1: originY,
-			x2: endX,
-			y2: endY,
-			color: stats.color ?? "white",
+		pushLaserBeamSegment(
+			originX,
+			originY,
+			endX,
+			endY,
+			stats,
 			radius,
-			createdAt: currentTime,
-			durationMs: Math.max(
-				0,
-				Number(Config.RENDERING.LASER_FLASH_DURATION_MS) || 0,
-			),
-		});
+			currentTime,
+		);
 
 		if (!wallStop.impactedWall) break;
 
@@ -739,6 +943,11 @@ function resolveLaserBeamShot(shot, currentTime) {
 function resolveLaserShot(shot, currentTime) {
 	if ((shot.coneHalfAngle ?? 0) > 0) {
 		resolveLaserConeShot(shot, currentTime);
+		return;
+	}
+
+	if ((shot.chain ?? 0) > 0) {
+		resolveChainedLaserBeamShot(shot, currentTime);
 		return;
 	}
 
@@ -782,7 +991,23 @@ export function requestLaserShot(
 	};
 	const bulletCount = getBulletCount(variedStats);
 	const baseAngle = Math.atan2(targetY - centerY, targetX - centerX);
-	const centerAngle = baseAngle + getRandomSpreadOffset(variedStats.spread ?? 0);
+	// Chaining is singular-beam-only. Cone lasers keep their existing cone/spread
+	// behavior even if the weapon config has chain > 0.
+	const chain = bulletCount === 1
+		? Math.max(0, Math.floor(Number(variedStats.chain ?? 0) || 0))
+		: 0;
+	const initialChainTarget = chain > 0
+		? findProjectileChainTarget(centerX, centerY, baseAngle)
+		: null;
+	const initialTargetCenter = initialChainTarget
+		? getLaserTargetCenter(initialChainTarget)
+		: null;
+	const centerAngle = initialTargetCenter
+		? Math.atan2(
+			initialTargetCenter.y - centerY,
+			initialTargetCenter.x - centerX,
+		)
+		: baseAngle + getRandomSpreadOffset(variedStats.spread ?? 0);
 	const coneHalfAngle = bulletCount > 1
 		? getLaserConeHalfAngleFromCount(bulletCount)
 		: 0;
@@ -799,6 +1024,9 @@ export function requestLaserShot(
 		dirY,
 		centerAngle,
 		coneHalfAngle,
+		chain,
+		chainsRemaining: Math.max(0, chain - 1),
+		chainReferenceAngle: baseAngle,
 		telegraphRangeBlocks,
 		stats: variedStats,
 		startedAt: currentTime,

@@ -1,7 +1,7 @@
 export const CONFIG_STORAGE_KEY = "demoGameConfig";
 
 export const Config = {
-    CONFIG_SCHEMA_VERSION: 16,
+    CONFIG_SCHEMA_VERSION: 17,
     PLAYER_SPEED: 0,
     PLAYER_BULLET_SPEED: 0,
     WEAPONS: [],
@@ -322,6 +322,15 @@ function migrateConfig(defaultConfig, savedConfig) {
 
             migratedConfig.ENEMY_TYPES = migratedEnemyTypes;
         }
+    }
+
+    // Schema v17 adds player-projectile chaining. Merge chain=0 into existing
+    // Sandbox weapons so old local saves keep identical projectile behaviour.
+    if (savedVersion < 17 && Array.isArray(defaultConfig.WEAPONS)) {
+        migratedConfig.WEAPONS = defaultConfig.WEAPONS.map(
+            (defaultWeapon, index) =>
+                mergeConfig(defaultWeapon, migratedConfig.WEAPONS?.[index] || {}),
+        );
     }
 
     return migratedConfig;

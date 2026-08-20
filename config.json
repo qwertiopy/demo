@@ -1,5 +1,5 @@
 {
-    "CONFIG_SCHEMA_VERSION": 16,
+    "CONFIG_SCHEMA_VERSION": 17,
     "PLAYER_SPEED": 5,
     "PLAYER_BULLET_SPEED": 10,
     "RENDERING": {
@@ -43,7 +43,8 @@
             "cooldownMs": 100,
             "penetrationBlocks": 0,
             "bulletCollision": false,
-            "bulletCount": 1
+            "bulletCount": 1,
+            "chain": 0
         },
         {
             "speed": 20,
@@ -69,10 +70,11 @@
             "cooldownMs": 500,
             "penetrationBlocks": 0,
             "bulletCollision": false,
-            "bulletCount": 60
+            "bulletCount": 60,
+            "chain": 0
         },
         {
-            "speed": 10,
+            "speed": 20,
             "speedVariation": 0,
             "radiusBlocks": 0.1,
             "radiusVariation": 0,
@@ -95,7 +97,8 @@
             "cooldownMs": 100,
             "penetrationBlocks": 0,
             "bulletCollision": false,
-            "bulletCount": 1
+            "bulletCount": 1,
+            "chain": 0
         },
         {
             "speed": 10,
@@ -121,7 +124,8 @@
             "cooldownMs": 250,
             "penetrationBlocks": 0,
             "bulletCollision": false,
-            "bulletCount": 1
+            "bulletCount": 1,
+            "chain": 0
         },
         {
             "speed": 10,
@@ -147,7 +151,8 @@
             "cooldownMs": 250,
             "penetrationBlocks": 0,
             "bulletCollision": false,
-            "bulletCount": 1
+            "bulletCount": 1,
+            "chain": 0
         },
         {
             "speed": 5,
@@ -173,7 +178,8 @@
             "cooldownMs": 250,
             "penetrationBlocks": 0,
             "bulletCollision": false,
-            "bulletCount": 1
+            "bulletCount": 1,
+            "chain": 0
         },
         {
             "speed": 20,
@@ -199,7 +205,8 @@
             "cooldownMs": 500,
             "penetrationBlocks": 0,
             "bulletCollision": false,
-            "bulletCount": 10
+            "bulletCount": 10,
+            "chain": 0
         },
         {
             "speed": 10,
@@ -225,7 +232,8 @@
             "cooldownMs": 250,
             "penetrationBlocks": 0,
             "bulletCollision": false,
-            "bulletCount": 1
+            "bulletCount": 1,
+            "chain": 0
         },
         {
             "speed": 10,
@@ -251,7 +259,8 @@
             "cooldownMs": 0,
             "penetrationBlocks": 0,
             "bulletCollision": false,
-            "bulletCount": 1
+            "bulletCount": 1,
+            "chain": 1000
         },
         {
             "speed": 15,
@@ -277,7 +286,8 @@
             "cooldownMs": 50,
             "penetrationBlocks": 0,
             "bulletCollision": false,
-            "bulletCount": 1
+            "bulletCount": 1,
+            "chain": 0
         }
     ],
     "STRUCTURE_DENSITY_BLOCKS": 3,

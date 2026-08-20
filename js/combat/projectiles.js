@@ -3,6 +3,7 @@
 import { GameState, player } from "../state.js";
 import { isColliding } from "../utils.js";
 import { detonateBullet } from "./explosions.js";
+import { hasLineOfSight } from "./collision.js";
 import {
 	MIN_THROW_DECELERATION,
 	getProjectileVolleyAngles,
@@ -10,6 +11,7 @@ import {
 	getThrowableBoomerangTravelDistance,
 	getThrowableKinematics,
 	getThrowableTravelDistance,
+	shortestAngleDelta,
 } from "./weapon-utils.js";
 
 // Trails are sampled once per render frame, but projectile wall impacts and
@@ -24,6 +26,99 @@ function pushProjectileTrailEvent(projectile, x = projectile.x, y = projectile.y
 		radius: projectile.radius,
 		color: projectile.color,
 	});
+}
+
+function getTargetCenter(target) {
+	const width = target.width ?? target.size ?? 0;
+	const height = target.height ?? target.size ?? 0;
+
+	return {
+		x: target.x + width / 2,
+		y: target.y + height / 2,
+	};
+}
+
+// Chain targeting is deliberately deterministic once the enemy positions are
+// known. Candidates must be alive, not already hit by this chain, and visible
+// from the projectile origin. Initial acquisition prioritizes the original
+// mouse/aim angle; chained reacquisition prioritizes distance instead.
+export function findProjectileChainTarget(
+	originX,
+	originY,
+	referenceAngle,
+	excludedTargets = new Set(),
+	priority = "angle",
+) {
+	let bestTarget = null;
+	let bestAngleDelta = Infinity;
+	let bestDistance = Infinity;
+	const tieEpsilon = 1e-9;
+
+	for (const target of GameState.enemies) {
+		if (
+			!target ||
+			(Number(target.hp) || 0) <= 0 ||
+			excludedTargets.has(target)
+		) {
+			continue;
+		}
+
+		const center = getTargetCenter(target);
+		if (!hasLineOfSight(originX, originY, center.x, center.y)) continue;
+
+		const dx = center.x - originX;
+		const dy = center.y - originY;
+		const distance = Math.hypot(dx, dy);
+		const targetAngle = Math.atan2(dy, dx);
+		const angleDelta = Math.abs(
+			shortestAngleDelta(referenceAngle, targetAngle),
+		);
+
+		const isBetterTarget = priority === "distance"
+			? (
+				distance < bestDistance - tieEpsilon ||
+				(
+					Math.abs(distance - bestDistance) <= tieEpsilon &&
+					angleDelta < bestAngleDelta
+				)
+			)
+			: (
+				angleDelta < bestAngleDelta - tieEpsilon ||
+				(
+					Math.abs(angleDelta - bestAngleDelta) <= tieEpsilon &&
+					distance < bestDistance
+				)
+			);
+
+		if (isBetterTarget) {
+			bestTarget = target;
+			bestAngleDelta = angleDelta;
+			bestDistance = distance;
+		}
+	}
+
+	return bestTarget;
+}
+
+function getAngleToTarget(originX, originY, target) {
+	const center = getTargetCenter(target);
+	return Math.atan2(center.y - originY, center.x - originX);
+}
+
+function redirectProjectileTowardTarget(projectile, target) {
+	const angle = getAngleToTarget(projectile.x, projectile.y, target);
+	const dirX = Math.cos(angle);
+	const dirY = Math.sin(angle);
+
+	if (projectile.throwable) {
+		projectile.throwDirX = dirX;
+		projectile.throwDirY = dirY;
+		return;
+	}
+
+	const speed = Math.hypot(projectile.vx, projectile.vy);
+	projectile.vx = dirX * speed;
+	projectile.vy = dirY * speed;
 }
 
 // Creates one projectile or a whole configured volley from the shooter's center.
@@ -57,6 +152,15 @@ export function shoot(shooter, targetX, targetY, bulletArray, stats) {
 		? getThrowableKinematics(throwDistanceBlocks, throwDeceleration)
 		: null;
 	const createdAt = performance.now();
+	const chain = bulletArray === GameState.bullets
+		? Math.max(0, Math.floor(Number(stats.chain ?? 0) || 0))
+		: 0;
+	const initialChainTarget = chain > 0
+		? findProjectileChainTarget(centerX, centerY, baseAngle)
+		: null;
+	const chainedLaunchAngle = initialChainTarget
+		? getAngleToTarget(centerX, centerY, initialChainTarget)
+		: null;
 
 	// Preserve the existing 100-player-projectile cap without allowing a volley
 	// to overshoot it. Very large configured volleys are themselves capped at 100.
@@ -67,6 +171,10 @@ export function shoot(shooter, targetX, targetY, bulletArray, stats) {
 	}
 
 	for (const angle of volleyAngles) {
+		// chain>0 overrides spread/volley direction when an eligible target exists:
+		// the projectile aims directly at the enemy closest to the mouse angle.
+		const projectileAngle = chainedLaunchAngle ?? angle;
+
 		// Variation is rolled independently for every projectile in a volley. The
 		// configured variation fields are absolute +/- ranges around each base stat.
 		const speed = throwable
@@ -90,14 +198,18 @@ export function shoot(shooter, targetX, targetY, bulletArray, stats) {
 			x: centerX,
 			y: centerY,
 			radius,
-			vx: Math.cos(angle) * speed,
-			vy: Math.sin(angle) * speed,
+			vx: Math.cos(projectileAngle) * speed,
+			vy: Math.sin(projectileAngle) * speed,
 			color: stats.color ?? "white",
 			damage,
 			bounces: 0,
 			maxBounces: stats.maxBounces ?? 0,
 			throwBounces: 0,
 			hitTargets: new Set(),
+			chain,
+			chainsRemaining: Math.max(0, chain - 1),
+			chainReferenceAngle: baseAngle,
+			chainVisitedTargets: new Set(),
 			createdAt,
 			lifetimeMs: stats.lifetimeMs ?? 60000,
 			explosionRadiusBlocks: stats.explosionRadiusBlocks ?? 0,
@@ -112,8 +224,8 @@ export function shoot(shooter, targetX, targetY, bulletArray, stats) {
 			),
 			finishPenetratedWall: false,
 			throwable,
-			throwDirX: Math.cos(angle),
-			throwDirY: Math.sin(angle),
+			throwDirX: Math.cos(projectileAngle),
+			throwDirY: Math.sin(projectileAngle),
 			throwDistanceBlocks,
 			throwDistanceMultiplier,
 			throwTravelledBlocks: 0,
@@ -771,8 +883,13 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 			}
 
 			// Target damage is independent of wall penetration. Any actual overlap
-			// damages immediately and target contact never consumes penetration.
-			targets.forEach((t) => {
+			// damages immediately and target contact never consumes penetration. A
+			// chain can redirect at most once for this substep even if several target
+			// hitboxes overlap at the same point; every newly hit enemy is still marked
+			// visited so the projectile can never chain back through an earlier target.
+			let chainTriggeredThisStep = false;
+
+			for (const t of targets) {
 				const isTargetCollision = isColliding(mockRect, t);
 
 				if (isTargetCollision) {
@@ -781,11 +898,37 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 							t.hp -= b.damage ?? 1;
 						}
 						b.hitTargets.add(t);
+
+						if (isPlayerBullets && (b.chain ?? 0) > 0) {
+							b.chainVisitedTargets ??= new Set();
+							b.chainVisitedTargets.add(t);
+
+							if (
+								!chainTriggeredThisStep &&
+								(b.chainsRemaining ?? 0) > 0
+							) {
+								chainTriggeredThisStep = true;
+								b.chainsRemaining--;
+
+								const nextTarget = findProjectileChainTarget(
+									b.x,
+									b.y,
+									b.chainReferenceAngle ??
+										Math.atan2(b.vy, b.vx),
+									b.chainVisitedTargets,
+									"distance",
+								);
+
+								if (nextTarget) {
+									redirectProjectileTowardTarget(b, nextTarget);
+								}
+							}
+						}
 					}
 				} else {
 					b.hitTargets.delete(t);
 				}
-			});
+			}
 		}
 
 		if (removeBullet) {
