@@ -48,11 +48,11 @@
         },
         {
             "speed": 20,
-            "speedVariation": 0,
-            "radiusBlocks": 0.01,
-            "radiusVariation": 0,
+            "speedVariation": 5,
+            "radiusBlocks": 0.06,
+            "radiusVariation": 0.04,
             "color": "crimson",
-            "damage": 0.5,
+            "damage": 1,
             "damageVariation": 0,
             "maxBounces": 0,
             "spread": 0.5,
@@ -70,7 +70,7 @@
             "cooldownMs": 500,
             "penetrationBlocks": 0,
             "bulletCollision": false,
-            "bulletCount": 60,
+            "bulletCount": 25,
             "chain": 0
         },
         {
@@ -290,7 +290,7 @@
             "chain": 0
         }
     ],
-    "STRUCTURE_DENSITY_BLOCKS": 3,
+    "STRUCTURE_DENSITY_BLOCKS": 5,
     "ENEMY_TYPES": {
         "g-bot": {
             "sizeBlocks": 0.5,
