@@ -6,6 +6,7 @@ import { detonateBullet } from "./explosions.js";
 import {
 	MIN_THROW_DECELERATION,
 	getProjectileVolleyAngles,
+	getVariedStat,
 	getThrowableBoomerangTravelDistance,
 	getThrowableKinematics,
 	getThrowableTravelDistance,
@@ -39,7 +40,6 @@ export function shoot(shooter, targetX, targetY, bulletArray, stats) {
 		? requestedAngles.slice(0, 100)
 		: requestedAngles;
 	const throwable = stats.throwable === true;
-	const speed = throwable ? 0 : (stats.speed ?? 12);
 	const throwDistanceMultiplier = Math.max(
 		0,
 		Number(stats.throwDistanceMultiplier ?? 1) || 0,
@@ -67,17 +67,33 @@ export function shoot(shooter, targetX, targetY, bulletArray, stats) {
 	}
 
 	for (const angle of volleyAngles) {
+		// Variation is rolled independently for every projectile in a volley. The
+		// configured variation fields are absolute +/- ranges around each base stat.
+		const speed = throwable
+			? 0
+			: getVariedStat(stats.speed ?? 12, stats.speedVariation ?? 0, 0);
+		const radius = getVariedStat(
+			stats.radiusBlocks ?? 0.08,
+			stats.radiusVariation ?? 0,
+			0,
+		);
+		const damage = getVariedStat(
+			stats.damage ?? 1,
+			stats.damageVariation ?? 0,
+			0,
+		);
+
 		// Throwable vx/vy are intentionally zero: their movement is driven by the
 		// closed-form throw-distance equation in processBullets(). throwDirX/Y are
 		// unit direction components and can still be reflected by wall bounces.
 		bulletArray.push({
 			x: centerX,
 			y: centerY,
-			radius: stats.radiusBlocks ?? 0.08,
+			radius,
 			vx: Math.cos(angle) * speed,
 			vy: Math.sin(angle) * speed,
 			color: stats.color ?? "white",
-			damage: stats.damage ?? 1,
+			damage,
 			bounces: 0,
 			maxBounces: stats.maxBounces ?? 0,
 			throwBounces: 0,

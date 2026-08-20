@@ -7,6 +7,7 @@ import {
 	getBulletCount,
 	getLaserConeHalfAngleFromCount,
 	getRandomSpreadOffset,
+	getVariedStat,
 	normalizeSignedAngle,
 	shortestAngleDelta,
 } from "./weapon-utils.js";
@@ -766,13 +767,26 @@ export function requestLaserShot(
 
 	const centerX = shooter.x + shooter.size / 2;
 	const centerY = shooter.y + shooter.size / 2;
-	const bulletCount = getBulletCount(stats);
+	const variedStats = {
+		...stats,
+		radiusBlocks: getVariedStat(
+			stats.radiusBlocks ?? 0.03,
+			stats.radiusVariation ?? 0,
+			0,
+		),
+		damage: getVariedStat(
+			stats.damage ?? 1,
+			stats.damageVariation ?? 0,
+			0,
+		),
+	};
+	const bulletCount = getBulletCount(variedStats);
 	const baseAngle = Math.atan2(targetY - centerY, targetX - centerX);
-	const centerAngle = baseAngle + getRandomSpreadOffset(stats.spread ?? 0);
+	const centerAngle = baseAngle + getRandomSpreadOffset(variedStats.spread ?? 0);
 	const coneHalfAngle = bulletCount > 1
 		? getLaserConeHalfAngleFromCount(bulletCount)
 		: 0;
-	const warmupMs = Math.max(0, Number(stats.laserWarmupMs ?? 0) || 0);
+	const warmupMs = Math.max(0, Number(variedStats.laserWarmupMs ?? 0) || 0);
 	const dirX = Math.cos(centerAngle);
 	const dirY = Math.sin(centerAngle);
 	const telegraphRangeBlocks = coneHalfAngle > 0
@@ -786,7 +800,7 @@ export function requestLaserShot(
 		centerAngle,
 		coneHalfAngle,
 		telegraphRangeBlocks,
-		stats: { ...stats },
+		stats: variedStats,
 		startedAt: currentTime,
 		fireAt: currentTime + warmupMs,
 	};
@@ -794,7 +808,7 @@ export function requestLaserShot(
 	if (warmupMs <= 0) {
 		resolveLaserShot(shot, currentTime);
 		GameState.weaponCooldownUntilByWeapon[index] =
-			currentTime + Math.max(0, Number(stats.cooldownMs ?? 0) || 0);
+			currentTime + Math.max(0, Number(variedStats.cooldownMs ?? 0) || 0);
 		return true;
 	}
 

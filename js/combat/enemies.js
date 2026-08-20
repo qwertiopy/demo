@@ -94,8 +94,11 @@ export function updateEnemies(currentTime, dt) {
 				shoot(e, pCenterX, pCenterY, GameState.enemyBullets, {
 					color: e.typeStats.bulletColor,
 					speed: e.typeStats.bulletSpeed,
+					speedVariation: e.typeStats.bulletSpeedVariation ?? 0,
 					radiusBlocks: e.typeStats.bulletRadiusBlocks,
+					radiusVariation: e.typeStats.bulletRadiusVariation ?? 0,
 					damage: e.typeStats.bulletDamage,
+					damageVariation: e.typeStats.bulletDamageVariation ?? 0,
 					maxBounces: 0,
 					spread: e.typeStats.spread ?? 0,
 					bulletCount: e.typeStats.bulletCount ?? 1,

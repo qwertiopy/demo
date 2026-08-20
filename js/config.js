@@ -1,7 +1,7 @@
 export const CONFIG_STORAGE_KEY = "demoGameConfig";
 
 export const Config = {
-    CONFIG_SCHEMA_VERSION: 15,
+    CONFIG_SCHEMA_VERSION: 16,
     PLAYER_SPEED: 0,
     PLAYER_BULLET_SPEED: 0,
     WEAPONS: [],
@@ -296,6 +296,32 @@ function migrateConfig(defaultConfig, savedConfig) {
         migratedConfig.RENDERING.TRAIL_LENGTH_FRAMES = oldTrailFrames;
         migratedConfig.RENDERING.TRAIL_DETAIL = 60;
         delete migratedConfig.RENDERING.TRAILS_PERCENT;
+    }
+
+
+    // Schema v16 adds absolute +/- variation ranges for bullet speed, radius,
+    // and damage. Merge zero-variation defaults into each player weapon and
+    // enemy type so existing Sandbox saves preserve their prior behaviour.
+    if (savedVersion < 16) {
+        if (Array.isArray(defaultConfig.WEAPONS)) {
+            migratedConfig.WEAPONS = defaultConfig.WEAPONS.map(
+                (defaultWeapon, index) =>
+                    mergeConfig(defaultWeapon, migratedConfig.WEAPONS?.[index] || {}),
+            );
+        }
+
+        if (isPlainObject(defaultConfig.ENEMY_TYPES)) {
+            const migratedEnemyTypes = {};
+
+            for (const [typeName, defaultType] of Object.entries(defaultConfig.ENEMY_TYPES)) {
+                migratedEnemyTypes[typeName] = mergeConfig(
+                    defaultType,
+                    migratedConfig.ENEMY_TYPES?.[typeName] || {},
+                );
+            }
+
+            migratedConfig.ENEMY_TYPES = migratedEnemyTypes;
+        }
     }
 
     return migratedConfig;

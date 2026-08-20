@@ -137,6 +137,18 @@ export function getRandomSpreadOffset(spreadRadians = 0) {
 	return (Math.random() - 0.5) * spread;
 }
 
+// Applies an absolute +/- variation to one configured stat. A variation of 2
+// around a base speed of 10 therefore rolls uniformly from 8 through 12. The
+// minimum clamp prevents randomized projectile properties becoming negative.
+export function getVariedStat(baseValue, variation = 0, minimum = 0) {
+	const base = Number(baseValue) || 0;
+	const amount = Math.max(0, Number(variation) || 0);
+	if (amount === 0) return Math.max(minimum, base);
+
+	const rolled = base + (Math.random() * 2 - 1) * amount;
+	return Math.max(minimum, rolled);
+}
+
 export function getBulletCount(stats) {
 	return Math.max(1, Math.floor(Number(stats?.bulletCount ?? 1) || 1));
 }

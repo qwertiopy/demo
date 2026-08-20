@@ -9,17 +9,23 @@ function cloneConfig(value) {
 
 const VALID_STRUCTURE_FLAGS = new Set([0, 1, 2, 3, 4, 5]);
 
-function normalizeWeaponBulletCount(weapon) {
+function normalizeWeaponOptionalStats(weapon) {
 	if (!isPlainObject(weapon)) return weapon;
 	return {
 		...weapon,
 		bulletCount: weapon.bulletCount === undefined ? 1 : weapon.bulletCount,
+		speedVariation:
+			weapon.speedVariation === undefined ? 0 : weapon.speedVariation,
+		radiusVariation:
+			weapon.radiusVariation === undefined ? 0 : weapon.radiusVariation,
+		damageVariation:
+			weapon.damageVariation === undefined ? 0 : weapon.damageVariation,
 	};
 }
 
-function normalizeWeaponBulletCounts(weapons) {
+function normalizeWeaponOptionalStatsList(weapons) {
 	if (!Array.isArray(weapons)) return weapons;
-	return weapons.map((weapon) => normalizeWeaponBulletCount(weapon));
+	return weapons.map((weapon) => normalizeWeaponOptionalStats(weapon));
 }
 
 function validateStructureLibrary(structures) {
@@ -60,8 +66,11 @@ function validateWeapons(weapons) {
 
 	const numericFields = [
 		"speed",
+		"speedVariation",
 		"radiusBlocks",
+		"radiusVariation",
 		"damage",
+		"damageVariation",
 		"maxBounces",
 		"spread",
 		"lifetimeMs",
@@ -92,6 +101,18 @@ function validateWeapons(weapons) {
 
 		if (weapon.speed < 0) {
 			throw new Error(`Weapon ${index + 1}.speed cannot be negative.`);
+		}
+
+		for (const field of [
+			"speedVariation",
+			"radiusVariation",
+			"damageVariation",
+		]) {
+			if (weapon[field] < 0) {
+				throw new Error(
+					`Weapon ${index + 1}.${field} cannot be negative.`,
+				);
+			}
 		}
 
 		if (weapon.radiusBlocks <= 0) {
@@ -366,6 +387,29 @@ function migrateSavedConfig(savedConfig) {
 		delete migrated.BLOCK_SIZE_PX;
 	}
 
+	// Schema v16 adds zero-default absolute variation ranges. Arrays replace in
+	// mergeConfig(), so merge each existing weapon/type with its new defaults.
+	if (savedVersion < 16) {
+		if (Array.isArray(defaultConfig.WEAPONS)) {
+			migrated.WEAPONS = defaultConfig.WEAPONS.map((defaultWeapon, index) =>
+				mergeConfig(defaultWeapon, migrated.WEAPONS?.[index] || {}),
+			);
+		}
+
+		if (isPlainObject(defaultConfig.ENEMY_TYPES)) {
+			const migratedEnemyTypes = {};
+
+			for (const [typeName, defaultType] of Object.entries(defaultConfig.ENEMY_TYPES)) {
+				migratedEnemyTypes[typeName] = mergeConfig(
+					defaultType,
+					migrated.ENEMY_TYPES?.[typeName] || {},
+				);
+			}
+
+			migrated.ENEMY_TYPES = migratedEnemyTypes;
+		}
+	}
+
 	return migrated;
 }
 
@@ -399,7 +443,7 @@ async function init() {
 			showStatus("config.json defaults loaded. No local save yet.");
 		}
 
-		config.WEAPONS = normalizeWeaponBulletCounts(config.WEAPONS);
+		config.WEAPONS = normalizeWeaponOptionalStatsList(config.WEAPONS);
 		syncConfigToUI();
 	} catch (error) {
 		showStatus("Failed to load config.json: " + error.message, true);
@@ -613,7 +657,7 @@ function readConfigFromUI() {
 	config.STRUCTURE_DENSITY_BLOCKS = structureDensity;
 
 	if (advancedData.WEAPONS !== undefined) {
-		const normalizedWeapons = normalizeWeaponBulletCounts(advancedData.WEAPONS);
+		const normalizedWeapons = normalizeWeaponOptionalStatsList(advancedData.WEAPONS);
 		validateWeapons(normalizedWeapons);
 		config.WEAPONS = normalizedWeapons;
 	}
@@ -675,7 +719,7 @@ function resetConfig() {
 
 	localStorage.removeItem(CONFIG_STORAGE_KEY);
 	config = cloneConfig(defaultConfig);
-	config.WEAPONS = normalizeWeaponBulletCounts(config.WEAPONS);
+	config.WEAPONS = normalizeWeaponOptionalStatsList(config.WEAPONS);
 	syncConfigToUI();
 	showStatus("Local save cleared. Restored config.json defaults.");
 }

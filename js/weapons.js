@@ -5,9 +5,12 @@ import { GameState } from "./state.js";
 
 const FALLBACK_BULLET_STATS = {
     speed: 10,
+    speedVariation: 0,
     radiusBlocks: 0.08,
+    radiusVariation: 0,
     color: "crimson",
     damage: 1,
+    damageVariation: 0,
     maxBounces: 1,
     spread: 0,
     lifetimeMs: 60000,
