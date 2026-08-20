@@ -1,12 +1,26 @@
 // Shared replay-file validation and download helpers.
 
-export const REPLAY_VERSION = 1;
+export const REPLAY_VERSION = 2;
+const SUPPORTED_REPLAY_VERSIONS = new Set([1, REPLAY_VERSION]);
+
+function validateEnvironmentRevision(environment, index) {
+	if (!environment || typeof environment !== "object") {
+		throw new Error(`Replay environment revision ${index} is invalid.`);
+	}
+	if (!Array.isArray(environment.walls) || !Array.isArray(environment.enemySpawns)) {
+		throw new Error(
+			`Replay environment revision ${index} is missing walls/spawn data.`,
+		);
+	}
+}
 
 export function validateReplayData(data) {
 	if (!data || typeof data !== "object") {
 		throw new Error("Replay file must contain a JSON object.");
 	}
-	if (Number(data.replayVersion) !== REPLAY_VERSION) {
+
+	const replayVersion = Number(data.replayVersion);
+	if (!SUPPORTED_REPLAY_VERSIONS.has(replayVersion)) {
 		throw new Error(
 			`Unsupported replay version ${data.replayVersion ?? "unknown"}.`,
 		);
@@ -15,15 +29,55 @@ export function validateReplayData(data) {
 		throw new Error("Replay file contains no frames.");
 	}
 
+	let validEnvironmentRevisions = null;
+	if (replayVersion >= 2) {
+		if (!data.rendering || typeof data.rendering !== "object") {
+			throw new Error("Replay is missing shared rendering settings.");
+		}
+		if (!Array.isArray(data.environments) || data.environments.length === 0) {
+			throw new Error("Replay contains no environment revisions.");
+		}
+
+		validEnvironmentRevisions = new Set();
+		for (const [index, environment] of data.environments.entries()) {
+			validateEnvironmentRevision(environment, index);
+			const revision = Number(environment.revision);
+			if (!Number.isInteger(revision) || revision < 0) {
+				throw new Error(`Replay environment revision ${index} has an invalid id.`);
+			}
+			if (validEnvironmentRevisions.has(revision)) {
+				throw new Error(`Replay environment revision id ${revision} is duplicated.`);
+			}
+			validEnvironmentRevisions.add(revision);
+		}
+	}
+
 	let previousTime = -Infinity;
 	for (const [index, frame] of data.frames.entries()) {
 		const timeMs = Number(frame?.timeMs);
 		if (!Number.isFinite(timeMs) || timeMs < previousTime) {
 			throw new Error(`Replay frame ${index} has an invalid timestamp.`);
 		}
-		if (!frame?.camera || !frame?.player || !frame?.rendering) {
+		if (!frame?.camera || !frame?.player) {
 			throw new Error(`Replay frame ${index} is missing visual snapshot data.`);
 		}
+
+		if (replayVersion === 1) {
+			if (!frame.rendering) {
+				throw new Error(`Replay frame ${index} is missing rendering data.`);
+			}
+		} else {
+			const environmentRevision = Number(frame.environmentRevision);
+			if (
+				!Number.isInteger(environmentRevision) ||
+				!validEnvironmentRevisions.has(environmentRevision)
+			) {
+				throw new Error(
+					`Replay frame ${index} references an invalid environment revision.`,
+				);
+			}
+		}
+
 		previousTime = timeMs;
 	}
 

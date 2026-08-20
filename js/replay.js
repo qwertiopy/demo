@@ -15,6 +15,7 @@ import { saveActiveReplay } from "./replay-store.js";
 // Stable IDs let consecutive visual snapshots identify the same moving object.
 // This is used by trail interpolation and is also serialized into replay files.
 const renderIds = new WeakMap();
+const replayEnvironmentMaps = new WeakMap();
 let nextRenderId = 1;
 
 function getRenderId(object, prefix) {
@@ -31,6 +32,10 @@ const ReplayRuntime = {
 	recording: false,
 	recordingStartedAt: null,
 	recordedFrames: [],
+	recordedRendering: null,
+	recordedEnvironments: [],
+	lastRecordedEnvironmentStateRevision: null,
+	currentRecordedEnvironmentRevision: -1,
 	loadedReplay: null,
 	playbackActive: false,
 	playbackPlaying: false,
@@ -40,6 +45,9 @@ const ReplayRuntime = {
 	playbackSpeed: 1,
 	trailHistory: [],
 	liveTrailSequence: 0,
+	playbackHydratedReplay: null,
+	playbackHydratedFrameIndex: -1,
+	playbackHydratedSnapshot: null,
 };
 
 function clonePlain(value) {
@@ -87,8 +95,9 @@ function renderingSnapshot() {
 	};
 }
 
-// Captures only render-relevant, JSON-safe data. The same representation feeds
-// normal drawing, trail history, and replay playback.
+// Captures render-relevant data for the current frame. Environment arrays are
+// referenced directly for live drawing; trail history strips them, and replay
+// recording clones them only when GameState.environmentRevision changes.
 export function captureVisualSnapshot(currentTime) {
 	const rendering = renderingSnapshot();
 
@@ -103,19 +112,8 @@ export function captureVisualSnapshot(currentTime) {
 		showEditorHelpers: GameState.showEditorHelpers,
 		activeWeaponIndex: GameState.activeWeaponIndex,
 		maxDistance: GameState.MaxDistance,
-		walls: GameState.walls.map((wall) => ({
-			x: wall.x,
-			y: wall.y,
-			width: wall.width,
-			height: wall.height,
-			color: wall.color,
-		})),
-		enemySpawns: GameState.enemySpawns.map((spawn) => ({
-			x: spawn.x,
-			y: spawn.y,
-			size: spawn.size,
-			type: spawn.type,
-		})),
+		walls: GameState.walls,
+		enemySpawns: GameState.enemySpawns,
 		player: {
 			renderId: "player",
 			x: player.x,
@@ -370,6 +368,94 @@ export function getLiveTrailEntries(
 	return entries.length >= 2 ? entries : [];
 }
 
+function cloneEnvironmentSnapshot(snapshot, revision) {
+	return {
+		revision,
+		walls: (snapshot.walls || []).map((wall) => ({
+			x: wall.x,
+			y: wall.y,
+			width: wall.width,
+			height: wall.height,
+			color: wall.color,
+		})),
+		enemySpawns: (snapshot.enemySpawns || []).map((spawn) => ({
+			x: spawn.x,
+			y: spawn.y,
+			size: spawn.size,
+			type: spawn.type,
+		})),
+	};
+}
+
+function ensureRecordedEnvironment(snapshot) {
+	const stateRevision = Number(GameState.environmentRevision) || 0;
+
+	if (
+		ReplayRuntime.recordedEnvironments.length === 0 ||
+		ReplayRuntime.lastRecordedEnvironmentStateRevision !== stateRevision
+	) {
+		const revision = ReplayRuntime.recordedEnvironments.length;
+		ReplayRuntime.recordedEnvironments.push(
+			cloneEnvironmentSnapshot(snapshot, revision),
+		);
+		ReplayRuntime.lastRecordedEnvironmentStateRevision = stateRevision;
+		ReplayRuntime.currentRecordedEnvironmentRevision = revision;
+	}
+
+	return ReplayRuntime.currentRecordedEnvironmentRevision;
+}
+
+function environmentMapForReplay(replay) {
+	if (Number(replay?.replayVersion) < 2) return null;
+
+	let environmentMap = replayEnvironmentMaps.get(replay);
+	if (!environmentMap) {
+		environmentMap = new Map(
+			(replay.environments || []).map((environment) => [
+				Number(environment.revision),
+				environment,
+			]),
+		);
+		replayEnvironmentMaps.set(replay, environmentMap);
+	}
+
+	return environmentMap;
+}
+
+function hydrateReplayFrame(replay, frame, frameIndex) {
+	if (!replay || !frame) return null;
+	if (Number(replay.replayVersion) < 2) return frame;
+
+	if (
+		ReplayRuntime.playbackHydratedReplay === replay &&
+		ReplayRuntime.playbackHydratedFrameIndex === frameIndex &&
+		ReplayRuntime.playbackHydratedSnapshot
+	) {
+		return ReplayRuntime.playbackHydratedSnapshot;
+	}
+
+	const environment = environmentMapForReplay(replay)?.get(
+		Number(frame.environmentRevision),
+	);
+	const snapshot = {
+		...frame,
+		rendering: replay.rendering,
+		walls: environment?.walls || [],
+		enemySpawns: environment?.enemySpawns || [],
+	};
+
+	ReplayRuntime.playbackHydratedReplay = replay;
+	ReplayRuntime.playbackHydratedFrameIndex = frameIndex;
+	ReplayRuntime.playbackHydratedSnapshot = snapshot;
+	return snapshot;
+}
+
+function clearHydratedReplayFrame() {
+	ReplayRuntime.playbackHydratedReplay = null;
+	ReplayRuntime.playbackHydratedFrameIndex = -1;
+	ReplayRuntime.playbackHydratedSnapshot = null;
+}
+
 function setReplayStatus(message) {
 	if (replayStatus) replayStatus.textContent = message;
 }
@@ -398,6 +484,10 @@ export function startReplayRecording() {
 	ReplayRuntime.recording = true;
 	ReplayRuntime.recordingStartedAt = null;
 	ReplayRuntime.recordedFrames = [];
+	ReplayRuntime.recordedRendering = null;
+	ReplayRuntime.recordedEnvironments = [];
+	ReplayRuntime.lastRecordedEnvironmentStateRevision = null;
+	ReplayRuntime.currentRecordedEnvironmentRevision = -1;
 	setReplayStatus("Recording replay... 0 frames");
 	syncReplayButtons();
 	return true;
@@ -411,10 +501,23 @@ export function recordReplaySnapshot(snapshot, currentTime) {
 	}
 
 	const timeMs = Math.max(0, currentTime - ReplayRuntime.recordingStartedAt);
+	if (!ReplayRuntime.recordedRendering) {
+		ReplayRuntime.recordedRendering = clonePlain(snapshot.rendering);
+	}
+
+	const environmentRevision = ensureRecordedEnvironment(snapshot);
+	const {
+		rendering: _rendering,
+		walls: _walls,
+		enemySpawns: _enemySpawns,
+		...dynamicSnapshot
+	} = snapshot;
+
 	ReplayRuntime.recordedFrames.push({
-		...snapshot,
+		...dynamicSnapshot,
 		frame: ReplayRuntime.recordedFrames.length,
 		timeMs,
+		environmentRevision,
 	});
 
 	if (ReplayRuntime.recordedFrames.length % 30 === 0) {
@@ -441,6 +544,8 @@ export async function stopReplayRecording() {
 		levelSeed: GameState.levelSeed,
 		gameModeId: GameState.gameModeId,
 		config: clonePlain(Config),
+		rendering: ReplayRuntime.recordedRendering,
+		environments: ReplayRuntime.recordedEnvironments,
 		frames: ReplayRuntime.recordedFrames,
 	};
 
@@ -450,7 +555,7 @@ export async function stopReplayRecording() {
 	try {
 		await saveActiveReplay(replay);
 		setReplayStatus(
-			`Recording stopped: ${replay.frames.length} frames. Replay is ready in Main Menu > Replays.`,
+			`Recording stopped: ${replay.frames.length} frames, ${replay.environments.length} environment revisions. Replay is ready in Main Menu > Replays.`,
 		);
 	} catch (error) {
 		console.error("Could not store recorded replay:", error);
@@ -469,6 +574,7 @@ export function loadReplayData(replay) {
 	ReplayRuntime.loadedReplay = replay;
 	ReplayRuntime.playbackFrameIndex = 0;
 	ReplayRuntime.playbackBaseTimeMs = 0;
+	clearHydratedReplayFrame();
 	setReplayStatus(`Loaded replay: ${replay.frames.length} frames.`);
 	syncReplayButtons();
 	return replay;
@@ -556,6 +662,7 @@ export function stopReplayPlayback() {
 	ReplayRuntime.playbackBaseTimeMs = 0;
 	GameState.pressedInputs.clear();
 	clearTrailHistory();
+	clearHydratedReplayFrame();
 	setReplayStatus("Replay stopped.");
 	syncReplayButtons();
 	return true;
@@ -637,6 +744,7 @@ export function seekReplayPlayback(targetTimeMs, currentTime = performance.now()
 	}
 
 	clearTrailHistory();
+	clearHydratedReplayFrame();
 	syncReplayButtons();
 	return true;
 }
@@ -677,7 +785,11 @@ export function getReplaySnapshotForRender(currentTime) {
 		syncReplayButtons();
 	}
 
-	return frames[ReplayRuntime.playbackFrameIndex];
+	return hydrateReplayFrame(
+		ReplayRuntime.loadedReplay,
+		frames[ReplayRuntime.playbackFrameIndex],
+		ReplayRuntime.playbackFrameIndex,
+	);
 }
 
 // Replay trails are taken straight from already-recorded preceding snapshots,

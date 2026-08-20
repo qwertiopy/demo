@@ -30,10 +30,19 @@ export const GameState = {
 	uiMode: "none",
 	gameModeId: "sandbox",
 	showEditorHelpers: false,
+	environmentRevision: 0,
 	isInvincible: false,
 	MaxDistance: -1,
 	isPlayerDead: false,
 };
+
+// Increments whenever render-relevant world geometry/spawn metadata changes.
+// Replay recording uses this cheap revision marker so static environment data
+// is only serialized when it actually changes.
+export function markEnvironmentChanged() {
+	GameState.environmentRevision += 1;
+	return GameState.environmentRevision;
+}
 
 // Mutable player entity containing position, movement properties, appearance, and health.
 export const player = {

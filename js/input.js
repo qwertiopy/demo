@@ -1,7 +1,7 @@
 // Keyboard/mouse input, hotkey action dispatch, aiming, and level/UI controls.
 
 import { Config } from "./config.js";
-import { GameState, player, camera } from "./state.js";
+import { GameState, player, camera, markEnvironmentChanged } from "./state.js";
 import { markWallIndexDirty } from "./spatial/wall-index.js";
 import { canvas, debugUI, respawnBtn } from "./dom.js";
 import { readLaunchOptions } from "./launch-options.js";
@@ -91,6 +91,7 @@ export function loadLevel(levelDefinition = null) {
 		}
 
 		markWallIndexDirty();
+		markEnvironmentChanged();
 		window.focus();
 	} catch (error) {
 		console.error("Could not load level definition:", error);

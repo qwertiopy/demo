@@ -1,7 +1,7 @@
 // Procedural structure generation and cleanup.
 
 import { Config } from "./config.js";
-import { GameState } from "./state.js";
+import { GameState, markEnvironmentChanged } from "./state.js";
 import { markWallIndexDirty } from "./spatial/wall-index.js";
 import { seededRandom } from "./utils.js";
 
@@ -33,6 +33,7 @@ export function spawnWall(
 		color,
 	});
 	markWallIndexDirty();
+	markEnvironmentChanged();
 }
 
 // Uses the seeded RNG to select one of the three enemy types
@@ -67,6 +68,7 @@ export function spawnEnemyPointFromCell(cellX, cellY, type) {
 		type: resolvedType,
 		size,
 	});
+	markEnvironmentChanged();
 }
 
 // Generates the corridor, walls, and structures around the player's X position and records generated columns so they are not regenerated repeatedly.
@@ -169,6 +171,7 @@ export function cleanupProceduralGeneration(playerX) {
 	if (retainedWalls.length !== GameState.walls.length) {
 		GameState.walls = retainedWalls;
 		markWallIndexDirty();
+		markEnvironmentChanged();
 	}
 
 	GameState.placedStructures = GameState.placedStructures.filter(
@@ -194,7 +197,11 @@ export function cleanupProceduralGeneration(playerX) {
 		bulletIsInsideRenderWindow,
 	);
 
-	GameState.enemySpawns = GameState.enemySpawns.filter((s) => s.x >= startX);
+	const retainedEnemySpawns = GameState.enemySpawns.filter((s) => s.x >= startX);
+	if (retainedEnemySpawns.length !== GameState.enemySpawns.length) {
+		GameState.enemySpawns = retainedEnemySpawns;
+		markEnvironmentChanged();
+	}
 
 	const unloadedColumns = Array.from(GameState.generatedColumns).filter(
 		(col) => col < startX || col > endX,

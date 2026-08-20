@@ -175,7 +175,7 @@ async function initReplayPlayer() {
 		}
 		Config.RENDERING = {
 			...(Config.RENDERING || {}),
-			...(replay.frames[0]?.rendering || {}),
+			...(replay.rendering || replay.frames[0]?.rendering || {}),
 		};
 
 		loadReplayData(replay);
