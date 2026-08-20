@@ -818,7 +818,9 @@ function resolveChainedLaserBeamShot(shot, currentTime) {
 		if (!wallStop.impactedWall) break;
 
 		if (bounces < maxBounces) {
-			createLaserExplosionAt(endX, endY, stats, currentTime);
+			if (stats.detonatesOnImpact) {
+				createLaserExplosionAt(endX, endY, stats, currentTime);
+			}
 
 			const dot = dirX * wallStop.normalX + dirY * wallStop.normalY;
 			dirX -= 2 * dot * wallStop.normalX;
@@ -916,9 +918,11 @@ function resolveLaserBeamShot(shot, currentTime) {
 		if (!wallStop.impactedWall) break;
 
 		if (bounces < maxBounces) {
-			// Every successful bounce of an explosive weapon creates its explosion
-			// without consuming/removing the laser shot.
-			createLaserExplosionAt(endX, endY, stats, currentTime);
+			// Match projectile bounce semantics: explosive bounces only detonate
+			// when the weapon explicitly opts into impact detonation.
+			if (stats.detonatesOnImpact) {
+				createLaserExplosionAt(endX, endY, stats, currentTime);
+			}
 
 			const dot = dirX * wallStop.normalX + dirY * wallStop.normalY;
 			dirX -= 2 * dot * wallStop.normalX;
