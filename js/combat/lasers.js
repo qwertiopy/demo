@@ -3,7 +3,7 @@
 import { Config } from "../config.js";
 import { GameState } from "../state.js";
 import { detonateBullet } from "./explosions.js";
-import { findProjectileChainTarget } from "./projectiles.js";
+import { findChainTarget, getAngleToTarget } from "./targeting.js";
 import {
 	getBulletCount,
 	getLaserConeHalfAngleFromCount,
@@ -632,15 +632,6 @@ function resolveLaserConeShot(shot, currentTime) {
 	});
 }
 
-function getLaserTargetCenter(target) {
-	const width = target.width ?? target.size ?? 0;
-	const height = target.height ?? target.size ?? 0;
-	return {
-		x: target.x + width / 2,
-		y: target.y + height / 2,
-	};
-}
-
 function pushLaserBeamSegment(x1, y1, x2, y2, stats, radius, currentTime) {
 	GameState.laserBeams.push({
 		type: "beam",
@@ -701,7 +692,7 @@ function findNearestLaserTargetHit(
 // resolves the whole path immediately because lasers are hitscan. Every enemy
 // contact ends the current rendered segment. If another chain redirect remains,
 // the next segment aims at the best visible, unvisited enemy using the original
-// mouse angle as the reference; otherwise the beam continues straight.
+// mouse angle as the tie-break reference; otherwise the beam continues straight.
 function resolveChainedLaserBeamShot(shot, currentTime) {
 	const shooter = shot.shooter;
 	let originX = shooter.x + shooter.size / 2;
@@ -792,7 +783,7 @@ function resolveChainedLaserBeamShot(shot, currentTime) {
 			let nextTarget = null;
 			if (chainsRemaining > 0) {
 				chainsRemaining--;
-				nextTarget = findProjectileChainTarget(
+				nextTarget = findChainTarget(
 					endX,
 					endY,
 					shot.chainReferenceAngle ?? Math.atan2(dirY, dirX),
@@ -802,12 +793,9 @@ function resolveChainedLaserBeamShot(shot, currentTime) {
 			}
 
 			if (nextTarget) {
-				const center = getLaserTargetCenter(nextTarget);
-				const dx = center.x - endX;
-				const dy = center.y - endY;
-				const magnitude = Math.hypot(dx, dy) || 1;
-				dirX = dx / magnitude;
-				dirY = dy / magnitude;
+				const nextAngle = getAngleToTarget(endX, endY, nextTarget);
+				dirX = Math.cos(nextAngle);
+				dirY = Math.sin(nextAngle);
 			}
 
 			originX = endX + dirX * RAY_EPSILON;
@@ -1001,16 +989,10 @@ export function requestLaserShot(
 		? Math.max(0, Math.floor(Number(variedStats.chain ?? 0) || 0))
 		: 0;
 	const initialChainTarget = chain > 0
-		? findProjectileChainTarget(centerX, centerY, baseAngle)
+		? findChainTarget(centerX, centerY, baseAngle)
 		: null;
-	const initialTargetCenter = initialChainTarget
-		? getLaserTargetCenter(initialChainTarget)
-		: null;
-	const centerAngle = initialTargetCenter
-		? Math.atan2(
-			initialTargetCenter.y - centerY,
-			initialTargetCenter.x - centerX,
-		)
+	const centerAngle = initialChainTarget
+		? getAngleToTarget(centerX, centerY, initialChainTarget)
 		: baseAngle + getRandomSpreadOffset(variedStats.spread ?? 0);
 	const coneHalfAngle = bulletCount > 1
 		? getLaserConeHalfAngleFromCount(bulletCount)
