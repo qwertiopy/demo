@@ -2,6 +2,10 @@
 
 import { Config } from "../config.js";
 import { GameState } from "../state.js";
+import {
+	getWallIndexBounds,
+	queryWallsAlongRayDda,
+} from "../spatial/wall-index.js";
 import { detonateBullet } from "./explosions.js";
 import { findChainTarget, getAngleToTarget } from "./targeting.js";
 import {
@@ -22,7 +26,6 @@ export const DEFAULT_LASER_CALCULATION_BUDGET_PER_FRAME = 100000;
 let laserCalculationBudgetRemaining = DEFAULT_LASER_CALCULATION_BUDGET_PER_FRAME;
 let laserLoadedWorldBoundsCached = false;
 let cachedLaserLoadedWorldBounds = null;
-let laserLoadedWorldBoundsTruncated = false;
 
 export function getLaserCalculationBudgetPerFrame() {
 	return Math.max(
@@ -40,7 +43,6 @@ export function resetLaserCalculationBudget() {
 	laserCalculationBudgetRemaining = getLaserCalculationBudgetPerFrame();
 	laserLoadedWorldBoundsCached = false;
 	cachedLaserLoadedWorldBounds = null;
-	laserLoadedWorldBoundsTruncated = false;
 }
 
 export function getLaserCalculationBudgetRemaining() {
@@ -58,39 +60,7 @@ function getLaserLoadedWorldBounds() {
 	if (laserLoadedWorldBoundsCached) return cachedLaserLoadedWorldBounds;
 
 	laserLoadedWorldBoundsCached = true;
-	laserLoadedWorldBoundsTruncated = false;
-
-	if (GameState.walls.length > 0) {
-		let minX = Infinity;
-		let minY = Infinity;
-		let maxX = -Infinity;
-		let maxY = -Infinity;
-
-		for (const wall of GameState.walls) {
-			if (!consumeLaserCalculationBudget()) {
-				laserLoadedWorldBoundsTruncated = true;
-				cachedLaserLoadedWorldBounds = null;
-				return null;
-			}
-
-			const width = wall.width ?? wall.size ?? 0;
-			const height = wall.height ?? wall.size ?? 0;
-			minX = Math.min(minX, wall.x);
-			minY = Math.min(minY, wall.y);
-			maxX = Math.max(maxX, wall.x + width);
-			maxY = Math.max(maxY, wall.y + height);
-		}
-
-		if (Number.isFinite(minX) && Number.isFinite(maxX)) {
-			cachedLaserLoadedWorldBounds = {
-				x: minX,
-				y: minY,
-				width: maxX - minX,
-				height: maxY - minY,
-			};
-		}
-	}
-
+	cachedLaserLoadedWorldBounds = getWallIndexBounds();
 	return cachedLaserLoadedWorldBounds;
 }
 
@@ -106,11 +76,7 @@ function getLaserFallbackLoadedRangeBlocks() {
 
 function getLaserLoadedRangeBlocks(originX, originY, dirX, dirY) {
 	const bounds = getLaserLoadedWorldBounds();
-	if (!bounds) {
-		return laserLoadedWorldBoundsTruncated
-			? 0
-			: getLaserFallbackLoadedRangeBlocks();
-	}
+	if (!bounds) return getLaserFallbackLoadedRangeBlocks();
 
 	const hit = rayRectIntersection(originX, originY, dirX, dirY, bounds, 0);
 	if (!hit) return 0;
@@ -119,11 +85,7 @@ function getLaserLoadedRangeBlocks(originX, originY, dirX, dirY) {
 
 function getLaserLoadedWorldRadiusBlocks(originX, originY) {
 	const bounds = getLaserLoadedWorldBounds();
-	if (!bounds) {
-		return laserLoadedWorldBoundsTruncated
-			? 0
-			: getLaserFallbackLoadedRangeBlocks();
-	}
+	if (!bounds) return getLaserFallbackLoadedRangeBlocks();
 
 	const corners = [
 		{ x: bounds.x, y: bounds.y },
@@ -210,6 +172,25 @@ export function rayRectIntersection(
 	};
 }
 
+function queryLaserWallsAlongRay(
+	originX,
+	originY,
+	dirX,
+	dirY,
+	maxRangeBlocks,
+	radius = 0,
+) {
+	return queryWallsAlongRayDda(
+		originX,
+		originY,
+		dirX,
+		dirY,
+		maxRangeBlocks,
+		radius,
+		() => consumeLaserCalculationBudget(),
+	);
+}
+
 // Finds the next laser wall action along one ray segment while consuming one
 // cumulative penetration budget. A bouncy laser that spends its last
 // penetration inside a wall finishes that wall and only bounces on the next
@@ -232,8 +213,27 @@ export function getLaserWallStopWithPenetrationBudget(
 		? getLaserLoadedRangeBlocks(originX, originY, dirX, dirY)
 		: Math.max(0, Number(maxRangeBlocks) || 0);
 	const wallIntervals = [];
+	const rayWalls = queryLaserWallsAlongRay(
+		originX,
+		originY,
+		dirX,
+		dirY,
+		maxRange,
+		radius,
+	);
 
-	for (const wall of GameState.walls) {
+	if (rayWalls.truncated) {
+		return {
+			distance: 0,
+			impactedWall: false,
+			remainingPenetrationBlocks,
+			normalX: 0,
+			normalY: 0,
+			truncated: true,
+		};
+	}
+
+	for (const wall of rayWalls.walls) {
 		if (!consumeLaserCalculationBudget()) {
 			return {
 				distance: 0,
@@ -341,8 +341,20 @@ function createLaserExplosionAt(x, y, stats, currentTime) {
 // penetration remain available for singular beams and are ignored for cones.
 function getLaserConeWallStop(originX, originY, dirX, dirY, maxRangeBlocks) {
 	let closestDistance = Math.max(0, Number(maxRangeBlocks) || 0);
+	const rayWalls = queryLaserWallsAlongRay(
+		originX,
+		originY,
+		dirX,
+		dirY,
+		closestDistance,
+		0,
+	);
 
-	for (const wall of GameState.walls) {
+	if (rayWalls.truncated) {
+		return { distance: 0, truncated: true };
+	}
+
+	for (const wall of rayWalls.walls) {
 		if (!consumeLaserCalculationBudget()) {
 			return { distance: 0, truncated: true };
 		}

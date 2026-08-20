@@ -1,0 +1,397 @@
+[1mdiff --git a/js/combat/lasers.js b/js/combat/lasers.js[m
+[1mindex e49ea3d..787be81 100644[m
+[1m--- a/js/combat/lasers.js[m
+[1m+++ b/js/combat/lasers.js[m
+[36m@@ -2,6 +2,10 @@[m
+ [m
+ import { Config } from "../config.js";[m
+ import { GameState } from "../state.js";[m
+[32m+[m[32mimport {[m
+[32m+[m	[32mgetWallIndexBounds,[m
+[32m+[m	[32mqueryWallsAlongRayDda,[m
+[32m+[m[32m} from "../spatial/wall-index.js";[m
+ import { detonateBullet } from "./explosions.js";[m
+ import { findChainTarget, getAngleToTarget } from "./targeting.js";[m
+ import {[m
+[36m@@ -22,7 +26,6 @@[m [mexport const DEFAULT_LASER_CALCULATION_BUDGET_PER_FRAME = 100000;[m
+ let laserCalculationBudgetRemaining = DEFAULT_LASER_CALCULATION_BUDGET_PER_FRAME;[m
+ let laserLoadedWorldBoundsCached = false;[m
+ let cachedLaserLoadedWorldBounds = null;[m
+[31m-let laserLoadedWorldBoundsTruncated = false;[m
+ [m
+ export function getLaserCalculationBudgetPerFrame() {[m
+ 	return Math.max([m
+[36m@@ -40,7 +43,6 @@[m [mexport function resetLaserCalculationBudget() {[m
+ 	laserCalculationBudgetRemaining = getLaserCalculationBudgetPerFrame();[m
+ 	laserLoadedWorldBoundsCached = false;[m
+ 	cachedLaserLoadedWorldBounds = null;[m
+[31m-	laserLoadedWorldBoundsTruncated = false;[m
+ }[m
+ [m
+ export function getLaserCalculationBudgetRemaining() {[m
+[36m@@ -58,39 +60,7 @@[m [mfunction getLaserLoadedWorldBounds() {[m
+ 	if (laserLoadedWorldBoundsCached) return cachedLaserLoadedWorldBounds;[m
+ [m
+ 	laserLoadedWorldBoundsCached = true;[m
+[31m-	laserLoadedWorldBoundsTruncated = false;[m
+[31m-[m
+[31m-	if (GameState.walls.length > 0) {[m
+[31m-		let minX = Infinity;[m
+[31m-		let minY = Infinity;[m
+[31m-		let maxX = -Infinity;[m
+[31m-		let maxY = -Infinity;[m
+[31m-[m
+[31m-		for (const wall of GameState.walls) {[m
+[31m-			if (!consumeLaserCalculationBudget()) {[m
+[31m-				laserLoadedWorldBoundsTruncated = true;[m
+[31m-				cachedLaserLoadedWorldBounds = null;[m
+[31m-				return null;[m
+[31m-			}[m
+[31m-[m
+[31m-			const width = wall.width ?? wall.size ?? 0;[m
+[31m-			const height = wall.height ?? wall.size ?? 0;[m
+[31m-			minX = Math.min(minX, wall.x);[m
+[31m-			minY = Math.min(minY, wall.y);[m
+[31m-			maxX = Math.max(maxX, wall.x + width);[m
+[31m-			maxY = Math.max(maxY, wall.y + height);[m
+[31m-		}[m
+[31m-[m
+[31m-		if (Number.isFinite(minX) && Number.isFinite(maxX)) {[m
+[31m-			cachedLaserLoadedWorldBounds = {[m
+[31m-				x: minX,[m
+[31m-				y: minY,[m
+[31m-				width: maxX - minX,[m
+[31m-				height: maxY - minY,[m
+[31m-			};[m
+[31m-		}[m
+[31m-	}[m
+[31m-[m
+[32m+[m	[32mcachedLaserLoadedWorldBounds = getWallIndexBounds();[m
+ 	return cachedLaserLoadedWorldBounds;[m
+ }[m
+ [m
+[36m@@ -106,11 +76,7 @@[m [mfunction getLaserFallbackLoadedRangeBlocks() {[m
+ [m
+ function getLaserLoadedRangeBlocks(originX, originY, dirX, dirY) {[m
+ 	const bounds = getLaserLoadedWorldBounds();[m
+[31m-	if (!bounds) {[m
+[31m-		return laserLoadedWorldBoundsTruncated[m
+[31m-			? 0[m
+[31m-			: getLaserFallbackLoadedRangeBlocks();[m
+[31m-	}[m
+[32m+[m	[32mif (!bounds) return getLaserFallbackLoadedRangeBlocks();[m
+ [m
+ 	const hit = rayRectIntersection(originX, originY, dirX, dirY, bounds, 0);[m
+ 	if (!hit) return 0;[m
+[36m@@ -119,11 +85,7 @@[m [mfunction getLaserLoadedRangeBlocks(originX, originY, dirX, dirY) {[m
+ [m
+ function getLaserLoadedWorldRadiusBlocks(originX, originY) {[m
+ 	const bounds = getLaserLoadedWorldBounds();[m
+[31m-	if (!bounds) {[m
+[31m-		return laserLoadedWorldBoundsTruncated[m
+[31m-			? 0[m
+[31m-			: getLaserFallbackLoadedRangeBlocks();[m
+[31m-	}[m
+[32m+[m	[32mif (!bounds) return getLaserFallbackLoadedRangeBlocks();[m
+ [m
+ 	const corners = [[m
+ 		{ x: bounds.x, y: bounds.y },[m
+[36m@@ -210,6 +172,25 @@[m [mexport function rayRectIntersection([m
+ 	};[m
+ }[m
+ [m
+[32m+[m[32mfunction queryLaserWallsAlongRay([m
+[32m+[m	[32moriginX,[m
+[32m+[m	[32moriginY,[m
+[32m+[m	[32mdirX,[m
+[32m+[m	[32mdirY,[m
+[32m+[m	[32mmaxRangeBlocks,[m
+[32m+[m	[32mradius = 0,[m
+[32m+[m[32m) {[m
+[32m+[m	[32mreturn queryWallsAlongRayDda([m
+[32m+[m		[32moriginX,[m
+[32m+[m		[32moriginY,[m
+[32m+[m		[32mdirX,[m
+[32m+[m		[32mdirY,[m
+[32m+[m		[32mmaxRangeBlocks,[m
+[32m+[m		[32mradius,[m
+[32m+[m		[32m() => consumeLaserCalculationBudget(),[m
+[32m+[m	[32m);[m
+[32m+[m[32m}[m
+[32m+[m
+ // Finds the next laser wall action along one ray segment while consuming one[m
+ // cumulative penetration budget. A bouncy laser that spends its last[m
+ // penetration inside a wall finishes that wall and only bounces on the next[m
+[36m@@ -232,8 +213,27 @@[m [mexport function getLaserWallStopWithPenetrationBudget([m
+ 		? getLaserLoadedRangeBlocks(originX, originY, dirX, dirY)[m
+ 		: Math.max(0, Number(maxRangeBlocks) || 0);[m
+ 	const wallIntervals = [];[m
+[32m+[m	[32mconst rayWalls = queryLaserWallsAlongRay([m
+[32m+[m		[32moriginX,[m
+[32m+[m		[32moriginY,[m
+[32m+[m		[32mdirX,[m
+[32m+[m		[32mdirY,[m
+[32m+[m		[32mmaxRange,[m
+[32m+[m		[32mradius,[m
+[32m+[m	[32m);[m
+ [m
+[31m-	for (const wall of GameState.walls) {[m
+[32m+[m	[32mif (rayWalls.truncated) {[m
+[32m+[m		[32mreturn {[m
+[32m+[m			[32mdistance: 0,[m
+[32m+[m			[32mimpactedWall: false,[m
+[32m+[m			[32mremainingPenetrationBlocks,[m
+[32m+[m			[32mnormalX: 0,[m
+[32m+[m			[32mnormalY: 0,[m
+[32m+[m			[32mtruncated: true,[m
+[32m+[m		[32m};[m
+[32m+[m	[32m}[m
+[32m+[m
+[32m+[m	[32mfor (const wall of rayWalls.walls) {[m
+ 		if (!consumeLaserCalculationBudget()) {[m
+ 			return {[m
+ 				distance: 0,[m
+[36m@@ -341,8 +341,20 @@[m [mfunction createLaserExplosionAt(x, y, stats, currentTime) {[m
+ // penetration remain available for singular beams and are ignored for cones.[m
+ function getLaserConeWallStop(originX, originY, dirX, dirY, maxRangeBlocks) {[m
+ 	let closestDistance = Math.max(0, Number(maxRangeBlocks) || 0);[m
+[32m+[m	[32mconst rayWalls = queryLaserWallsAlongRay([m
+[32m+[m		[32moriginX,[m
+[32m+[m		[32moriginY,[m
+[32m+[m		[32mdirX,[m
+[32m+[m		[32mdirY,[m
+[32m+[m		[32mclosestDistance,[m
+[32m+[m		[32m0,[m
+[32m+[m	[32m);[m
+ [m
+[31m-	for (const wall of GameState.walls) {[m
+[32m+[m	[32mif (rayWalls.truncated) {[m
+[32m+[m		[32mreturn { distance: 0, truncated: true };[m
+[32m+[m	[32m}[m
+[32m+[m
+[32m+[m	[32mfor (const wall of rayWalls.walls) {[m
+ 		if (!consumeLaserCalculationBudget()) {[m
+ 			return { distance: 0, truncated: true };[m
+ 		}[m
+[1mdiff --git a/js/spatial/wall-index.js b/js/spatial/wall-index.js[m
+[1mindex 97b8458..f44bd47 100644[m
+[1m--- a/js/spatial/wall-index.js[m
+[1m+++ b/js/spatial/wall-index.js[m
+[36m@@ -13,6 +13,7 @@[m [mlet indexedWallsRef = null;[m
+ let indexedWallCount = -1;[m
+ let columns = new Map();[m
+ let wallOrder = new Map();[m
+[32m+[m[32mlet indexedBounds = null;[m
+ [m
+ function getWallBounds(wall) {[m
+ 	const width = Number(wall?.width ?? wall?.size ?? 0) || 0;[m
+[36m@@ -48,6 +49,11 @@[m [mfunction getIndexedCellRange(minValue, maxValue) {[m
+ function rebuildWallIndex() {[m
+ 	columns = new Map();[m
+ 	wallOrder = new Map();[m
+[32m+[m	[32mindexedBounds = null;[m
+[32m+[m	[32mlet minX = Infinity;[m
+[32m+[m	[32mlet minY = Infinity;[m
+[32m+[m	[32mlet maxX = -Infinity;[m
+[32m+[m	[32mlet maxY = -Infinity;[m
+ [m
+ 	for (let index = 0; index < GameState.walls.length; index++) {[m
+ 		const wall = GameState.walls[index];[m
+[36m@@ -56,6 +62,11 @@[m [mfunction rebuildWallIndex() {[m
+ [m
+ 		if (bounds.maxX <= bounds.minX || bounds.maxY <= bounds.minY) continue;[m
+ [m
+[32m+[m		[32mminX = Math.min(minX, bounds.minX);[m
+[32m+[m		[32mminY = Math.min(minY, bounds.minY);[m
+[32m+[m		[32mmaxX = Math.max(maxX, bounds.maxX);[m
+[32m+[m		[32mmaxY = Math.max(maxY, bounds.maxY);[m
+[32m+[m
+ 		const xCells = getIndexedCellRange(bounds.minX, bounds.maxX);[m
+ 		const yCells = getIndexedCellRange(bounds.minY, bounds.maxY);[m
+ [m
+[36m@@ -77,6 +88,15 @@[m [mfunction rebuildWallIndex() {[m
+ 		}[m
+ 	}[m
+ [m
+[32m+[m	[32mif (Number.isFinite(minX) && Number.isFinite(maxX)) {[m
+[32m+[m		[32mindexedBounds = {[m
+[32m+[m			[32mx: minX,[m
+[32m+[m			[32my: minY,[m
+[32m+[m			[32mwidth: maxX - minX,[m
+[32m+[m			[32mheight: maxY - minY,[m
+[32m+[m		[32m};[m
+[32m+[m	[32m}[m
+[32m+[m
+ 	indexedWallsRef = GameState.walls;[m
+ 	indexedWallCount = GameState.walls.length;[m
+ 	dirty = false;[m
+[36m@@ -135,6 +155,169 @@[m [mexport function queryWallsInAabb(minX, minY, maxX, maxY) {[m
+ 	);[m
+ }[m
+ [m
+[32m+[m[32mexport function getWallIndexBounds() {[m
+[32m+[m	[32mensureWallIndexCurrent();[m
+[32m+[m	[32mreturn indexedBounds ? { ...indexedBounds } : null;[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m// Traverses the wall grid along a finite ray using Amanatides & Woo DDA and[m
+[32m+[m[32m// returns only walls occupying cells the ray (plus optional radius padding)[m
+[32m+[m[32m// can reach. Exact ray/rectangle intersection remains the caller's narrow phase.[m
+[32m+[m[32m//[m
+[32m+[m[32m// `visitCell` is optional and is called once for each centerline/touched grid[m
+[32m+[m[32m// cell. Returning false aborts traversal and marks the query truncated; lasers[m
+[32m+[m[32m// use this to enforce their shared per-frame calculation budget.[m
+[32m+[m[32mexport function queryWallsAlongRayDda([m
+[32m+[m	[32moriginX,[m
+[32m+[m	[32moriginY,[m
+[32m+[m	[32mdirX,[m
+[32m+[m	[32mdirY,[m
+[32m+[m	[32mmaxDistance,[m
+[32m+[m	[32mpadding = 0,[m
+[32m+[m	[32mvisitCell = null,[m
+[32m+[m[32m) {[m
+[32m+[m	[32mensureWallIndexCurrent();[m
+[32m+[m
+[32m+[m	[32mconst ox = Number(originX);[m
+[32m+[m	[32mconst oy = Number(originY);[m
+[32m+[m	[32mlet dx = Number(dirX);[m
+[32m+[m	[32mlet dy = Number(dirY);[m
+[32m+[m	[32mconst distanceLimit = Math.max(0, Number(maxDistance) || 0);[m
+[32m+[m	[32mconst safePadding = Math.max(0, Number(padding) || 0);[m
+[32m+[m
+[32m+[m	[32mif (![ox, oy, dx, dy].every(Number.isFinite)) {[m
+[32m+[m		[32mreturn {[m
+[32m+[m			[32mwalls: GameState.walls.slice(),[m
+[32m+[m			[32mtruncated: false,[m
+[32m+[m			[32mvisitedCells: 0,[m
+[32m+[m		[32m};[m
+[32m+[m	[32m}[m
+[32m+[m
+[32m+[m	[32mconst magnitude = Math.hypot(dx, dy);[m
+[32m+[m	[32mif (magnitude <= 1e-12 || distanceLimit <= 0) {[m
+[32m+[m		[32mreturn { walls: [], truncated: false, visitedCells: 0 };[m
+[32m+[m	[32m}[m
+[32m+[m	[32mdx /= magnitude;[m
+[32m+[m	[32mdy /= magnitude;[m
+[32m+[m
+[32m+[m	[32mconst paddingCells = Math.ceil([m
+[32m+[m		[32msafePadding / WALL_GRID_CELL_SIZE_BLOCKS,[m
+[32m+[m	[32m);[m
+[32m+[m	[32mconst candidateWalls = new Set();[m
+[32m+[m	[32mconst visitedGridCells = new Set();[m
+[32m+[m	[32mlet visitedCells = 0;[m
+[32m+[m	[32mlet truncated = false;[m
+[32m+[m
+[32m+[m	[32mfunction collectCell(cellX, cellY, entryDistance) {[m
+[32m+[m		[32mconst key = `${cellX},${cellY}`;[m
+[32m+[m		[32mif (visitedGridCells.has(key)) return true;[m
+[32m+[m		[32mvisitedGridCells.add(key);[m
+[32m+[m		[32mvisitedCells++;[m
+[32m+[m
+[32m+[m		[32mif ([m
+[32m+[m			[32mtypeof visitCell === "function" &&[m
+[32m+[m			[32mvisitCell(cellX, cellY, entryDistance) === false[m
+[32m+[m		[32m) {[m
+[32m+[m			[32mtruncated = true;[m
+[32m+[m			[32mreturn false;[m
+[32m+[m		[32m}[m
+[32m+[m
+[32m+[m		[32mfor ([m
+[32m+[m			[32mlet queryX = cellX - paddingCells;[m
+[32m+[m			[32mqueryX <= cellX + paddingCells;[m
+[32m+[m			[32mqueryX++[m
+[32m+[m		[32m) {[m
+[32m+[m			[32mconst column = columns.get(queryX);[m
+[32m+[m			[32mif (!column) continue;[m
+[32m+[m
+[32m+[m			[32mfor ([m
+[32m+[m				[32mlet queryY = cellY - paddingCells;[m
+[32m+[m				[32mqueryY <= cellY + paddingCells;[m
+[32m+[m				[32mqueryY++[m
+[32m+[m			[32m) {[m
+[32m+[m				[32mconst bucket = column.get(queryY);[m
+[32m+[m				[32mif (!bucket) continue;[m
+[32m+[m				[32mfor (const wall of bucket) candidateWalls.add(wall);[m
+[32m+[m			[32m}[m
+[32m+[m		[32m}[m
+[32m+[m
+[32m+[m		[32mreturn true;[m
+[32m+[m	[32m}[m
+[32m+[m
+[32m+[m	[32mlet cellX = getCellCoordinate(ox);[m
+[32m+[m	[32mlet cellY = getCellCoordinate(oy);[m
+[32m+[m	[32mconst stepX = dx > 0 ? 1 : dx < 0 ? -1 : 0;[m
+[32m+[m	[32mconst stepY = dy > 0 ? 1 : dy < 0 ? -1 : 0;[m
+[32m+[m	[32mconst tDeltaX = stepX === 0[m
+[32m+[m		[32m? Infinity[m
+[32m+[m		[32m: WALL_GRID_CELL_SIZE_BLOCKS / Math.abs(dx);[m
+[32m+[m	[32mconst tDeltaY = stepY === 0[m
+[32m+[m		[32m? Infinity[m
+[32m+[m		[32m: WALL_GRID_CELL_SIZE_BLOCKS / Math.abs(dy);[m
+[32m+[m	[32mconst nextBoundaryX = stepX > 0[m
+[32m+[m		[32m? (cellX + 1) * WALL_GRID_CELL_SIZE_BLOCKS[m
+[32m+[m		[32m: cellX * WALL_GRID_CELL_SIZE_BLOCKS;[m
+[32m+[m	[32mconst nextBoundaryY = stepY > 0[m
+[32m+[m		[32m? (cellY + 1) * WALL_GRID_CELL_SIZE_BLOCKS[m
+[32m+[m		[32m: cellY * WALL_GRID_CELL_SIZE_BLOCKS;[m
+[32m+[m	[32mlet tMaxX = stepX === 0 ? Infinity : (nextBoundaryX - ox) / dx;[m
+[32m+[m	[32mlet tMaxY = stepY === 0 ? Infinity : (nextBoundaryY - oy) / dy;[m
+[32m+[m	[32mconst EPSILON = 1e-10;[m
+[32m+[m
+[32m+[m	[32mif (!collectCell(cellX, cellY, 0)) {[m
+[32m+[m		[32mreturn { walls: [], truncated: true, visitedCells };[m
+[32m+[m	[32m}[m
+[32m+[m
+[32m+[m	[32mwhile (!truncated) {[m
+[32m+[m		[32mconst nextDistance = Math.min(tMaxX, tMaxY);[m
+[32m+[m		[32mif ([m
+[32m+[m			[32m!Number.isFinite(nextDistance) ||[m
+[32m+[m			[32mnextDistance > distanceLimit + EPSILON[m
+[32m+[m		[32m) {[m
+[32m+[m			[32mbreak;[m
+[32m+[m		[32m}[m
+[32m+[m
+[32m+[m		[32mif (Math.abs(tMaxX - tMaxY) <= EPSILON) {[m
+[32m+[m			[32m// At an exact grid corner the ray touches both side-adjacent cells as[m
+[32m+[m			[32m// well as entering the diagonal cell. Visiting all three preserves[m
+[32m+[m			[32m// inclusive corner-hit behavior from the old all-wall ray scan.[m
+[32m+[m			[32mif ([m
+[32m+[m				[32mstepX !== 0 &&[m
+[32m+[m				[32m!collectCell(cellX + stepX, cellY, nextDistance)[m
+[32m+[m			[32m) break;[m
+[32m+[m			[32mif ([m
+[32m+[m				[32mstepY !== 0 &&[m
+[32m+[m				[32m!collectCell(cellX, cellY + stepY, nextDistance)[m
+[32m+[m			[32m) break;[m
+[32m+[m
+[32m+[m			[32mcellX += stepX;[m
+[32m+[m			[32mcellY += stepY;[m
+[32m+[m			[32mtMaxX += tDeltaX;[m
+[32m+[m			[32mtMaxY += tDeltaY;[m
+[32m+[m			[32mif (!collectCell(cellX, cellY, nextDistance)) break;[m
+[32m+[m			[32mcontinue;[m
+[32m+[m		[32m}[m
+[32m+[m
+[32m+[m		[32mif (tMaxX < tMaxY) {[m
+[32m+[m			[32mcellX += stepX;[m
+[32m+[m			[32mtMaxX += tDeltaX;[m
+[32m+[m		[32m} else {[m
+[32m+[m			[32mcellY += stepY;[m
+[32m+[m			[32mtMaxY += tDeltaY;[m
+[32m+[m		[32m}[m
+[32m+[m
+[32m+[m		[32mif (!collectCell(cellX, cellY, nextDistance)) break;[m
+[32m+[m	[32m}[m
+[32m+[m
+[32m+[m	[32mreturn {[m
+[32m+[m		[32mwalls: Array.from(candidateWalls).sort([m
+[32m+[m			[32m(a, b) => (wallOrder.get(a) ?? 0) - (wallOrder.get(b) ?? 0),[m
+[32m+[m		[32m),[m
+[32m+[m		[32mtruncated,[m
+[32m+[m		[32mvisitedCells,[m
+[32m+[m	[32m};[m
+[32m+[m[32m}[m
+[32m+[m
+ export function queryWallsAlongSegment(x1, y1, x2, y2, padding = 0) {[m
+ 	const safePadding = Math.max(0, Number(padding) || 0);[m
+ 	return queryWallsInAabb([m
