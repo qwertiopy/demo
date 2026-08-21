@@ -21,6 +21,53 @@ import { isReplayPlaybackActive } from "./replay.js";
 
 const UI_MODES = ["none", "debug"];
 
+let keyboardLockPending = false;
+let keyboardLockDesired = false;
+
+function isExpectedKeyboardLockError(error) {
+	return [
+		"AbortError",
+		"InvalidStateError",
+		"NotAllowedError",
+		"SecurityError",
+	].includes(error?.name);
+}
+
+// A hidden runtime UI is the game's distraction-free input mode. Request all
+// physical keys so modifier combinations such as Ctrl+W are delivered to the
+// game where handleKeyDown() can cancel their browser defaults. The request is
+// retried from later key/mouse gestures when startup lacks user activation.
+async function syncKeyboardLockToUIMode() {
+	keyboardLockDesired = GameState.uiMode === "none";
+
+	const keyboard = navigator.keyboard;
+	if (!keyboard) return;
+
+	if (!keyboardLockDesired) {
+		keyboard.unlock?.();
+		return;
+	}
+
+	if (keyboardLockPending || typeof keyboard.lock !== "function") return;
+
+	keyboardLockPending = true;
+
+	try {
+		await keyboard.lock();
+	} catch (error) {
+		if (!isExpectedKeyboardLockError(error)) {
+			console.warn("Could not lock keyboard input.", error);
+		}
+	} finally {
+		keyboardLockPending = false;
+
+		// The UI may have become visible while lock() was still pending.
+		if (!keyboardLockDesired || GameState.uiMode !== "none") {
+			keyboard.unlock?.();
+		}
+	}
+}
+
 // Applies the in-game overlay mode. Configuration now lives on menu.html, so
 // the game only cycles between a clean view and runtime/debug information.
 export function setUIMode(mode) {
@@ -30,6 +77,7 @@ export function setUIMode(mode) {
 	const showDebugUI = normalizedMode === "debug";
 	debugUI.hidden = !showDebugUI;
 	GameState.showEditorHelpers = showDebugUI;
+	void syncKeyboardLockToUIMode();
 }
 
 // Cycles none -> debug -> none.
@@ -248,6 +296,12 @@ function releaseInput(inputCode) {
 function handleKeyDown(event) {
 	if (isEditableTarget(event.target)) return;
 	pressInput(keyboardEventToInputCode(event), event);
+
+	if (GameState.uiMode === "none" && event.cancelable) {
+		event.preventDefault();
+	}
+
+	void syncKeyboardLockToUIMode();
 }
 
 function handleKeyUp(event) {
@@ -257,6 +311,7 @@ function handleKeyUp(event) {
 function handleMouseDown(event) {
 	updateAimFromMouseEvent(event);
 	pressInput(mouseEventToInputCode(event), event);
+	void syncKeyboardLockToUIMode();
 }
 
 function handleMouseUp(event) {
