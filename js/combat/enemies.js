@@ -5,6 +5,197 @@ import { GameState, player } from "../state.js";
 import { handleWallCollisions, seededRandom } from "../utils.js";
 import { hasLineOfSight } from "./collision.js";
 import { shoot } from "./projectiles.js";
+import {
+	calculateGapSafeWallAngle,
+	calculateInterceptAim,
+	calculateMaximumLeadHalfAngle,
+} from "./targeting.js";
+import { shortestAngleDelta } from "./weapon-utils.js";
+
+const WALL_ANGLE_EPSILON = 1e-9;
+
+function resetWallAttack(enemy, resetLeadHistory = false) {
+	enemy.aimMode = "lead";
+	enemy.wallStartSide = 0;
+	enemy.wallSweepDirection = 0;
+	enemy.wallFrontierAngle = null;
+	enemy.wallMaxHalfAngle = 0;
+	enemy.wallLastSafeStep = 0;
+	enemy.wallDeadline = 0;
+
+	if (resetLeadHistory) {
+		enemy.lastLeadPlayerVx = null;
+		enemy.lastLeadPlayerVy = null;
+		enemy.lastPredictedShotAngle = null;
+	}
+}
+
+function recordEnemyShot(enemy, playerCenterX, playerCenterY, currentTime) {
+	// Every actual shot, including a wall shot, begins the next averaged-velocity
+	// window. This keeps the next lead prediction tied to the most recent shot.
+	enemy.playerXAtLastShot = playerCenterX;
+	enemy.playerYAtLastShot = playerCenterY;
+	enemy.lastShot = currentTime;
+}
+
+function fireEnemyProjectile(
+	enemy,
+	enemyCenterX,
+	enemyCenterY,
+	playerCenterX,
+	playerCenterY,
+	currentTime,
+	firingAngle,
+	spread,
+) {
+	const stats = enemy.typeStats;
+	const baseBulletSpeed = Math.max(0, Number(stats.bulletSpeed) || 0);
+
+	shoot(
+		enemy,
+		enemyCenterX + Math.cos(firingAngle),
+		enemyCenterY + Math.sin(firingAngle),
+		GameState.enemyBullets,
+		{
+			color: stats.bulletColor,
+			speed: baseBulletSpeed,
+			speedVariation: stats.bulletSpeedVariation ?? 0,
+			radiusBlocks: stats.bulletRadiusBlocks,
+			radiusVariation: stats.bulletRadiusVariation ?? 0,
+			damage: stats.bulletDamage,
+			damageVariation: stats.bulletDamageVariation ?? 0,
+			maxBounces: 0,
+			spread,
+			bulletCount: stats.bulletCount ?? 1,
+			explosionRadiusBlocks: stats.bulletExplosionRadiusBlocks ?? 0,
+			detonationTimeMs: stats.bulletDetonationTimeMs ?? 0,
+			explosionDurationMs: stats.bulletExplosionDurationMs ?? 0,
+			explosionDamage: stats.bulletExplosionDamage ?? 0,
+			detonatesOnImpact: stats.bulletDetonatesOnImpact ?? false,
+			penetrationBlocks: stats.bulletPenetrationBlocks ?? 0,
+			bulletCollision: stats.bulletCollision === true,
+		},
+	);
+
+	recordEnemyShot(
+		enemy,
+		playerCenterX,
+		playerCenterY,
+		currentTime,
+	);
+}
+
+function getVariedLeadFiringAngle(
+	enemy,
+	predictedAngle,
+	directAngle,
+	baseBulletSpeed,
+	spread,
+) {
+	const predictionVariationThreshold = Math.max(
+		0,
+		Number(enemy.typeStats.predictionVariationThreshold ?? 0.1) || 0,
+	);
+	const predictionVariation = Math.max(
+		0,
+		Number(enemy.typeStats.predictionVariation ?? 0.04) || 0,
+	);
+	let firingAngle = predictedAngle;
+
+	// Preserve the existing prediction-variation gate for ordinary lead shots.
+	// Wall shots bypass this helper because random offsets would create gaps.
+	if (
+		spread <= predictionVariationThreshold &&
+		Number.isFinite(enemy.lastPredictedShotAngle) &&
+		Math.abs(
+			shortestAngleDelta(
+				enemy.lastPredictedShotAngle,
+				predictedAngle,
+			),
+		) <= predictionVariationThreshold &&
+		predictionVariation > 0
+	) {
+		firingAngle += (Math.random() - 0.5) * predictionVariation;
+	}
+
+	// Store the raw prediction so variation never feeds back into the comparison.
+	enemy.lastPredictedShotAngle = predictedAngle;
+
+	// Apply variation first, then keep the result inside the physically possible
+	// lead cone around the current direct line-of-sight angle.
+	const maxLeadHalfAngle = calculateMaximumLeadHalfAngle(
+		player.speed,
+		baseBulletSpeed,
+	);
+	const variedOffset = shortestAngleDelta(directAngle, firingAngle);
+	const clampedOffset = Math.max(
+		-maxLeadHalfAngle,
+		Math.min(maxLeadHalfAngle, variedOffset),
+	);
+
+	return directAngle + clampedOffset;
+}
+
+function getWallShotGeometry(enemy, distance) {
+	const stats = enemy.typeStats;
+	const playerSpeed = Math.max(0, Number(player.speed) || 0);
+	const baseBulletSpeed = Math.max(0, Number(stats.bulletSpeed) || 0);
+	const speedVariation = Math.max(
+		0,
+		Number(stats.bulletSpeedVariation ?? 0) || 0,
+	);
+	const minimumBulletSpeed = Math.max(0, baseBulletSpeed - speedVariation);
+	const baseBulletRadius = Math.max(
+		0,
+		Number(stats.bulletRadiusBlocks) || 0,
+	);
+	const radiusVariation = Math.max(
+		0,
+		Number(stats.bulletRadiusVariation ?? 0) || 0,
+	);
+	const minimumBulletRadius = Math.max(0, baseBulletRadius - radiusVariation);
+	const combinedHitRadius = Math.max(0, Number(player.size) || 0) / 2 +
+		minimumBulletRadius;
+	const shotIntervalSeconds = Math.max(
+		0,
+		Number(enemy.shootCooldown) || 0,
+	) / 1000;
+	const safetyFactor = Math.max(
+		0,
+		Math.min(
+			1,
+			Number(stats.wallGapSafetyFactor ?? 0.9) || 0,
+		),
+	);
+	const maxHalfAngle = calculateMaximumLeadHalfAngle(
+		playerSpeed,
+		minimumBulletSpeed,
+	);
+	const safeStep = calculateGapSafeWallAngle(
+		distance,
+		playerSpeed,
+		minimumBulletSpeed,
+		shotIntervalSeconds,
+		combinedHitRadius,
+		safetyFactor,
+	);
+	const spread = Math.max(0, Number(stats.spread ?? 0) || 0);
+	const bulletCount = Math.max(
+		1,
+		Math.floor(Number(stats.bulletCount ?? 1) || 1),
+	);
+
+	return {
+		canStart:
+			minimumBulletSpeed > playerSpeed + WALL_ANGLE_EPSILON &&
+			maxHalfAngle > WALL_ANGLE_EPSILON &&
+			safeStep > WALL_ANGLE_EPSILON &&
+			spread <= WALL_ANGLE_EPSILON &&
+			bulletCount === 1,
+		maxHalfAngle,
+		safeStep,
+	};
+}
 
 // Spawns eligible enemies, evaluates line of sight, handles enemy shooting, and calculates AI velocity toward the player or last seen position
 // update this for enemy logic changes
@@ -59,6 +250,20 @@ export function updateEnemies(currentTime, dt) {
 					vy: 0,
 					moveX: 0,
 					moveY: 0,
+					lastPredictedShotAngle: null,
+					playerXAtLastShot: null,
+					playerYAtLastShot: null,
+					lastLeadPlayerVx: null,
+					lastLeadPlayerVy: null,
+					currentPredictedShotAngle: null,
+					aimMode: "lead",
+					wallStartSide: 0,
+					wallSweepDirection: 0,
+					wallFrontierAngle: null,
+					wallMaxHalfAngle: 0,
+					wallLastSafeStep: 0,
+					wallDeadline: 0,
+					nextWallStartSide: 1,
 				});
 			}
 
@@ -85,37 +290,217 @@ export function updateEnemies(currentTime, dt) {
 		e.vx = 0;
 		e.vy = 0;
 
-		// shoot if enemy can see player
+		const shotIntervalSeconds = (currentTime - e.lastShot) / 1000;
+		const hasPreviousShotSample =
+			Number.isFinite(e.playerXAtLastShot) &&
+			Number.isFinite(e.playerYAtLastShot) &&
+			Number.isFinite(shotIntervalSeconds) &&
+			shotIntervalSeconds > 0;
+		const averagePlayerVx = hasPreviousShotSample
+			? (pCenterX - e.playerXAtLastShot) / shotIntervalSeconds
+			: player.vx;
+		const averagePlayerVy = hasPreviousShotSample
+			? (pCenterY - e.playerYAtLastShot) / shotIntervalSeconds
+			: player.vy;
+		const baseBulletSpeed = Math.max(
+			0,
+			Number(e.typeStats.bulletSpeed) || 0,
+		);
+		const directAngle = Math.atan2(
+			pCenterY - eCenterY,
+			pCenterX - eCenterX,
+		);
+		const intercept = calculateInterceptAim(
+			eCenterX,
+			eCenterY,
+			pCenterX,
+			pCenterY,
+			averagePlayerVx,
+			averagePlayerVy,
+			baseBulletSpeed,
+		);
+		const predictedAngle = intercept?.angle ?? directAngle;
+		const spread = Math.max(
+			0,
+			Number(e.typeStats.spread ?? 0) || 0,
+		);
+		const distanceToPlayer = Math.hypot(
+			pCenterX - eCenterX,
+			pCenterY - eCenterY,
+		);
+
+		// Prediction is deliberately refreshed every frame, not merely when the
+		// cooldown expires. A committed wall tracks it but never reacts to it.
+		e.currentPredictedShotAngle = predictedAngle;
+
 		if (los) {
 			e.lastSeenX = pCenterX;
 			e.lastSeenY = pCenterY;
+		}
 
-			if (currentTime - e.lastShot > e.shootCooldown) {
-				shoot(e, pCenterX, pCenterY, GameState.enemyBullets, {
-					color: e.typeStats.bulletColor,
-					speed: e.typeStats.bulletSpeed,
-					speedVariation: e.typeStats.bulletSpeedVariation ?? 0,
-					radiusBlocks: e.typeStats.bulletRadiusBlocks,
-					radiusVariation: e.typeStats.bulletRadiusVariation ?? 0,
-					damage: e.typeStats.bulletDamage,
-					damageVariation: e.typeStats.bulletDamageVariation ?? 0,
-					maxBounces: 0,
-					spread: e.typeStats.spread ?? 0,
-					bulletCount: e.typeStats.bulletCount ?? 1,
-					explosionRadiusBlocks:
-						e.typeStats.bulletExplosionRadiusBlocks ?? 0,
-					detonationTimeMs: e.typeStats.bulletDetonationTimeMs ?? 0,
-					explosionDurationMs:
-						e.typeStats.bulletExplosionDurationMs ?? 0,
-					explosionDamage: e.typeStats.bulletExplosionDamage ?? 0,
-					detonatesOnImpact:
-						e.typeStats.bulletDetonatesOnImpact ?? false,
-					penetrationBlocks:
-						e.typeStats.bulletPenetrationBlocks ?? 0,
-					bulletCollision: e.typeStats.bulletCollision === true,
-				});
+		// Existing visibility rules still gate firing. Losing visibility pauses a
+		// committed wall without cancelling it; only its opposite endpoint ends it.
+		if (los && currentTime - e.lastShot > e.shootCooldown) {
+			let firedThisFrame = false;
 
-				e.lastShot = currentTime;
+			if (e.aimMode === "wall") {
+				const startSide = e.wallStartSide === -1 ? -1 : 1;
+				const sweepDirection = -startSide;
+				const frontierAngle = Number.isFinite(e.wallFrontierAngle)
+					? e.wallFrontierAngle
+					: directAngle + startSide * e.wallMaxHalfAngle;
+				const opposingAngle =
+					directAngle - startSide * e.wallMaxHalfAngle;
+				const remainingAngle = sweepDirection * shortestAngleDelta(
+					frontierAngle,
+					opposingAngle,
+				);
+
+				if (remainingAngle <= WALL_ANGLE_EPSILON) {
+					// The moving opposing boundary has already reached the frontier.
+					// Reset and use this still-available firing opportunity for step 1.
+					resetWallAttack(e, true);
+				} else {
+					const wallGeometry = getWallShotGeometry(e, distanceToPlayer);
+					if (wallGeometry.safeStep > WALL_ANGLE_EPSILON) {
+						e.wallLastSafeStep = wallGeometry.safeStep;
+					}
+
+					const wallMaxDurationMs = Math.max(
+						1,
+						Number(e.typeStats.wallMaxDurationMs ?? 1500) || 0,
+					);
+					if (!Number.isFinite(e.wallDeadline) || e.wallDeadline <= 0) {
+						e.wallDeadline = currentTime + wallMaxDurationMs;
+					}
+
+					// Prefer gap-safe spacing, but impose a completion floor so a wall
+					// reaches its opposite boundary by the deadline. Wider gaps are
+					// intentional here: forcing a dodge is preferable to an unfinished wall.
+					const cooldownMs = Math.max(
+						1,
+						Number(e.shootCooldown) || 0,
+					);
+					const remainingDurationMs = Math.max(
+						0,
+						e.wallDeadline - currentTime,
+					);
+					const remainingShots = Math.max(
+						1,
+						Math.ceil(remainingDurationMs / cooldownMs),
+					);
+					const completionStep = remainingAngle / remainingShots;
+					const safeStep = Math.max(
+						WALL_ANGLE_EPSILON,
+						e.wallLastSafeStep,
+					);
+					const step = Math.min(
+						remainingAngle,
+						Math.max(safeStep, completionStep),
+					);
+					const firingAngle =
+						frontierAngle + sweepDirection * step;
+
+					fireEnemyProjectile(
+						e,
+						eCenterX,
+						eCenterY,
+						pCenterX,
+						pCenterY,
+						currentTime,
+						firingAngle,
+						0,
+					);
+					e.wallFrontierAngle = firingAngle;
+					firedThisFrame = true;
+
+					if (remainingAngle - step <= WALL_ANGLE_EPSILON) {
+						resetWallAttack(e, true);
+					}
+				}
+			}
+
+			if (!firedThisFrame && e.aimMode !== "wall") {
+				const velocityChangeThreshold = Math.max(
+					0,
+					Number(
+						e.typeStats.wallVelocityChangeThreshold ?? 0.1,
+					) || 0,
+				);
+				const hasPreviousLeadVector =
+					Number.isFinite(e.lastLeadPlayerVx) &&
+					Number.isFinite(e.lastLeadPlayerVy);
+				const playerVectorChanged =
+					!hasPreviousLeadVector ||
+					Math.hypot(
+						player.vx - e.lastLeadPlayerVx,
+						player.vy - e.lastLeadPlayerVy,
+					) > velocityChangeThreshold;
+
+				if (!playerVectorChanged) {
+					const wallGeometry = getWallShotGeometry(e, distanceToPlayer);
+
+					if (wallGeometry.canStart) {
+						const leadOffset = shortestAngleDelta(
+							directAngle,
+							predictedAngle,
+						);
+						const fallbackSide = e.nextWallStartSide === -1 ? -1 : 1;
+						const startSide = Math.abs(leadOffset) > WALL_ANGLE_EPSILON
+							? Math.sign(leadOffset)
+							: fallbackSide;
+						const firingAngle =
+							directAngle + startSide * wallGeometry.maxHalfAngle;
+
+						e.aimMode = "wall";
+						e.wallStartSide = startSide;
+						e.wallSweepDirection = -startSide;
+						e.wallFrontierAngle = firingAngle;
+						e.wallMaxHalfAngle = wallGeometry.maxHalfAngle;
+						e.wallLastSafeStep = wallGeometry.safeStep;
+						e.wallDeadline =
+							currentTime + Math.max(
+								1,
+								Number(e.typeStats.wallMaxDurationMs ?? 1500) || 0,
+							);
+						e.nextWallStartSide = -startSide;
+
+						fireEnemyProjectile(
+							e,
+							eCenterX,
+							eCenterY,
+							pCenterX,
+							pCenterY,
+							currentTime,
+							firingAngle,
+							0,
+						);
+						firedThisFrame = true;
+					}
+				}
+
+				if (!firedThisFrame) {
+					const firingAngle = getVariedLeadFiringAngle(
+						e,
+						predictedAngle,
+						directAngle,
+						baseBulletSpeed,
+						spread,
+					);
+
+					fireEnemyProjectile(
+						e,
+						eCenterX,
+						eCenterY,
+						pCenterX,
+						pCenterY,
+						currentTime,
+						firingAngle,
+						spread,
+					);
+					e.lastLeadPlayerVx = player.vx;
+					e.lastLeadPlayerVy = player.vy;
+				}
 			}
 		}
 

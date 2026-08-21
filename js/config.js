@@ -1,7 +1,7 @@
 export const CONFIG_STORAGE_KEY = "demoGameConfig";
 
 export const Config = {
-    CONFIG_SCHEMA_VERSION: 17,
+    CONFIG_SCHEMA_VERSION: 20,
     PLAYER_SPEED: 0,
     PLAYER_BULLET_SPEED: 0,
     WEAPONS: [],
@@ -331,6 +331,51 @@ function migrateConfig(defaultConfig, savedConfig) {
             (defaultWeapon, index) =>
                 mergeConfig(defaultWeapon, migratedConfig.WEAPONS?.[index] || {}),
         );
+    }
+
+    // Schema v18 adds predictive enemy aiming controls. Merge the new enemy
+    // defaults into old Sandbox saves while preserving every existing stat.
+    if (savedVersion < 18 && isPlainObject(defaultConfig.ENEMY_TYPES)) {
+        const migratedEnemyTypes = {};
+
+        for (const [typeName, defaultType] of Object.entries(defaultConfig.ENEMY_TYPES)) {
+            migratedEnemyTypes[typeName] = mergeConfig(
+                defaultType,
+                migratedConfig.ENEMY_TYPES?.[typeName] || {},
+            );
+        }
+
+        migratedConfig.ENEMY_TYPES = migratedEnemyTypes;
+    }
+
+    // Schema v19 adds committed predictive wall attacks. Merge the per-enemy
+    // velocity-change threshold and wall overlap factor into old local saves.
+    if (savedVersion < 19 && isPlainObject(defaultConfig.ENEMY_TYPES)) {
+        const migratedEnemyTypes = {};
+
+        for (const [typeName, defaultType] of Object.entries(defaultConfig.ENEMY_TYPES)) {
+            migratedEnemyTypes[typeName] = mergeConfig(
+                defaultType,
+                migratedConfig.ENEMY_TYPES?.[typeName] || {},
+            );
+        }
+
+        migratedConfig.ENEMY_TYPES = migratedEnemyTypes;
+    }
+
+    // Schema v20 prevents gap-safe spacing from making wall attacks effectively
+    // endless by adding a per-enemy maximum sweep duration.
+    if (savedVersion < 20 && isPlainObject(defaultConfig.ENEMY_TYPES)) {
+        const migratedEnemyTypes = {};
+
+        for (const [typeName, defaultType] of Object.entries(defaultConfig.ENEMY_TYPES)) {
+            migratedEnemyTypes[typeName] = mergeConfig(
+                defaultType,
+                migratedConfig.ENEMY_TYPES?.[typeName] || {},
+            );
+        }
+
+        migratedConfig.ENEMY_TYPES = migratedEnemyTypes;
     }
 
     return migratedConfig;

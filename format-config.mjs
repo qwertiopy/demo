@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const MAX_SUPPORTED_SCHEMA_VERSION = 17;
+const MAX_SUPPORTED_SCHEMA_VERSION = 20;
 const DEFAULT_CONFIG_PATH = "config.json";
 const CONFIG_SOURCE_PATH = path.join("js", "config.js");
 
@@ -46,6 +46,11 @@ const WEAPON_CURRENT_DEFAULTS = {
 };
 
 const ENEMY_CURRENT_DEFAULTS = {
+    predictionVariationThreshold: 0.1,
+    predictionVariation: 0.04,
+    wallVelocityChangeThreshold: 0.1,
+    wallGapSafetyFactor: 0.9,
+    wallMaxDurationMs: 1500,
     bulletExplosionRadiusBlocks: 0,
     bulletDetonationTimeMs: 0,
     bulletExplosionDurationMs: 0,
@@ -114,6 +119,11 @@ const ENEMY_ORDER = [
     "bulletDamageVariation",
     "ai",
     "spread",
+    "predictionVariationThreshold",
+    "predictionVariation",
+    "wallVelocityChangeThreshold",
+    "wallGapSafetyFactor",
+    "wallMaxDurationMs",
     "bulletExplosionRadiusBlocks",
     "bulletDetonationTimeMs",
     "bulletExplosionDurationMs",
@@ -336,6 +346,20 @@ function migrateEnemyType(enemy, targetVersion) {
         setDefault(enemy, "bulletSpeedVariation", 0);
         setDefault(enemy, "bulletRadiusVariation", 0);
         setDefault(enemy, "bulletDamageVariation", 0);
+    }
+
+    if (targetVersion >= 18) {
+        setDefault(enemy, "predictionVariationThreshold", 0.1);
+        setDefault(enemy, "predictionVariation", 0.04);
+    }
+
+    if (targetVersion >= 19) {
+        setDefault(enemy, "wallVelocityChangeThreshold", 0.1);
+        setDefault(enemy, "wallGapSafetyFactor", 0.9);
+    }
+
+    if (targetVersion >= 20) {
+        setDefault(enemy, "wallMaxDurationMs", 1500);
     }
 
     return reorderObject(enemy, ENEMY_ORDER);

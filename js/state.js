@@ -53,6 +53,8 @@ export const player = {
 	color: "royalblue",
 	hp: 10,
 	maxHp: 10,
+	vx: 0,
+	vy: 0,
 };
 
 // Mutable camera state expressed in world blocks; the render system follows the player by updating these coordinates.

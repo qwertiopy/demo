@@ -60,6 +60,45 @@ function validateStructureLibrary(structures) {
 	});
 }
 
+function validateEnemyPredictionStats(enemyTypes) {
+	if (!isPlainObject(enemyTypes)) {
+		throw new Error("ENEMY_TYPES must be a JSON object.");
+	}
+
+	for (const [typeName, enemy] of Object.entries(enemyTypes)) {
+		if (!isPlainObject(enemy)) {
+			throw new Error(`ENEMY_TYPES.${typeName} must be a JSON object.`);
+		}
+
+		for (const field of [
+			"spread",
+			"predictionVariationThreshold",
+			"predictionVariation",
+			"wallVelocityChangeThreshold",
+			"wallGapSafetyFactor",
+			"wallMaxDurationMs",
+		]) {
+			if (!Number.isFinite(enemy[field]) || enemy[field] < 0) {
+				throw new Error(
+					`ENEMY_TYPES.${typeName}.${field} must be a non-negative finite number.`,
+				);
+			}
+		}
+
+		if (enemy.wallGapSafetyFactor > 1) {
+			throw new Error(
+				`ENEMY_TYPES.${typeName}.wallGapSafetyFactor must not exceed 1.`,
+			);
+		}
+
+		if (enemy.wallMaxDurationMs <= 0) {
+			throw new Error(
+				`ENEMY_TYPES.${typeName}.wallMaxDurationMs must be greater than 0.`,
+			);
+		}
+	}
+}
+
 function validateWeapons(weapons) {
 	if (!Array.isArray(weapons) || weapons.length !== 10) {
 		throw new Error("WEAPONS must be an array containing exactly 10 weapons.");
@@ -426,6 +465,48 @@ function migrateSavedConfig(savedConfig) {
 		);
 	}
 
+	// Schema v18 adds predictive enemy aiming controls.
+	if (savedVersion < 18 && isPlainObject(defaultConfig.ENEMY_TYPES)) {
+		const migratedEnemyTypes = {};
+
+		for (const [typeName, defaultType] of Object.entries(defaultConfig.ENEMY_TYPES)) {
+			migratedEnemyTypes[typeName] = mergeConfig(
+				defaultType,
+				migrated.ENEMY_TYPES?.[typeName] || {},
+			);
+		}
+
+		migrated.ENEMY_TYPES = migratedEnemyTypes;
+	}
+
+	// Schema v19 adds committed predictive wall attacks.
+	if (savedVersion < 19 && isPlainObject(defaultConfig.ENEMY_TYPES)) {
+		const migratedEnemyTypes = {};
+
+		for (const [typeName, defaultType] of Object.entries(defaultConfig.ENEMY_TYPES)) {
+			migratedEnemyTypes[typeName] = mergeConfig(
+				defaultType,
+				migrated.ENEMY_TYPES?.[typeName] || {},
+			);
+		}
+
+		migrated.ENEMY_TYPES = migratedEnemyTypes;
+	}
+
+	// Schema v20 adds a maximum committed-wall duration.
+	if (savedVersion < 20 && isPlainObject(defaultConfig.ENEMY_TYPES)) {
+		const migratedEnemyTypes = {};
+
+		for (const [typeName, defaultType] of Object.entries(defaultConfig.ENEMY_TYPES)) {
+			migratedEnemyTypes[typeName] = mergeConfig(
+				defaultType,
+				migrated.ENEMY_TYPES?.[typeName] || {},
+			);
+		}
+
+		migrated.ENEMY_TYPES = migratedEnemyTypes;
+	}
+
 	return migrated;
 }
 
@@ -679,6 +760,7 @@ function readConfigFromUI() {
 	}
 
 	if (advancedData.ENEMY_TYPES !== undefined) {
+		validateEnemyPredictionStats(advancedData.ENEMY_TYPES);
 		config.ENEMY_TYPES = advancedData.ENEMY_TYPES;
 	}
 

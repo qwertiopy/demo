@@ -86,7 +86,19 @@ export function update(currentTime, dt) {
 		}
 	}
 
+	const playerStartX = player.x;
+	const playerStartY = player.y;
 	handleWallCollisions(player, dx, dy);
+
+	// Enemy prediction uses actual resolved player velocity, not requested input.
+	// This matters when a wall blocks one component of movement.
+	if (dt > 0) {
+		player.vx = (player.x - playerStartX) / dt;
+		player.vy = (player.y - playerStartY) / dt;
+	} else {
+		player.vx = 0;
+		player.vy = 0;
+	}
 
 	updateEnemies(currentTime, dt);
 	resolveEnemyVectorCollisions(dt);

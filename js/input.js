@@ -64,6 +64,8 @@ export function loadLevel(levelDefinition = null) {
 			player.x = data.playerSpawn.x;
 			player.y = data.playerSpawn.y;
 			player.hp = player.maxHp;
+			player.vx = 0;
+			player.vy = 0;
 		}
 
 		GameState.bullets.length = 0;
