@@ -131,6 +131,60 @@ export function captureVisualSnapshot(currentTime) {
 			color: enemy.color,
 			hp: enemy.hp,
 			maxHp: enemy.maxHp,
+			aimDebug: GameState.showEditorHelpers
+				? {
+					originX: Number.isFinite(enemy.debugAimOriginX)
+						? enemy.debugAimOriginX
+						: enemy.x + enemy.size / 2,
+					originY: Number.isFinite(enemy.debugAimOriginY)
+						? enemy.debugAimOriginY
+						: enemy.y + enemy.size / 2,
+					leadAngle: Number.isFinite(enemy.currentPredictedShotAngle)
+						? enemy.currentPredictedShotAngle
+						: null,
+					maximumAimInterval: enemy.debugMaximumAimInterval
+						? {
+							originX: enemy.debugMaximumAimInterval.originX,
+							originY: enemy.debugMaximumAimInterval.originY,
+							minAngle: enemy.debugMaximumAimInterval.minAngle,
+							maxAngle: enemy.debugMaximumAimInterval.maxAngle,
+						}
+						: null,
+					visibleInterval: enemy.debugVisibleAimInterval
+						? {
+							originX: enemy.debugVisibleAimInterval.originX,
+							originY: enemy.debugVisibleAimInterval.originY,
+							minAngle: enemy.debugVisibleAimInterval.minAngle,
+							maxAngle: enemy.debugVisibleAimInterval.maxAngle,
+							minBoundaryPoint:
+								enemy.debugVisibleAimInterval.minBoundary?.point || null,
+							maxBoundaryPoint:
+								enemy.debugVisibleAimInterval.maxBoundary?.point || null,
+						}
+						: null,
+					distance: Math.max(
+						0,
+						Number(enemy.debugAimDistance) || 0,
+					),
+					cachedCornerAngle: Number.isFinite(enemy.lostLosCornerAngle)
+						? enemy.lostLosCornerAngle
+						: null,
+					cachedCornerPoint:
+						enemy.lostLosCorner?.source?.kind === "point"
+							? {
+								x: enemy.lostLosCorner.source.x,
+								y: enemy.lostLosCorner.source.y,
+							}
+							: enemy.lostLosCorner?.source?.kind ===
+									"rounded-corner-tangent"
+								? {
+									x: enemy.lostLosCorner.source.x,
+									y: enemy.lostLosCorner.source.y,
+								}
+								: enemy.lostLosCorner?.point || null,
+					usingCachedCorner: enemy.debugUsingCachedCorner === true,
+				}
+				: null,
 		})),
 		projectiles: [...GameState.bullets, ...GameState.enemyBullets].map(
 			(projectile) => ({

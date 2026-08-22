@@ -9,13 +9,17 @@ import {
 import { detonateBullet } from "./explosions.js";
 import { findChainTarget, getAngleToTarget } from "./targeting.js";
 import {
+	getWallCornerCriticalAngles,
+	rayRectIntersection,
+} from "./visibility.js";
+import {
 	getBulletCount,
 	getLaserConeHalfAngleFromCount,
 	getRandomSpreadOffset,
 	getVariedStat,
-	normalizeSignedAngle,
-	shortestAngleDelta,
 } from "./weapon-utils.js";
+
+export { rayRectIntersection } from "./visibility.js";
 
 // Laser range is no longer capped by an arbitrary gameplay distance. Rays extend
 // to the edge of the currently loaded world, while a shared per-frame calculation
@@ -100,76 +104,6 @@ function getLaserLoadedWorldRadiusBlocks(originX, originY) {
 			Math.hypot(corner.x - originX, corner.y - originY),
 		),
 	);
-}
-
-// Ray/AABB slab intersection. The optional radius expands the rectangle so a
-// laser with a visible thickness also gets a matching collision thickness.
-export function rayRectIntersection(
-	originX,
-	originY,
-	dirX,
-	dirY,
-	rect,
-	radius = 0,
-) {
-	const width = rect.width ?? rect.size ?? 0;
-	const height = rect.height ?? rect.size ?? 0;
-	const r = Math.max(0, Number(radius) || 0);
-	const minX = rect.x - r;
-	const maxX = rect.x + width + r;
-	const minY = rect.y - r;
-	const maxY = rect.y + height + r;
-	const EPSILON = 1e-12;
-
-	let xNear = -Infinity;
-	let xFar = Infinity;
-	let yNear = -Infinity;
-	let yFar = Infinity;
-
-	if (Math.abs(dirX) < EPSILON) {
-		if (originX < minX || originX > maxX) return null;
-	} else {
-		const tx1 = (minX - originX) / dirX;
-		const tx2 = (maxX - originX) / dirX;
-		xNear = Math.min(tx1, tx2);
-		xFar = Math.max(tx1, tx2);
-	}
-
-	if (Math.abs(dirY) < EPSILON) {
-		if (originY < minY || originY > maxY) return null;
-	} else {
-		const ty1 = (minY - originY) / dirY;
-		const ty2 = (maxY - originY) / dirY;
-		yNear = Math.min(ty1, ty2);
-		yFar = Math.max(ty1, ty2);
-	}
-
-	const tMin = Math.max(xNear, yNear);
-	const tMax = Math.min(xFar, yFar);
-	if (tMax < tMin || tMax < 0) return null;
-
-	let normalX = 0;
-	let normalY = 0;
-	if (tMin >= 0) {
-		if (Math.abs(xNear - yNear) <= EPSILON) {
-			normalX = dirX >= 0 ? -1 : 1;
-			normalY = dirY >= 0 ? -1 : 1;
-			const magnitude = Math.hypot(normalX, normalY) || 1;
-			normalX /= magnitude;
-			normalY /= magnitude;
-		} else if (xNear > yNear) {
-			normalX = dirX >= 0 ? -1 : 1;
-		} else {
-			normalY = dirY >= 0 ? -1 : 1;
-		}
-	}
-
-	return {
-		entryDistance: Math.max(0, tMin),
-		exitDistance: tMax,
-		normalX,
-		normalY,
-	};
 }
 
 function queryLaserWallsAlongRay(
@@ -368,81 +302,16 @@ function getLaserConeWallStop(originX, originY, dirX, dirY, maxRangeBlocks) {
 }
 
 function getLaserConeCriticalAngles(originX, originY, centerAngle, halfAngle) {
-	const fullCircle = halfAngle >= Math.PI - 1e-9;
-	const ANGLE_EPSILON = 1e-5;
-	const localAngles = [];
-
-	function addLocalAngle(localAngle) {
-		if (fullCircle) {
-			localAngles.push(normalizeSignedAngle(localAngle));
-			return;
-		}
-
-		localAngles.push(Math.max(-halfAngle, Math.min(halfAngle, localAngle)));
-	}
-
-	if (fullCircle) {
-		// A few world-boundary anchors keep an unobstructed full-circle cone well formed.
-		for (let i = 0; i < 8; i++) {
-			addLocalAngle(-Math.PI + (i * Math.PI) / 4);
-		}
-	} else {
-		addLocalAngle(-halfAngle);
-		addLocalAngle(halfAngle);
-	}
-
-	for (const wall of GameState.walls) {
-		if (!consumeLaserCalculationBudget()) {
-			return { angles: [], truncated: true };
-		}
-
-		const width = wall.width ?? wall.size ?? 0;
-		const height = wall.height ?? wall.size ?? 0;
-		const corners = [
-			{ x: wall.x, y: wall.y },
-			{ x: wall.x + width, y: wall.y },
-			{ x: wall.x + width, y: wall.y + height },
-			{ x: wall.x, y: wall.y + height },
-		];
-
-		for (const corner of corners) {
-			const absoluteAngle = Math.atan2(
-				corner.y - originY,
-				corner.x - originX,
-			);
-			const localAngle = shortestAngleDelta(centerAngle, absoluteAngle);
-
-			if (
-				!fullCircle &&
-				(localAngle < -halfAngle - ANGLE_EPSILON ||
-					localAngle > halfAngle + ANGLE_EPSILON)
-			) {
-				continue;
-			}
-
-			// The rays immediately either side of a corner capture the visibility
-			// discontinuity without brute-force sampling the whole cone.
-			addLocalAngle(localAngle - ANGLE_EPSILON);
-			addLocalAngle(localAngle);
-			addLocalAngle(localAngle + ANGLE_EPSILON);
-		}
-	}
-
-	localAngles.sort((a, b) => a - b);
-	const deduped = [];
-	for (const angle of localAngles) {
-		if (
-			deduped.length === 0 ||
-			Math.abs(angle - deduped[deduped.length - 1]) > 1e-7
-		) {
-			deduped.push(angle);
-		}
-	}
-
-	return {
-		angles: deduped.map((localAngle) => centerAngle + localAngle),
-		truncated: false,
-	};
+	return getWallCornerCriticalAngles(
+		originX,
+		originY,
+		centerAngle,
+		halfAngle,
+		GameState.walls,
+		{
+			onWall: () => consumeLaserCalculationBudget(),
+		},
+	);
 }
 
 function buildLaserConeVisibilityPolygon(originX, originY, centerAngle, halfAngle) {

@@ -5,6 +5,7 @@ import { queryWallsInAabb } from "../spatial/wall-index.js";
 import { isColliding } from "../utils.js";
 import { detonateBullet } from "./explosions.js";
 import { findChainTarget, getAngleToTarget } from "./targeting.js";
+import { clampAngleToInterval } from "./visibility.js";
 import {
 	MIN_THROW_DECELERATION,
 	getProjectileVolleyAngles,
@@ -54,9 +55,14 @@ export function shoot(shooter, targetX, targetY, bulletArray, stats) {
 	const targetDy = targetY - centerY;
 	const baseAngle = Math.atan2(targetDy, targetDx);
 	const requestedAngles = getProjectileVolleyAngles(baseAngle, stats);
-	const volleyAngles = bulletArray === GameState.bullets
-		? requestedAngles.slice(0, 100)
+	const constrainedAngles = stats.aimAngleBounds
+		? requestedAngles.map((angle) =>
+			clampAngleToInterval(angle, stats.aimAngleBounds),
+		)
 		: requestedAngles;
+	const volleyAngles = bulletArray === GameState.bullets
+		? constrainedAngles.slice(0, 100)
+		: constrainedAngles;
 	const throwable = stats.throwable === true;
 	const throwDistanceMultiplier = Math.max(
 		0,
