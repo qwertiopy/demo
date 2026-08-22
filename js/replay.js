@@ -150,6 +150,26 @@ export function captureVisualSnapshot(currentTime) {
 							maxAngle: enemy.debugMaximumAimInterval.maxAngle,
 						}
 						: null,
+					aimVisibilityProfile: enemy.debugAimVisibilityProfile
+						? {
+							originX: enemy.debugAimVisibilityProfile.originX,
+							originY: enemy.debugAimVisibilityProfile.originY,
+							maxDistance: Number.isFinite(
+								enemy.debugAimVisibilityProfile.maxDistance,
+							)
+								? enemy.debugAimVisibilityProfile.maxDistance
+								: 50,
+							rays: enemy.debugAimVisibilityProfile.rays.map(
+								(ray) => ({
+									angle: ray.angle,
+									distance: Number.isFinite(ray.distance)
+										? ray.distance
+										: 50,
+									blocked: ray.blocked === true,
+								}),
+							),
+						}
+						: null,
 					visibleInterval: enemy.debugVisibleAimInterval
 						? {
 							originX: enemy.debugVisibleAimInterval.originX,
@@ -162,10 +182,9 @@ export function captureVisualSnapshot(currentTime) {
 								enemy.debugVisibleAimInterval.maxBoundary?.point || null,
 						}
 						: null,
-					distance: Math.max(
-						0,
-						Number(enemy.debugAimDistance) || 0,
-					),
+					distance: Number.isFinite(enemy.debugAimDistance)
+						? Math.max(0, enemy.debugAimDistance)
+						: 50,
 					cachedCornerAngle: Number.isFinite(enemy.lostLosCornerAngle)
 						? enemy.lostLosCornerAngle
 						: null,

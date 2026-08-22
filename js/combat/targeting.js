@@ -24,6 +24,24 @@ export function calculateMaximumLeadHalfAngle(
 	return Math.asin(clampUnit(speed / bulletSpeed));
 }
 
+// Farthest constant-speed interception distance: the target spends the whole
+// flight moving directly away from the shooter. Unlike predictive lead, this
+// envelope depends only on current separation and the two maximum speeds.
+export function calculateMaximumFleeInterceptDistance(
+	distance,
+	targetSpeed,
+	projectileSpeed,
+) {
+	const currentDistance = Math.max(0, Number(distance) || 0);
+	const speed = Math.max(0, Number(targetSpeed) || 0);
+	const bulletSpeed = Math.max(0, Number(projectileSpeed) || 0);
+
+	if (currentDistance <= AIM_EPSILON) return 0;
+	if (bulletSpeed <= speed + AIM_EPSILON) return Infinity;
+
+	return (currentDistance * bulletSpeed) / (bulletSpeed - speed);
+}
+
 // Returns the largest angular advance that keeps consecutive wall shots from
 // skipping over a player moving adversarially between firing events. The
 // encounter distance assumes the player flees directly away at targetSpeed.

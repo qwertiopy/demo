@@ -141,6 +141,7 @@ function drawEnemyAimDebug(enemy, blockSizePx) {
 	);
 	const distancePx = distanceBlocks * blockSizePx;
 	const maximumInterval = debug.maximumAimInterval;
+	const visibilityProfile = debug.aimVisibilityProfile;
 	const interval = debug.visibleInterval;
 	const intervalColor = debug.usingCachedCorner
 		? "rgba(255, 170, 0, 0.9)"
@@ -188,23 +189,73 @@ function drawEnemyAimDebug(enemy, blockSizePx) {
 		}
 	}
 
+	if (visibilityProfile?.rays?.length >= 2) {
+		const profilePoints = visibilityProfile.rays.map((ray) => {
+			const rayDistance = Number.isFinite(ray.distance)
+				? Math.max(0, Math.min(distanceBlocks, ray.distance))
+				: distanceBlocks;
+			return {
+				angle: ray.angle,
+				distance: rayDistance,
+				reachesOuter:
+					rayDistance >= distanceBlocks - 1e-7,
+			};
+		});
+
+		ctx.fillStyle = intervalFill;
+		ctx.strokeStyle = intervalColor;
+		ctx.lineWidth = 1.5;
+		ctx.setLineDash(debug.usingCachedCorner ? [8, 6] : []);
+		ctx.beginPath();
+		ctx.moveTo(originX, originY);
+
+		for (let index = 0; index < profilePoints.length; index++) {
+			const point = profilePoints[index];
+			const pointDistancePx = point.distance * blockSizePx;
+			if (
+				index > 0 &&
+				profilePoints[index - 1].reachesOuter &&
+				point.reachesOuter
+			) {
+				ctx.arc(
+					originX,
+					originY,
+					distancePx,
+					profilePoints[index - 1].angle,
+					point.angle,
+				);
+			} else {
+				ctx.lineTo(
+					originX + Math.cos(point.angle) * pointDistancePx,
+					originY + Math.sin(point.angle) * pointDistancePx,
+				);
+			}
+		}
+
+		ctx.closePath();
+		ctx.fill();
+		ctx.stroke();
+	}
+
 	if (
 		interval &&
 		Number.isFinite(interval.minAngle) &&
 		Number.isFinite(interval.maxAngle)
 	) {
-		ctx.fillStyle = intervalFill;
-		ctx.beginPath();
-		ctx.moveTo(originX, originY);
-		ctx.arc(
-			originX,
-			originY,
-			distancePx,
-			interval.minAngle,
-			interval.maxAngle,
-		);
-		ctx.closePath();
-		ctx.fill();
+		if (!visibilityProfile) {
+			ctx.fillStyle = intervalFill;
+			ctx.beginPath();
+			ctx.moveTo(originX, originY);
+			ctx.arc(
+				originX,
+				originY,
+				distancePx,
+				interval.minAngle,
+				interval.maxAngle,
+			);
+			ctx.closePath();
+			ctx.fill();
+		}
 
 		ctx.strokeStyle = intervalColor;
 		ctx.lineWidth = 1.5;

@@ -8,15 +8,42 @@ import { shoot } from "./projectiles.js";
 import {
 	calculateGapSafeWallAngle,
 	calculateInterceptAim,
+	calculateMaximumFleeInterceptDistance,
 	calculateMaximumLeadHalfAngle,
 } from "./targeting.js";
 import {
 	clampAngleToInterval,
+	getAimConeWallScanCandidates,
+	getAimVisibilityProfile,
+	getAimWallCornerRecord,
 	getVisibleAimInterval,
+	updateAimWallCornerAngles,
 } from "./visibility.js";
 import { shortestAngleDelta } from "./weapon-utils.js";
 
 const WALL_ANGLE_EPSILON = 1e-9;
+const DEFAULT_ENEMY_AIM_CALCULATION_BUDGET_PER_FRAME = 100000;
+let enemyAimCalculationBudgetRemaining =
+	DEFAULT_ENEMY_AIM_CALCULATION_BUDGET_PER_FRAME;
+let enemyAimSchedulerCursor = 0;
+
+function resetEnemyAimCalculationBudget() {
+	enemyAimCalculationBudgetRemaining = Math.max(
+		1,
+		Math.floor(
+			Number(
+				Config.RENDERING?.ENEMY_AIM_CALCULATION_BUDGET_PER_FRAME ??
+					DEFAULT_ENEMY_AIM_CALCULATION_BUDGET_PER_FRAME,
+			) || DEFAULT_ENEMY_AIM_CALCULATION_BUDGET_PER_FRAME,
+		),
+	);
+}
+
+function consumeEnemyAimCalculationBudget() {
+	if (enemyAimCalculationBudgetRemaining <= 0) return false;
+	enemyAimCalculationBudgetRemaining--;
+	return true;
+}
 
 function getMaximumPlayerMovementSpeed() {
 	// Movement is applied independently on each axis, so holding one horizontal
@@ -166,6 +193,110 @@ function getMaximumEnemyBulletRadius(enemy) {
 	return baseRadius + radiusVariation;
 }
 
+function prepareEnemyAimCornerCache(enemy, forceRefresh = false) {
+	const environmentRevision = Number(GameState.environmentRevision) || 0;
+	if (!(enemy.aimWallCornerCache instanceof Map)) {
+		enemy.aimWallCornerCache = new Map();
+	}
+	if (
+		forceRefresh ||
+		enemy.aimWallCornerCacheRevision !== environmentRevision
+	) {
+		enemy.aimWallCornerCache.clear();
+		enemy.aimWallVisibilityScan = null;
+		enemy.aimWallCornerCacheRevision = environmentRevision;
+	}
+}
+
+function advanceEnemyAimWallScan(
+	enemy,
+	originX,
+	originY,
+	directAngle,
+	halfAngle,
+	maxDistance,
+	calculationAllowance,
+	forceCornerRefresh = false,
+) {
+	prepareEnemyAimCornerCache(enemy, forceCornerRefresh);
+	const projectileRadius = getMaximumEnemyBulletRadius(enemy);
+	let allowance = Math.max(
+		0,
+		Math.floor(Number(calculationAllowance) || 0),
+	);
+	let scannedCount = 0;
+
+	if (!enemy.aimWallVisibilityScan) {
+		enemy.aimWallVisibilityScan = {
+			candidateWalls: getAimConeWallScanCandidates(
+				originX,
+				originY,
+				directAngle,
+				halfAngle,
+				maxDistance,
+				projectileRadius,
+			),
+			nextIndex: 0,
+		};
+	}
+
+	const scan = enemy.aimWallVisibilityScan;
+	while (true) {
+		while (scan.nextIndex < scan.candidateWalls.length) {
+			if (allowance <= 0 || !consumeEnemyAimCalculationBudget()) {
+				return {
+					walls: [],
+					truncated: true,
+					scannedCount,
+				};
+			}
+
+			const wall = scan.candidateWalls[scan.nextIndex++];
+			getAimWallCornerRecord(
+				wall,
+				projectileRadius,
+				enemy.aimWallCornerCache,
+				originX,
+				originY,
+			);
+			allowance--;
+			scannedCount++;
+		}
+
+		// The origin and cone may have moved while this scan was spread across
+		// frames. Before publishing a complete result, append any walls that have
+		// entered the current cone; already processed world-space records stay valid.
+		const currentCandidates = getAimConeWallScanCandidates(
+			originX,
+			originY,
+			directAngle,
+			halfAngle,
+			maxDistance,
+			projectileRadius,
+		);
+		const processedWalls = new Set(scan.candidateWalls);
+		const newWalls = currentCandidates.filter(
+			(wall) => !processedWalls.has(wall),
+		);
+		if (newWalls.length > 0) {
+			scan.candidateWalls.push(...newWalls);
+			continue;
+		}
+
+		const walls = currentCandidates.map((wall) =>
+			getAimWallCornerRecord(
+				wall,
+				projectileRadius,
+				enemy.aimWallCornerCache,
+				originX,
+				originY,
+			),
+		);
+		enemy.aimWallVisibilityScan = null;
+		return { walls, truncated: false, scannedCount };
+	}
+}
+
 function getEnemyVisibleAimInterval(
 	enemy,
 	originX,
@@ -174,6 +305,7 @@ function getEnemyVisibleAimInterval(
 	halfAngle,
 	maxDistance,
 	preferredAngle = directAngle,
+	walls = null,
 ) {
 	return getVisibleAimInterval(
 		originX,
@@ -182,8 +314,40 @@ function getEnemyVisibleAimInterval(
 		halfAngle,
 		maxDistance,
 		getMaximumEnemyBulletRadius(enemy),
-		null,
+		walls,
 		preferredAngle,
+	);
+}
+
+function getEnemyAimVisibilityProfile(
+	enemy,
+	originX,
+	originY,
+	directAngle,
+	halfAngle,
+	maxDistance,
+	walls = null,
+) {
+	return getAimVisibilityProfile(
+		originX,
+		originY,
+		directAngle,
+		halfAngle,
+		maxDistance,
+		getMaximumEnemyBulletRadius(enemy),
+		walls,
+	);
+}
+
+function getEnemyPlayerContactDistance(enemy, playerCenterDistance) {
+	// A circular inscribed target bound keeps this scalar depth conservative;
+	// the actual axis-aligned player collision box can only be contacted sooner.
+	const playerRadius = Math.max(0, Number(player.size) || 0) / 2;
+	return Math.max(
+		0,
+		Math.max(0, Number(playerCenterDistance) || 0) -
+			playerRadius -
+			getMaximumEnemyBulletRadius(enemy),
 	);
 }
 
@@ -221,14 +385,29 @@ function rememberVisibleAimInterval(
 	interval,
 	maxDistance,
 	maximumAimInterval = null,
+	visibilityProfile = null,
 ) {
+	const rememberedDistance = Math.max(0, Number(maxDistance) || 0);
+	enemy.debugAimDistance = rememberedDistance;
+	let rememberedMaximumAimInterval = null;
+	let rememberedVisibilityProfile = null;
+
 	if (maximumAimInterval) {
-		const rememberedMaximumAimInterval = { ...maximumAimInterval };
-		enemy.lastMaximumAimInterval = rememberedMaximumAimInterval;
+		rememberedMaximumAimInterval = { ...maximumAimInterval };
 		enemy.debugMaximumAimInterval = rememberedMaximumAimInterval;
 	}
+	if (visibilityProfile) {
+		rememberedVisibilityProfile = {
+			...visibilityProfile,
+			rays: visibilityProfile.rays.map((ray) => ({ ...ray })),
+		};
+		enemy.debugAimVisibilityProfile = rememberedVisibilityProfile;
+	}
 
-	if (!interval) return;
+	if (!interval) {
+		enemy.debugVisibleAimInterval = null;
+		return;
+	}
 
 	const rememberedInterval = {
 		originX: interval.originX,
@@ -241,12 +420,15 @@ function rememberVisibleAimInterval(
 		minBoundary: cloneAimBoundary(interval.minBoundary),
 		maxBoundary: cloneAimBoundary(interval.maxBoundary),
 	};
-	const rememberedDistance = Math.max(0, Number(maxDistance) || 0);
-
 	enemy.lastVisibleAimInterval = rememberedInterval;
 	enemy.lastVisibleAimDistance = rememberedDistance;
+	if (rememberedMaximumAimInterval) {
+		enemy.lastMaximumAimInterval = rememberedMaximumAimInterval;
+	}
+	if (rememberedVisibilityProfile) {
+		enemy.lastAimVisibilityProfile = rememberedVisibilityProfile;
+	}
 	enemy.debugVisibleAimInterval = rememberedInterval;
-	enemy.debugAimDistance = rememberedDistance;
 }
 
 function getIntervalBoundaryTowardAngle(interval, angle) {
@@ -344,9 +526,11 @@ function getWallShotGeometry(enemy, distance) {
 		playerSpeed,
 		minimumBulletSpeed,
 	);
-	const encounterDistance = minimumBulletSpeed > playerSpeed + WALL_ANGLE_EPSILON
-		? (distance * minimumBulletSpeed) / (minimumBulletSpeed - playerSpeed)
-		: distance;
+	const encounterDistance = calculateMaximumFleeInterceptDistance(
+		distance,
+		playerSpeed,
+		minimumBulletSpeed,
+	);
 	const safeStep = calculateGapSafeWallAngle(
 		distance,
 		playerSpeed,
@@ -374,9 +558,142 @@ function getWallShotGeometry(enemy, distance) {
 	};
 }
 
+function scheduleEnemyAimCalculations() {
+	const playerCenterX = player.x + player.size / 2;
+	const playerCenterY = player.y + player.size / 2;
+	const losByEnemy = new Map();
+	const hasTargetByEnemy = new Map();
+	const scanResultByEnemy = new Map();
+	const jobs = [];
+	const maximumPlayerSpeed = getMaximumPlayerMovementSpeed();
+
+	for (let index = 0; index < GameState.enemies.length; index++) {
+		const enemy = GameState.enemies[index];
+		if (enemy.hp <= 0) continue;
+
+		const originX = enemy.x + enemy.size / 2;
+		const originY = enemy.y + enemy.size / 2;
+		const playerDistance = Math.hypot(
+			playerCenterX - originX,
+			playerCenterY - originY,
+		);
+		const los = hasLineOfSight(
+			originX,
+			originY,
+			playerCenterX,
+			playerCenterY,
+		);
+		const hasRememberedTarget = enemy.hasAimTarget === true ||
+			(Number.isFinite(enemy.lastSeenX) &&
+				Number.isFinite(enemy.lastSeenY));
+		const hasTarget = hasRememberedTarget || los;
+		losByEnemy.set(enemy, los);
+		hasTargetByEnemy.set(enemy, hasTarget);
+
+		// Idle enemies have no target and perform no aiming work at all.
+		if (!hasTarget) continue;
+
+		const reacquiredTarget = los &&
+			(!hasRememberedTarget || enemy.lastAimLos === false);
+		prepareEnemyAimCornerCache(enemy, reacquiredTarget);
+		updateAimWallCornerAngles(
+			enemy.aimWallCornerCache,
+			originX,
+			originY,
+		);
+
+		const baseBulletSpeed = Math.max(
+			0,
+			Number(enemy.typeStats.bulletSpeed) || 0,
+		);
+		const directAngle = Math.atan2(
+			playerCenterY - originY,
+			playerCenterX - originX,
+		);
+		const leadHalfAngle = calculateMaximumLeadHalfAngle(
+			maximumPlayerSpeed,
+			baseBulletSpeed,
+		);
+		const leadDistance = calculateMaximumFleeInterceptDistance(
+			playerDistance,
+			maximumPlayerSpeed,
+			baseBulletSpeed,
+		);
+		const wallGeometry = getWallShotGeometry(enemy, playerDistance);
+		const scanningWallCone = enemy.aimMode === "wall" ||
+			wallGeometry.canStart;
+
+		jobs.push({
+			enemy,
+			originalIndex: index,
+			playerDistance,
+			originX,
+			originY,
+			directAngle,
+			halfAngle: enemy.aimMode === "wall"
+				? enemy.wallMaxHalfAngle
+				: scanningWallCone
+					? wallGeometry.maxHalfAngle
+					: leadHalfAngle,
+			maxDistance: scanningWallCone
+				? wallGeometry.encounterDistance
+				: leadDistance,
+		});
+	}
+
+	jobs.sort((first, second) =>
+		first.playerDistance - second.playerDistance ||
+		first.originalIndex - second.originalIndex,
+	);
+	if (jobs.length === 0) {
+		enemyAimSchedulerCursor = 0;
+		return { losByEnemy, hasTargetByEnemy, scanResultByEnemy };
+	}
+
+	const startIndex = enemyAimSchedulerCursor % jobs.length;
+	const orderedJobs = [
+		...jobs.slice(startIndex),
+		...jobs.slice(0, startIndex),
+	];
+	let attemptedJobs = 0;
+
+	for (let index = 0; index < orderedJobs.length; index++) {
+		if (enemyAimCalculationBudgetRemaining <= 0) break;
+
+		const job = orderedJobs[index];
+		const jobsRemaining = orderedJobs.length - index;
+		const allowance = Math.max(
+			1,
+			Math.floor(enemyAimCalculationBudgetRemaining / jobsRemaining),
+		);
+		const result = advanceEnemyAimWallScan(
+			job.enemy,
+			job.originX,
+			job.originY,
+			job.directAngle,
+			job.halfAngle,
+			job.maxDistance,
+			allowance,
+		);
+		scanResultByEnemy.set(job.enemy, result);
+		attemptedJobs++;
+	}
+
+	// Resume with the next nearest entry in the sorted ring. When every target
+	// received a slice, rotate the starting point by one for equal long-term use
+	// of any remainder that could not be divided evenly.
+	enemyAimSchedulerCursor = attemptedJobs >= orderedJobs.length
+		? (startIndex + 1) % jobs.length
+		: (startIndex + attemptedJobs) % jobs.length;
+
+	return { losByEnemy, hasTargetByEnemy, scanResultByEnemy };
+}
+
 // Spawns eligible enemies, evaluates line of sight, handles enemy shooting, and calculates AI velocity toward the player or last seen position
 // update this for enemy logic changes
 export function updateEnemies(currentTime, dt) {
+	resetEnemyAimCalculationBudget();
+
 	//spawn enemies
 	if (GameState.enemySpawnRate > 0 && GameState.enemySpawns.length > 0) {
 		// enemyspawnrate = enemy spawns per second
@@ -444,10 +761,19 @@ export function updateEnemies(currentTime, dt) {
 					lastVisibleAimInterval: null,
 					lastVisibleAimDistance: 0,
 					lastMaximumAimInterval: null,
+					lastAimVisibilityProfile: null,
+					hasAimTarget: false,
+					aimWallCornerCache: new Map(),
+					aimWallCornerCacheRevision:
+						Number(GameState.environmentRevision) || 0,
+					aimWallVisibilityScan: null,
+					lastAimLos: null,
+					debugAimWallScanTruncated: false,
 					lostLosCorner: null,
 					lostLosCornerAngle: null,
 					debugVisibleAimInterval: null,
 					debugMaximumAimInterval: null,
+					debugAimVisibilityProfile: null,
 					debugAimDistance: 0,
 					debugAimOriginX: null,
 					debugAimOriginY: null,
@@ -458,6 +784,7 @@ export function updateEnemies(currentTime, dt) {
 			GameState.lastSpawnTime = currentTime;
 		}
 	}
+	const aimSchedule = scheduleEnemyAimCalculations();
 
 	// enemy processing loop
 	GameState.enemies = GameState.enemies.filter((e) => {
@@ -466,19 +793,23 @@ export function updateEnemies(currentTime, dt) {
 		// enemy center
 		const eCenterX = e.x + e.size / 2;
 		const eCenterY = e.y + e.size / 2;
-		e.debugAimOriginX = eCenterX;
-		e.debugAimOriginY = eCenterY;
 
 		// player center
 		const pCenterX = player.x + player.size / 2;
 		const pCenterY = player.y + player.size / 2;
 
-		// line of sight
-		const los = hasLineOfSight(eCenterX, eCenterY, pCenterX, pCenterY);
+		// LOS was evaluated once while building the shared aiming schedule.
+		const los = aimSchedule.losByEnemy.get(e) === true;
+		const hasAimTarget = aimSchedule.hasTargetByEnemy.get(e) === true;
+		const scheduledAimScan = aimSchedule.scanResultByEnemy.get(e) || null;
 
 		// reset velocity before calculating
 		e.vx = 0;
 		e.vy = 0;
+		if (!hasAimTarget) return true;
+
+		e.debugAimOriginX = eCenterX;
+		e.debugAimOriginY = eCenterY;
 
 		const shotIntervalSeconds = (currentTime - e.lastShot) / 1000;
 		const hasPreviousShotSample =
@@ -518,8 +849,14 @@ export function updateEnemies(currentTime, dt) {
 			pCenterX - eCenterX,
 			pCenterY - eCenterY,
 		);
+		const maximumPlayerSpeed = getMaximumPlayerMovementSpeed();
 		const maxLeadHalfAngle = calculateMaximumLeadHalfAngle(
-			getMaximumPlayerMovementSpeed(),
+			maximumPlayerSpeed,
+			baseBulletSpeed,
+		);
+		const maximumLeadDistance = calculateMaximumFleeInterceptDistance(
+			distanceToPlayer,
+			maximumPlayerSpeed,
 			baseBulletSpeed,
 		);
 		const interceptDistance = intercept
@@ -534,12 +871,20 @@ export function updateEnemies(currentTime, dt) {
 		const trackingHalfAngle = trackingWallGeometry
 			? e.wallMaxHalfAngle
 			: maxLeadHalfAngle;
-		const trackingDistance = trackingWallGeometry
-			? Math.max(
-				distanceToPlayer,
-				trackingWallGeometry.encounterDistance,
-			)
-			: Math.max(distanceToPlayer, interceptDistance);
+		// The cone's outer radius always assumes maximum-speed flight directly
+		// away from the enemy. The separate clamp radius ends at the candidate
+		// player's projectile-expanded contact surface, so walls only exclude
+		// firing angles when their shadow begins before that contact.
+		const trackingMaximumDistance = trackingWallGeometry
+			? trackingWallGeometry.encounterDistance
+			: maximumLeadDistance;
+		const trackingTargetDistance = trackingWallGeometry
+			? trackingWallGeometry.encounterDistance
+			: interceptDistance;
+		const trackingClampDistance = getEnemyPlayerContactDistance(
+			e,
+			trackingTargetDistance,
+		);
 		const trackingPreferredAngle = trackingWallGeometry &&
 			Number.isFinite(e.wallFrontierAngle)
 			? e.wallFrontierAngle
@@ -550,15 +895,34 @@ export function updateEnemies(currentTime, dt) {
 			directAngle,
 			trackingHalfAngle,
 		);
-		const trackedVisibleInterval = los
+		const trackedAimWalls = scheduledAimScan?.walls || [];
+		const trackedAimGeometryComplete = hasAimTarget &&
+			Boolean(scheduledAimScan) &&
+			scheduledAimScan.truncated !== true;
+		e.debugAimWallScanTruncated = hasAimTarget &&
+			!trackedAimGeometryComplete;
+		const trackedAimVisibilityProfile =
+			trackedAimGeometryComplete && GameState.showEditorHelpers
+			? getEnemyAimVisibilityProfile(
+				e,
+				eCenterX,
+				eCenterY,
+				directAngle,
+				trackingHalfAngle,
+				trackingMaximumDistance,
+				trackedAimWalls,
+			)
+			: null;
+		const trackedVisibleInterval = los && trackedAimGeometryComplete
 			? getEnemyVisibleAimInterval(
 				e,
 				eCenterX,
 				eCenterY,
 				directAngle,
 				trackingHalfAngle,
-				trackingDistance,
+				trackingClampDistance,
 				trackingPreferredAngle,
+				trackedAimWalls,
 			)
 			: null;
 
@@ -571,12 +935,14 @@ export function updateEnemies(currentTime, dt) {
 			e.lostLosCorner = null;
 			e.lostLosCornerAngle = null;
 			e.debugVisibleAimInterval = trackedVisibleInterval;
-			e.debugAimDistance = trackingDistance;
+			e.debugAimVisibilityProfile = trackedAimVisibilityProfile;
+			e.debugAimDistance = trackingMaximumDistance;
 			rememberVisibleAimInterval(
 				e,
 				trackedVisibleInterval,
-				trackingDistance,
+				trackingMaximumDistance,
 				trackedMaximumAimInterval,
+				trackedAimVisibilityProfile,
 			);
 		} else {
 			if (
@@ -595,12 +961,15 @@ export function updateEnemies(currentTime, dt) {
 			);
 
 			e.debugVisibleAimInterval = e.lastVisibleAimInterval;
-			e.debugMaximumAimInterval = e.lastMaximumAimInterval;
-			e.debugAimDistance = e.lastVisibleAimDistance;
+			e.debugMaximumAimInterval = trackedMaximumAimInterval;
+			e.debugAimVisibilityProfile = trackedAimVisibilityProfile;
+			e.debugAimDistance = trackingMaximumDistance;
 			e.debugUsingCachedCorner = Number.isFinite(e.lostLosCornerAngle);
 		}
+		e.lastAimLos = los;
 
 		if (los) {
+			e.hasAimTarget = true;
 			e.lastSeenX = pCenterX;
 			e.lastSeenY = pCenterY;
 		}
@@ -611,7 +980,11 @@ export function updateEnemies(currentTime, dt) {
 		// projectile-safe corner found on the final visible frame. A zero-width
 		// bound also prevents spread or multi-projectile volleys from entering the
 		// wall. Regaining LOS immediately returns control to normal aiming.
-		if (!los && readyToShoot && Number.isFinite(e.lostLosCornerAngle)) {
+		if (
+			!los &&
+			readyToShoot &&
+			Number.isFinite(e.lostLosCornerAngle)
+		) {
 			const cornerInterval = getSingleAngleInterval(e.lostLosCornerAngle);
 
 			fireEnemyProjectile(
@@ -629,7 +1002,7 @@ export function updateEnemies(currentTime, dt) {
 
 		// Live visibility gates lead and sweep progression. Corner suppression
 		// above fires during LOS loss without advancing a committed wall frontier.
-		if (los && readyToShoot) {
+		if (los && readyToShoot && trackedAimGeometryComplete) {
 			let firedThisFrame = false;
 
 			if (e.aimMode === "wall") {
@@ -639,15 +1012,9 @@ export function updateEnemies(currentTime, dt) {
 					? e.wallFrontierAngle
 					: directAngle + startSide * e.wallMaxHalfAngle;
 				const wallGeometry = getWallShotGeometry(e, distanceToPlayer);
-				const wallAimDistance = Math.max(
-					distanceToPlayer,
+				const wallAimDistance = getEnemyPlayerContactDistance(
+					e,
 					wallGeometry.encounterDistance,
-				);
-				const wallMaximumAimInterval = getMaximumAimInterval(
-					eCenterX,
-					eCenterY,
-					directAngle,
-					e.wallMaxHalfAngle,
 				);
 				const visibleInterval = getEnemyVisibleAimInterval(
 					e,
@@ -657,12 +1024,14 @@ export function updateEnemies(currentTime, dt) {
 					e.wallMaxHalfAngle,
 					wallAimDistance,
 					frontierAngle,
+					trackedAimWalls,
 				);
 				rememberVisibleAimInterval(
 					e,
 					visibleInterval,
-					wallAimDistance,
-					wallMaximumAimInterval,
+					wallGeometry.encounterDistance,
+					trackedMaximumAimInterval,
+					trackedAimVisibilityProfile,
 				);
 
 				// A committed wall pauses when projectile-width-safe visibility has
@@ -720,8 +1089,10 @@ export function updateEnemies(currentTime, dt) {
 							remainingAngle,
 							Math.max(safeStep, completionStep),
 						);
-						const firingAngle =
-							boundedFrontierAngle + sweepDirection * step;
+						const firingAngle = clampAngleToInterval(
+							boundedFrontierAngle + sweepDirection * step,
+							visibleInterval,
+						);
 
 						fireEnemyProjectile(
 							e,
@@ -763,8 +1134,8 @@ export function updateEnemies(currentTime, dt) {
 
 				if (!playerVectorChanged) {
 					const wallGeometry = getWallShotGeometry(e, distanceToPlayer);
-					const wallAimDistance = Math.max(
-						distanceToPlayer,
+					const wallAimDistance = getEnemyPlayerContactDistance(
+						e,
 						wallGeometry.encounterDistance,
 					);
 					const wallMaximumAimInterval = getMaximumAimInterval(
@@ -773,22 +1144,41 @@ export function updateEnemies(currentTime, dt) {
 						directAngle,
 						wallGeometry.maxHalfAngle,
 					);
-					const visibleInterval = wallGeometry.canStart
-						? getEnemyVisibleAimInterval(
-							e,
-							eCenterX,
-							eCenterY,
-							directAngle,
-							wallGeometry.maxHalfAngle,
-							wallAimDistance,
-							predictedAngle,
-						)
-						: null;
+					const wallAimWalls = trackedAimWalls;
+					const wallAimGeometryComplete = trackedAimGeometryComplete;
+					const wallAimVisibilityProfile =
+						wallGeometry.canStart &&
+						wallAimGeometryComplete &&
+						GameState.showEditorHelpers
+							? getEnemyAimVisibilityProfile(
+								e,
+								eCenterX,
+								eCenterY,
+								directAngle,
+								wallGeometry.maxHalfAngle,
+								wallGeometry.encounterDistance,
+								wallAimWalls,
+							)
+							: null;
+					const visibleInterval =
+						wallGeometry.canStart && wallAimGeometryComplete
+							? getEnemyVisibleAimInterval(
+								e,
+								eCenterX,
+								eCenterY,
+								directAngle,
+								wallGeometry.maxHalfAngle,
+								wallAimDistance,
+								predictedAngle,
+								wallAimWalls,
+							)
+							: null;
 					rememberVisibleAimInterval(
 						e,
 						visibleInterval,
-						wallAimDistance,
+						wallGeometry.encounterDistance,
 						wallMaximumAimInterval,
+						wallAimVisibilityProfile,
 					);
 					const visibleWidth = visibleInterval
 						? visibleInterval.maxOffset - visibleInterval.minOffset
@@ -807,9 +1197,10 @@ export function updateEnemies(currentTime, dt) {
 						const startSide = Math.abs(leadOffset) > WALL_ANGLE_EPSILON
 							? Math.sign(leadOffset)
 							: fallbackSide;
-						const firingAngle = startSide > 0
-							? visibleInterval.maxAngle
-							: visibleInterval.minAngle;
+						const firingAngle = clampAngleToInterval(
+							directAngle + startSide * wallGeometry.maxHalfAngle,
+							visibleInterval,
+						);
 
 						e.aimMode = "wall";
 						e.wallStartSide = startSide;
@@ -840,15 +1231,9 @@ export function updateEnemies(currentTime, dt) {
 				}
 
 				if (!firedThisFrame) {
-					const leadAimDistance = Math.max(
-						distanceToPlayer,
+					const leadAimDistance = getEnemyPlayerContactDistance(
+						e,
 						interceptDistance,
-					);
-					const leadMaximumAimInterval = getMaximumAimInterval(
-						eCenterX,
-						eCenterY,
-						directAngle,
-						maxLeadHalfAngle,
 					);
 					const visibleInterval = getEnemyVisibleAimInterval(
 						e,
@@ -858,12 +1243,14 @@ export function updateEnemies(currentTime, dt) {
 						maxLeadHalfAngle,
 						leadAimDistance,
 						predictedAngle,
+						trackedAimWalls,
 					);
 					rememberVisibleAimInterval(
 						e,
 						visibleInterval,
-						leadAimDistance,
-						leadMaximumAimInterval,
+						maximumLeadDistance,
+						trackedMaximumAimInterval,
+						trackedAimVisibilityProfile,
 					);
 
 					if (visibleInterval) {
@@ -906,6 +1293,13 @@ export function updateEnemies(currentTime, dt) {
 				) {
 					e.lastSeenX = null;
 					e.lastSeenY = null;
+					e.hasAimTarget = false;
+					e.aimWallVisibilityScan = null;
+					e.debugVisibleAimInterval = null;
+					e.debugMaximumAimInterval = null;
+					e.debugAimVisibilityProfile = null;
+					e.debugAimWallScanTruncated = false;
+					e.debugUsingCachedCorner = false;
 					targetX = null;
 				}
 			}

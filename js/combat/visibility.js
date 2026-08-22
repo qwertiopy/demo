@@ -10,6 +10,10 @@ const GEOMETRY_EPSILON = 1e-9;
 const DEFAULT_ANGLE_PROBE = 1e-5;
 const FULL_TURN = Math.PI * 2;
 
+function getWallFromEntry(wallEntry) {
+	return wallEntry?.wall || wallEntry;
+}
+
 function getExpandedWallCorners(wall, padding = 0) {
 	const width = wall.width ?? wall.size ?? 0;
 	const height = wall.height ?? wall.size ?? 0;
@@ -54,6 +58,80 @@ function getRoundedWallJoinPoints(wall, radius) {
 		{ x: left, y: bottom + radius },
 		{ x: left - radius, y: bottom },
 	];
+}
+
+function createWallCornerRecord(wall, radius) {
+	const bounds = getWallBounds(wall);
+
+	return {
+		wall,
+		radius,
+		x: wall.x,
+		y: wall.y,
+		width: bounds.width,
+		height: bounds.height,
+		bounds,
+		corners: getExpandedWallCorners(wall, 0),
+		roundedJoinPoints: getRoundedWallJoinPoints(wall, radius),
+		angleOriginX: null,
+		angleOriginY: null,
+		cornerAngles: [],
+		roundedJoinAngles: [],
+	};
+}
+
+function isWallCornerRecordCurrent(record, wall, radius) {
+	const bounds = getWallBounds(wall);
+	return Boolean(
+		record &&
+			record.wall === wall &&
+			Math.abs(record.radius - radius) <= GEOMETRY_EPSILON &&
+			record.x === wall.x &&
+			record.y === wall.y &&
+			record.width === bounds.width &&
+			record.height === bounds.height,
+	);
+}
+
+function getWallCornerGeometry(wallEntry, radius) {
+	const wall = getWallFromEntry(wallEntry);
+	if (isWallCornerRecordCurrent(wallEntry, wall, radius)) {
+		return wallEntry;
+	}
+
+	return createWallCornerRecord(wall, radius);
+}
+
+function updateWallCornerRecordAngles(record, originX, originY) {
+	if (
+		record.angleOriginX === originX &&
+		record.angleOriginY === originY
+	) {
+		return record;
+	}
+
+	record.angleOriginX = originX;
+	record.angleOriginY = originY;
+	record.cornerAngles = record.corners.map((point) =>
+		Math.atan2(point.y - originY, point.x - originX),
+	);
+	record.roundedJoinAngles = record.roundedJoinPoints.map((point) =>
+		Math.atan2(point.y - originY, point.x - originX),
+	);
+	return record;
+}
+
+// Acquired enemies can cheaply reproject saved world-space corners while their
+// full visibility work waits for a later scheduler slice.
+export function updateAimWallCornerAngles(
+	cornerCache,
+	originX,
+	originY,
+) {
+	if (!(cornerCache instanceof Map)) return;
+	for (const record of cornerCache.values()) {
+		updateWallCornerRecordAngles(record, originX, originY);
+	}
 }
 
 function getSegmentRangeCircleIntersections(
@@ -480,7 +558,13 @@ export function getWallCornerCriticalAngles(
 		addLocalRay(safeHalfAngle);
 	}
 
-	for (const wall of walls || []) {
+	for (const wallEntry of walls || []) {
+		const wall = getWallFromEntry(wallEntry);
+		const geometry = updateWallCornerRecordAngles(
+			getWallCornerGeometry(wallEntry, safePadding),
+			originX,
+			originY,
+		);
 		if (typeof onWall === "function" && onWall(wall) === false) {
 			return { angles: [], truncated: true };
 		}
@@ -499,9 +583,10 @@ export function getWallCornerCriticalAngles(
 		}
 
 		if (safePadding <= GEOMETRY_EPSILON) {
-			for (const corner of getExpandedWallCorners(wall, 0)) {
+			for (let index = 0; index < geometry.corners.length; index++) {
+				const corner = geometry.corners[index];
 				addAbsoluteCriticalAngle(
-					Math.atan2(corner.y - originY, corner.x - originX),
+					geometry.cornerAngles[index],
 					{
 						kind: "point",
 						x: corner.x,
@@ -512,17 +597,23 @@ export function getWallCornerCriticalAngles(
 			continue;
 		}
 
-		const { left, right, top, bottom } = getWallBounds(wall);
-		for (const corner of [
+		const { left, right, top, bottom } = geometry.bounds;
+		const roundedCorners = [
 			{ x: left, y: top },
 			{ x: right, y: top },
 			{ x: right, y: bottom },
 			{ x: left, y: bottom },
-		]) {
+		];
+		for (
+			let cornerIndex = 0;
+			cornerIndex < roundedCorners.length;
+			cornerIndex++
+		) {
+			const corner = roundedCorners[cornerIndex];
 			const dx = corner.x - originX;
 			const dy = corner.y - originY;
 			const distance = Math.hypot(dx, dy);
-			const centerDirection = Math.atan2(dy, dx);
+			const centerDirection = geometry.cornerAngles[cornerIndex];
 
 			if (distance > safePadding + GEOMETRY_EPSILON) {
 				const tangentOffset = Math.asin(
@@ -555,9 +646,10 @@ export function getWallCornerCriticalAngles(
 		// Face/arc joins are harmless extra partitions and cover degenerate cases
 		// where a tangent from an individual corner circle lies inside another
 		// component of the rounded rectangle union.
-		for (const point of getRoundedWallJoinPoints(wall, safePadding)) {
+		for (let index = 0; index < geometry.roundedJoinPoints.length; index++) {
+			const point = geometry.roundedJoinPoints[index];
 			addAbsoluteCriticalAngle(
-				Math.atan2(point.y - originY, point.x - originX),
+				geometry.roundedJoinAngles[index],
 				{ kind: "point", x: point.x, y: point.y },
 			);
 		}
@@ -587,7 +679,8 @@ function isRayClearToDistance(
 	const dirX = Math.cos(angle);
 	const dirY = Math.sin(angle);
 
-	for (const wall of walls) {
+	for (const wallEntry of walls) {
+		const wall = getWallFromEntry(wallEntry);
 		const hit = rayRoundedRectIntersection(
 			originX,
 			originY,
@@ -617,7 +710,8 @@ function getFirstRoundedWallHit(
 	const dirY = Math.sin(angle);
 	let closestHit = null;
 
-	for (const wall of walls) {
+	for (const wallEntry of walls) {
+		const wall = getWallFromEntry(wallEntry);
 		const hit = rayRoundedRectIntersection(
 			originX,
 			originY,
@@ -655,8 +749,15 @@ function isPointWithinRange(originX, originY, point, maxDistance) {
 	return dx * dx + dy * dy <= allowedDistance * allowedDistance;
 }
 
-function getExpandedWallDistance(originX, originY, wall, radius) {
-	const { left, right, top, bottom } = getWallBounds(wall);
+function getExpandedWallDistance(originX, originY, wallEntry, radius) {
+	const wall = getWallFromEntry(wallEntry);
+	const { left, right, top, bottom } = isWallCornerRecordCurrent(
+		wallEntry,
+		wall,
+		radius,
+	)
+		? wallEntry.bounds
+		: getWallBounds(wall);
 	const closestX = Math.max(left, Math.min(originX, right));
 	const closestY = Math.max(top, Math.min(originY, bottom));
 	const distanceToRect = Math.hypot(
@@ -671,15 +772,21 @@ function getExpandedWallDistance(originX, originY, wall, radius) {
 }
 
 function getWallAngularBoundaryCandidates(
-	wall,
+	wallEntry,
 	originX,
 	originY,
 	maxDistance,
 	radius,
 ) {
+	const wall = getWallFromEntry(wallEntry);
+	const geometry = updateWallCornerRecordAngles(
+		getWallCornerGeometry(wallEntry, radius),
+		originX,
+		originY,
+	);
 	const candidates = [];
 
-	function addPoint(point, source) {
+	function addPoint(point, source, knownAngle = null) {
 		if (
 			!Number.isFinite(point?.x) ||
 			!Number.isFinite(point?.y) ||
@@ -691,7 +798,9 @@ function getWallAngularBoundaryCandidates(
 		const dx = point.x - originX;
 		const dy = point.y - originY;
 		candidates.push({
-			angle: Math.atan2(dy, dx),
+			angle: Number.isFinite(knownAngle)
+				? knownAngle
+				: Math.atan2(dy, dx),
 			distanceSquared: dx * dx + dy * dy,
 			point: { x: point.x, y: point.y },
 			source,
@@ -709,29 +818,45 @@ function getWallAngularBoundaryCandidates(
 	}
 
 	if (radius <= GEOMETRY_EPSILON) {
-		for (const point of getExpandedWallCorners(wall, 0)) {
-			addPoint(point, { kind: "point", x: point.x, y: point.y });
+		for (let index = 0; index < geometry.corners.length; index++) {
+			const point = geometry.corners[index];
+			addPoint(
+				point,
+				{ kind: "point", x: point.x, y: point.y },
+				geometry.cornerAngles[index],
+			);
 		}
 		return candidates;
 	}
 
-	for (const point of getRoundedWallJoinPoints(wall, radius)) {
-		addPoint(point, { kind: "point", x: point.x, y: point.y });
+	for (let index = 0; index < geometry.roundedJoinPoints.length; index++) {
+		const point = geometry.roundedJoinPoints[index];
+		addPoint(
+			point,
+			{ kind: "point", x: point.x, y: point.y },
+			geometry.roundedJoinAngles[index],
+		);
 	}
 
-	const { left, right, top, bottom } = getWallBounds(wall);
-	for (const corner of [
+	const { left, right, top, bottom } = geometry.bounds;
+	const roundedCorners = [
 		{ x: left, y: top, xSide: -1, ySide: -1 },
 		{ x: right, y: top, xSide: 1, ySide: -1 },
 		{ x: right, y: bottom, xSide: 1, ySide: 1 },
 		{ x: left, y: bottom, xSide: -1, ySide: 1 },
-	]) {
+	];
+	for (
+		let cornerIndex = 0;
+		cornerIndex < roundedCorners.length;
+		cornerIndex++
+	) {
+		const corner = roundedCorners[cornerIndex];
 		const dx = corner.x - originX;
 		const dy = corner.y - originY;
 		const centerDistance = Math.hypot(dx, dy);
 		if (centerDistance <= radius + GEOMETRY_EPSILON) continue;
 
-		const centerDirection = Math.atan2(dy, dx);
+		const centerDirection = geometry.cornerAngles[cornerIndex];
 		const tangentOffset = Math.asin(
 			Math.min(1, radius / centerDistance),
 		);
@@ -877,6 +1002,188 @@ function getWallBlockedAngleIntervals(
 	return { fullyBlocked: false, intervals };
 }
 
+function getAimConeQueryBounds(
+	originX,
+	originY,
+	centerAngle,
+	halfAngle,
+	maxDistance,
+	padding,
+) {
+	const points = [{ x: originX, y: originY }];
+	const addOuterPoint = (angle) => {
+		points.push({
+			x: originX + Math.cos(angle) * maxDistance,
+			y: originY + Math.sin(angle) * maxDistance,
+		});
+	};
+
+	if (halfAngle >= Math.PI - GEOMETRY_EPSILON) {
+		for (let index = 0; index < 4; index++) {
+			addOuterPoint(index * Math.PI / 2);
+		}
+	} else {
+		addOuterPoint(centerAngle - halfAngle);
+		addOuterPoint(centerAngle + halfAngle);
+		for (let index = 0; index < 4; index++) {
+			const cardinalAngle = index * Math.PI / 2;
+			if (
+				Math.abs(shortestAngleDelta(centerAngle, cardinalAngle)) <=
+				halfAngle + GEOMETRY_EPSILON
+			) {
+				addOuterPoint(cardinalAngle);
+			}
+		}
+	}
+
+	return {
+		minX: Math.min(...points.map((point) => point.x)) - padding,
+		minY: Math.min(...points.map((point) => point.y)) - padding,
+		maxX: Math.max(...points.map((point) => point.x)) + padding,
+		maxY: Math.max(...points.map((point) => point.y)) + padding,
+	};
+}
+
+// Returns the broad-phase wall work list for one maximum cone. The list is
+// stable nearest-first for the supplied shooter origin and contains no wall
+// visibility calculation; callers may therefore spread record construction
+// across frames before evaluating the blocked-angle union.
+export function getAimConeWallScanCandidates(
+	originX,
+	originY,
+	centerAngle,
+	halfAngle,
+	maxDistance,
+	projectileRadius = 0,
+) {
+	const safeHalfAngle = Math.max(
+		0,
+		Math.min(Math.PI, Number(halfAngle) || 0),
+	);
+	const safeDistance = Math.max(0, Number(maxDistance) || 0);
+	const safeRadius = Math.max(0, Number(projectileRadius) || 0);
+	const queryBounds = getAimConeQueryBounds(
+		originX,
+		originY,
+		centerAngle,
+		safeHalfAngle,
+		safeDistance,
+		safeRadius,
+	);
+
+	return queryWallsInAabb(
+		queryBounds.minX,
+		queryBounds.minY,
+		queryBounds.maxX,
+		queryBounds.maxY,
+	)
+		.map((wall) => ({
+			wall,
+			...getExpandedWallDistance(originX, originY, wall, safeRadius),
+		}))
+		.filter(
+			(candidate) =>
+				candidate.distance <= safeDistance + GEOMETRY_EPSILON,
+		)
+		.sort((first, second) => first.distance - second.distance)
+		.map((candidate) => candidate.wall);
+}
+
+export function getAimWallCornerRecord(
+	wall,
+	projectileRadius,
+	cornerCache,
+	originX,
+	originY,
+) {
+	const safeRadius = Math.max(0, Number(projectileRadius) || 0);
+	let record = cornerCache?.get(wall) || null;
+	if (!isWallCornerRecordCurrent(record, wall, safeRadius)) {
+		record = createWallCornerRecord(wall, safeRadius);
+		cornerCache?.set(wall, record);
+	}
+
+	return updateWallCornerRecordAngles(record, originX, originY);
+}
+
+// Broad-phase queries only the maximum cone's bounding area. Candidate walls
+// are then evaluated nearest-first, and only exact angular intersections are
+// returned. Records retain world-space corners while their angles are
+// reprojected from the current shooter origin on every call.
+export function getAimConeWallCandidates(
+	originX,
+	originY,
+	centerAngle,
+	halfAngle,
+	maxDistance,
+	projectileRadius = 0,
+	{
+		cornerCache = null,
+		onWall = null,
+	} = {},
+) {
+	const safeHalfAngle = Math.max(
+		0,
+		Math.min(Math.PI, Number(halfAngle) || 0),
+	);
+	const safeDistance = Math.max(0, Number(maxDistance) || 0);
+	const safeRadius = Math.max(0, Number(projectileRadius) || 0);
+	const nearbyWalls = getAimConeWallScanCandidates(
+		originX,
+		originY,
+		centerAngle,
+		safeHalfAngle,
+		safeDistance,
+		safeRadius,
+	).map((wall) => ({
+		wall,
+		...getExpandedWallDistance(originX, originY, wall, safeRadius),
+	}));
+	const walls = [];
+	let scannedCount = 0;
+	let truncated = false;
+
+	for (const candidate of nearbyWalls) {
+		if (
+			typeof onWall === "function" &&
+			onWall(candidate.wall, candidate.distance) === false
+		) {
+			truncated = true;
+			break;
+		}
+		scannedCount++;
+
+		const record = getAimWallCornerRecord(
+			candidate.wall,
+			safeRadius,
+			cornerCache,
+			originX,
+			originY,
+		);
+
+		const blocked = getWallBlockedAngleIntervals(
+			record,
+			originX,
+			originY,
+			centerAngle,
+			safeHalfAngle,
+			safeDistance,
+			safeRadius,
+		);
+		if (!blocked.fullyBlocked && blocked.intervals.length === 0) continue;
+
+		walls.push(record);
+		if (blocked.fullyBlocked) break;
+	}
+
+	return {
+		walls,
+		truncated,
+		scannedCount,
+		candidateCount: nearbyWalls.length,
+	};
+}
+
 function chooseNearerBoundary(first, second) {
 	if (!first) return second;
 	if (!second) return first;
@@ -959,6 +1266,149 @@ function getClearAngleIntervals(blockedIntervals, halfAngle) {
 	}
 
 	return clearIntervals;
+}
+
+// Builds a polar visibility profile for debug rendering. Walls first contribute
+// an angular silhouette, then clip only the part of each ray at or beyond their
+// first projectile-expanded contact. This preserves visible foreground instead
+// of treating a wall's whole angular range as blocked from the origin.
+export function getAimVisibilityProfile(
+	originX,
+	originY,
+	centerAngle,
+	halfAngle,
+	maxDistance,
+	projectileRadius = 0,
+	walls = null,
+) {
+	const safeHalfAngle = Math.max(
+		0,
+		Math.min(Math.PI, Number(halfAngle) || 0),
+	);
+	const safeDistance = Math.max(0, Number(maxDistance) || 0);
+	const safeRadius = Math.max(0, Number(projectileRadius) || 0);
+	const candidateWalls = Array.isArray(walls)
+		? walls
+		: queryWallsInAabb(
+			originX - safeDistance - safeRadius,
+			originY - safeDistance - safeRadius,
+			originX + safeDistance + safeRadius,
+			originY + safeDistance + safeRadius,
+		);
+	const shadows = [];
+	let containsOrigin = false;
+
+	for (const wall of candidateWalls) {
+		const blocked = getWallBlockedAngleIntervals(
+			wall,
+			originX,
+			originY,
+			centerAngle,
+			safeHalfAngle,
+			safeDistance,
+			safeRadius,
+		);
+		if (blocked.fullyBlocked) {
+			containsOrigin = true;
+			break;
+		}
+		for (const interval of blocked.intervals) {
+			shadows.push({
+				minOffset: interval.minOffset,
+				maxOffset: interval.maxOffset,
+				wall,
+			});
+		}
+	}
+
+	const sharedCritical = getWallCornerCriticalAngles(
+		originX,
+		originY,
+		centerAngle,
+		safeHalfAngle,
+		candidateWalls,
+		{
+			angleProbe: DEFAULT_ANGLE_PROBE,
+			padding: safeRadius,
+			maxDistance: safeDistance,
+		},
+	);
+	const profileRays = [
+		{ localAngle: -safeHalfAngle },
+		{ localAngle: 0 },
+		{ localAngle: safeHalfAngle },
+		...(sharedCritical.rays || []).map((ray) => ({
+			localAngle: ray.localAngle,
+		})),
+	];
+
+	for (const shadow of shadows) {
+		for (const boundary of [shadow.minOffset, shadow.maxOffset]) {
+			for (const offset of [
+				boundary - DEFAULT_ANGLE_PROBE,
+				boundary,
+				boundary + DEFAULT_ANGLE_PROBE,
+			]) {
+				profileRays.push({
+					localAngle: Math.max(
+						-safeHalfAngle,
+						Math.min(safeHalfAngle, offset),
+					),
+				});
+			}
+		}
+	}
+
+	const rays = dedupeSortedCriticalRays(profileRays).map((ray) => {
+		const angle = centerAngle + ray.localAngle;
+		if (containsOrigin) {
+			return {
+				angle,
+				localAngle: ray.localAngle,
+				distance: 0,
+				blocked: true,
+			};
+		}
+
+		const activeWalls = [];
+		const seenWalls = new Set();
+		for (const shadow of shadows) {
+			if (
+				ray.localAngle < shadow.minOffset - GEOMETRY_EPSILON ||
+				ray.localAngle > shadow.maxOffset + GEOMETRY_EPSILON ||
+				seenWalls.has(shadow.wall)
+			) {
+				continue;
+			}
+			seenWalls.add(shadow.wall);
+			activeWalls.push(shadow.wall);
+		}
+
+		const hit = getFirstRoundedWallHit(
+			originX,
+			originY,
+			angle,
+			safeDistance,
+			safeRadius,
+			activeWalls,
+		);
+
+		return {
+			angle,
+			localAngle: ray.localAngle,
+			distance: hit?.distance ?? safeDistance,
+			blocked: hit !== null,
+		};
+	});
+
+	return {
+		originX,
+		originY,
+		centerAngle,
+		halfAngle: safeHalfAngle,
+		maxDistance: safeDistance,
+		rays,
+	};
 }
 
 // Returns the wall-clear angular component nearest preferredAngle. Every
