@@ -373,7 +373,6 @@ export async function initGame() {
 		GameState.gameModeId = gameModeId;
 		GameState.configSource = gameMode.allowsEditedConfig ? "session" : "factory";
 		GameState.levelSource = gameMode.allowsEditedLevel ? "session" : "factory";
-		GameState.isInvincible = launchOptions.godMode === true;
 		player.speed = Config.PLAYER_SPEED;
 		player.size = Config.PLAYER_SIZE_BLOCKS;
 		syncCameraViewport();

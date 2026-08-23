@@ -5,6 +5,7 @@ import { GameState, player, camera, markEnvironmentChanged } from "./state.js";
 import { markWallIndexDirty } from "./spatial/wall-index.js";
 import { canvas, debugUI, respawnBtn } from "./dom.js";
 import { readLaunchOptions } from "./launch-options.js";
+import { resolveLevelRuntimeSettings } from "./level.js";
 import { requestLaserShot, shoot } from "./combat.js";
 import {
 	getActionsForInput,
@@ -116,11 +117,13 @@ export function updateProgressiveEnemySpawnRate(playerX = player.x) {
 		forwardProgress,
 	);
 
-	const completedHundreds = Math.floor(
-		(GameState.enemySpawnProgressBlocks + 1e-9) / 100,
+	const completedIntervals = Math.floor(
+		(GameState.enemySpawnProgressBlocks + 1e-9) /
+			GameState.enemySpawnRateIncreaseIntervalBlocks,
 	);
 	GameState.enemySpawnRate =
-		GameState.enemySpawnBaseRate + completedHundreds * 0.1;
+		GameState.enemySpawnBaseRate +
+		completedIntervals * GameState.enemySpawnRateIncreasePerInterval;
 	return GameState.enemySpawnRate;
 }
 
@@ -138,6 +141,7 @@ export function loadLevel(levelDefinition = null) {
 		}
 
 		const data = cloneLevelDefinition(activeLevelDefinition);
+		const runtimeSettings = resolveLevelRuntimeSettings(data, Config);
 
 		if (data.playerSpawn) {
 			player.x = data.playerSpawn.x;
@@ -172,6 +176,19 @@ export function loadLevel(levelDefinition = null) {
 		GameState.enemySpawnProgressOriginX = player.x;
 		GameState.enemySpawnProgressBlocks = 0;
 		GameState.enemySpawnRateProgressionEnabled = proceduralLevel;
+		GameState.enemySpawnRateIncreasePerInterval =
+			runtimeSettings.enemySpawnRateIncreasePerInterval;
+		GameState.enemySpawnRateIncreaseIntervalBlocks =
+			runtimeSettings.enemySpawnRateIncreaseIntervalBlocks;
+		GameState.minimumEnemySpawnDistanceBlocks =
+			runtimeSettings.minimumEnemySpawnDistanceBlocks;
+		GameState.maximumEnemySpawnDistanceBlocks =
+			runtimeSettings.maximumEnemySpawnDistanceBlocks;
+		GameState.corridorCeilingYBlocks = runtimeSettings.corridorCeilingYBlocks;
+		GameState.corridorWidthBlocks = runtimeSettings.corridorWidthBlocks;
+		GameState.structureSpawnChance = runtimeSettings.structureSpawnChance;
+		GameState.structureDensityBlocks = runtimeSettings.structureDensityBlocks;
+		GameState.isInvincible = runtimeSettings.invincibility;
 
 		if (proceduralLevel) {
 			GameState.levelSeed = data.seed;

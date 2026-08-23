@@ -30,6 +30,7 @@ const replaySetupTitle = document.getElementById("replaySetupTitle");
 const replaySetupDetails = document.getElementById("replaySetupDetails");
 
 let launchOptions = readLaunchOptions();
+let factoryLevelDefinition = null;
 let activeReplay = null;
 
 function setStatus(message, isError = false) {
@@ -98,7 +99,7 @@ function renderGameModes() {
 }
 
 function syncLaunchOptionsToUi() {
-	godModeToggle.checked = launchOptions.godMode === true;
+	godModeToggle.checked = launchOptions.level?.invincibility === true;
 	levelData.value = launchOptions.level
 		? JSON.stringify(launchOptions.level, null, 4)
 		: "";
@@ -120,7 +121,6 @@ function readLaunchOptionsFromUi() {
 	const selectedMode = document.querySelector('input[name="gameMode"]:checked');
 	launchOptions = {
 		gameModeId: selectedMode?.value || launchOptions.gameModeId || "sandbox",
-		godMode: godModeToggle.checked,
 		level: parsedLevel,
 	};
 
@@ -130,9 +130,12 @@ function readLaunchOptionsFromUi() {
 
 function updateLaunchSummary() {
 	const mode = getGameMode(launchOptions.gameModeId);
-	const seed = launchOptions.level?.seed;
+	const effectiveLevel = mode.allowsEditedLevel
+		? launchOptions.level
+		: factoryLevelDefinition;
+	const seed = effectiveLevel?.seed;
 	const seedText = seed === undefined ? "explicit level" : `seed ${seed}`;
-	launchSummary.textContent = `${mode.label} · ${seedText}${launchOptions.godMode ? " · God Mode" : ""}`;
+	launchSummary.textContent = `${mode.label} · ${seedText}${effectiveLevel?.invincibility === true ? " · Invincible" : ""}`;
 }
 
 function replayDurationMs(replay) {
@@ -236,6 +239,28 @@ for (const button of tabButtons) {
 
 window.addEventListener("hashchange", () => showTab(selectedTabFromHash(), false));
 
+godModeToggle.addEventListener("change", () => {
+	try {
+		const parsedLevel = JSON.parse(levelData.value);
+		if (!parsedLevel || typeof parsedLevel !== "object" || Array.isArray(parsedLevel)) {
+			return;
+		}
+		parsedLevel.invincibility = godModeToggle.checked;
+		levelData.value = JSON.stringify(parsedLevel, null, 4);
+	} catch {
+		// Keep invalid JSON untouched so the normal save validation can explain it.
+	}
+});
+
+levelData.addEventListener("input", () => {
+	try {
+		const parsedLevel = JSON.parse(levelData.value);
+		godModeToggle.checked = parsedLevel?.invincibility === true;
+	} catch {
+		// Do not interrupt editing while the JSON is temporarily incomplete.
+	}
+});
+
 saveLaunchOptionsBtn.addEventListener("click", () => {
 	try {
 		readLaunchOptionsFromUi();
@@ -249,7 +274,8 @@ saveLaunchOptionsBtn.addEventListener("click", () => {
 resetLaunchOptionsBtn.addEventListener("click", async () => {
 	try {
 		launchOptions = resetLaunchOptions();
-		launchOptions.level = await loadDefaultLevelDefinition({ reload: true });
+		factoryLevelDefinition = await loadDefaultLevelDefinition({ reload: true });
+		launchOptions.level = factoryLevelDefinition;
 		launchOptions = writeLaunchOptions(launchOptions);
 		syncLaunchOptionsToUi();
 		renderGameModes();
@@ -271,8 +297,9 @@ launchGameBtn.addEventListener("click", () => {
 
 async function initMenu() {
 	try {
+		factoryLevelDefinition = await loadDefaultLevelDefinition();
 		if (!launchOptions.level) {
-			launchOptions.level = await loadDefaultLevelDefinition();
+			launchOptions.level = factoryLevelDefinition;
 			launchOptions = writeLaunchOptions(launchOptions);
 		}
 

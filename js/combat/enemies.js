@@ -805,8 +805,8 @@ export function updateEnemies(currentTime, dt) {
 				const dist = Math.hypot(spawn.x - pCenterX, spawn.y - pCenterY);
 
 				return (
-					dist >= Config.MIN_SPAWN_DISTANCE_BLOCKS &&
-					dist <= Config.MAX_SPAWN_DISTANCE_BLOCKS
+					dist >= GameState.minimumEnemySpawnDistanceBlocks &&
+					dist <= GameState.maximumEnemySpawnDistanceBlocks
 				);
 			});
 

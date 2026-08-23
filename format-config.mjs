@@ -2,6 +2,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { buildPolyominoStructures } from "./polyomino-structures.mjs";
 
 const MAX_SUPPORTED_SCHEMA_VERSION = 21;
 const DEFAULT_CONFIG_PATH = "config.json";
@@ -402,6 +403,18 @@ function migrateEnemyType(enemy, targetVersion) {
     return reorderObject(enemy, ENEMY_ORDER);
 }
 
+function mergeGeneratedPolyominoStructures(structures) {
+    const generated = buildPolyominoStructures();
+    const generatedTypes = new Set(generated.map((structure) => structure.type));
+    const retained = Array.isArray(structures)
+        ? structures.filter((structure) => !generatedTypes.has(structure?.type))
+        : [];
+
+    // Generated types are refreshed on every formatter run. Unrelated custom
+    // and hand-authored structures retain their original contents and order.
+    return [...retained, ...generated];
+}
+
 function migrateConfig(config, targetVersion) {
     const originalVersion =
         Number.isFinite(Number(config.CONFIG_SCHEMA_VERSION))
@@ -442,6 +455,10 @@ function migrateConfig(config, targetVersion) {
             );
         }
     }
+
+    config.STRUCTURE_LIBRARY = mergeGeneratedPolyominoStructures(
+        config.STRUCTURE_LIBRARY,
+    );
 
     delete config.PLAYER_SHOOT_COOLDOWN;
 

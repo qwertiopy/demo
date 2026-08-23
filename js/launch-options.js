@@ -9,7 +9,6 @@ function clone(value) {
 export function createDefaultLaunchOptions() {
 	return {
 		gameModeId: "sandbox",
-		godMode: false,
 		level: null,
 	};
 }
@@ -23,14 +22,20 @@ export function normalizeLaunchOptions(value) {
 			? value.gameModeId
 			: defaults.gameModeId;
 
+	const level =
+		value.level && typeof value.level === "object" && !Array.isArray(value.level)
+			? clone(value.level)
+			: defaults.level;
+
+	// Migrate the old launch-option checkbox into the level definition once.
+	if (level && level.invincibility === undefined && value.godMode === true) {
+		level.invincibility = true;
+	}
+
 	return {
 		gameModeId:
 			requestedGameModeId === "standard" ? "sandbox" : requestedGameModeId,
-		godMode: value.godMode === true,
-		level:
-			value.level && typeof value.level === "object" && !Array.isArray(value.level)
-				? clone(value.level)
-				: defaults.level,
+		level,
 	};
 }
 

@@ -71,6 +71,96 @@ export function spawnEnemyPointFromCell(cellX, cellY, type) {
 	markEnvironmentChanged();
 }
 
+// Uses whichever is larger: the declared template size or the actual grid.
+// This keeps malformed, stale, or hand-edited dimensions from understating the
+// rectangle that placement must reserve.
+export function getStructureTemplateSize(template) {
+	if (
+		!Array.isArray(template?.grid) ||
+		template.grid.length === 0 ||
+		template.grid.some((row) => !Array.isArray(row))
+	) {
+		return null;
+	}
+
+	const gridWidth = template.grid.reduce(
+		(maxWidth, row) => Math.max(maxWidth, row.length),
+		0,
+	);
+	const declaredWidth = Math.max(
+		0,
+		Math.ceil(Number(template.widthBlocks) || 0),
+	);
+	const declaredHeight = Math.max(
+		0,
+		Math.ceil(Number(template.heightBlocks) || 0),
+	);
+	const width = Math.max(gridWidth, declaredWidth);
+	const height = Math.max(template.grid.length, declaredHeight);
+
+	return width > 0 && height > 0 ? { width, height } : null;
+}
+
+function getStructureBounds(structure) {
+	const left = Number(structure?.origin?.x);
+	const top = Number(structure?.origin?.y);
+	const width = Number(structure?.size?.width);
+	const height = Number(structure?.size?.height);
+
+	if (
+		!Number.isFinite(left) ||
+		!Number.isFinite(top) ||
+		!Number.isFinite(width) ||
+		!Number.isFinite(height) ||
+		width <= 0 ||
+		height <= 0
+	) {
+		return null;
+	}
+
+	return {
+		left,
+		right: left + width,
+		top,
+		bottom: top + height,
+	};
+}
+
+// Structure bounds are half-open, so adjacent structures may touch at an edge
+// without being treated as overlapping.
+export function structureBoundsOverlap(first, second) {
+	const a = getStructureBounds(first);
+	const b = getStructureBounds(second);
+	if (!a || !b) return false;
+
+	return (
+		a.left < b.right &&
+		a.right > b.left &&
+		a.top < b.bottom &&
+		a.bottom > b.top
+	);
+}
+
+export function canPlaceStructure(
+	candidate,
+	placedStructures = GameState.placedStructures,
+	minimumOriginDistance = GameState.structureDensityBlocks,
+) {
+	if (!getStructureBounds(candidate)) return false;
+
+	const density = Math.max(0, Number(minimumOriginDistance) || 0);
+	return placedStructures.every((placed) => {
+		if (structureBoundsOverlap(candidate, placed)) return false;
+
+		return (
+			Math.hypot(
+				candidate.origin.x - placed.origin.x,
+				candidate.origin.y - placed.origin.y,
+			) >= density
+		);
+	});
+}
+
 // Generates the corridor, walls, and structures around the player's X position and records generated columns so they are not regenerated repeatedly.
 export function updateProceduralGeneration(playerX) {
 	const startX = Math.max(
@@ -79,8 +169,8 @@ export function updateProceduralGeneration(playerX) {
 	);
 	const endX = Math.floor(playerX) + Config.RENDERING.DISTANCE_FRONT_BLOCKS;
 
-	const ceilingY = 0;
-	const corridorWidthBlocks = 10;
+	const ceilingY = GameState.corridorCeilingYBlocks;
+	const corridorWidthBlocks = GameState.corridorWidthBlocks;
 	const floorY = ceilingY + corridorWidthBlocks;
 
 	if (!GameState.generatedColumns.has(0) && startX <= 0 && endX >= 0) {
@@ -100,7 +190,7 @@ export function updateProceduralGeneration(playerX) {
 		GameState.currentSeed =
 			((GameState.levelSeed ^ (blockX * 2654435761)) >>> 0) % 233280;
 
-		if (seededRandom() <= 0.5) continue;
+		if (seededRandom() >= GameState.structureSpawnChance) continue;
 
 		const template =
 			Config.STRUCTURE_LIBRARY[
@@ -108,27 +198,22 @@ export function updateProceduralGeneration(playerX) {
 			];
 
 		if (!template) continue;
+		const structureSize = getStructureTemplateSize(template);
+		if (!structureSize) continue;
 
 		const minY = ceilingY + 1;
-		const maxY = floorY - template.heightBlocks;
+		const maxY = floorY - structureSize.height;
+		if (maxY < minY) continue;
 		const structY = Math.floor(seededRandom() * (maxY - minY + 1)) + minY;
 
-		const canSpawn = !GameState.placedStructures.some(
-			(s) =>
-				Math.hypot(blockX - s.origin.x, structY - s.origin.y) <
-				Config.STRUCTURE_DENSITY_BLOCKS,
-		);
-
-		if (!canSpawn) continue;
-
-		GameState.placedStructures.push({
+		const placedStructure = {
 			origin: { x: blockX, y: structY },
-			size: {
-				width: template.widthBlocks,
-				height: template.heightBlocks,
-			},
+			size: structureSize,
 			type: template.type,
-		});
+		};
+
+		if (!canPlaceStructure(placedStructure)) continue;
+		GameState.placedStructures.push(placedStructure);
 
 		for (let r = 0; r < template.grid.length; r++) {
 			for (let c = 0; c < template.grid[r].length; c++) {
@@ -175,7 +260,9 @@ export function cleanupProceduralGeneration(playerX) {
 	}
 
 	GameState.placedStructures = GameState.placedStructures.filter(
-		(s) => s.origin.x >= safeStartX && s.origin.x <= safeEndX,
+		(s) =>
+			s.origin.x + s.size.width > safeStartX &&
+			s.origin.x <= safeEndX,
 	);
 
 	// Despawn enemies once their full hitbox is outside the active render window.

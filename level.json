@@ -1,10 +1,19 @@
 {
     "seed": 12345,
+    "invincibility": false,
     "playerSpawn": {
         "x": 1,
         "y": 1
     },
     "enemySpawns": [],
     "enemySpawnRate": 1,
+    "enemySpawnRateIncreasePerInterval": 0.1,
+    "enemySpawnRateIncreaseIntervalBlocks": 100,
+    "minimumEnemySpawnDistanceBlocks": 25,
+    "maximumEnemySpawnDistanceBlocks": 35,
+    "corridorCeilingYBlocks": 0,
+    "corridorWidthBlocks": 10,
+    "structureSpawnChance": 0.5,
+    "structureDensityBlocks": 1,
     "walls": []
 }
