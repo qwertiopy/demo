@@ -140,7 +140,12 @@ function updateLaunchSummary() {
 
 function replayDurationMs(replay) {
 	const frames = replay?.frames || [];
-	return frames.length > 0 ? Math.max(0, Number(frames.at(-1)?.timeMs) || 0) : 0;
+	if (frames.length === 0) return 0;
+	const lastFrame = frames.at(-1);
+	const timeMs = Number(replay.replayVersion) >= 3
+		? Number(lastFrame?.[0])
+		: Number(lastFrame?.timeMs);
+	return Math.max(0, timeMs || 0);
 }
 
 function formatReplayDuration(milliseconds) {
@@ -208,10 +213,10 @@ replaySetupFileInput?.addEventListener("change", async () => {
 	}
 });
 
-replaySetupSaveBtn?.addEventListener("click", () => {
+replaySetupSaveBtn?.addEventListener("click", async () => {
 	if (!activeReplay) return;
 	try {
-		const bytes = downloadReplay(activeReplay);
+		const bytes = await downloadReplay(activeReplay);
 		syncReplaySetupUi(`Saved replay (${(bytes / 1024 / 1024).toFixed(2)} MiB).`);
 	} catch (error) {
 		setReplaySetupError(`Replay save failed: ${error.message}`);

@@ -16,6 +16,27 @@ import { saveActiveReplay } from "./replay-store.js";
 // This is used by trail interpolation and is also serialized into replay files.
 const renderIds = new WeakMap();
 const replayEnvironmentMaps = new WeakMap();
+const replayEntityDefinitionMaps = new WeakMap();
+const replayHydratedFrameMaps = new WeakMap();
+const REPLAY_ENVIRONMENT_KEYFRAME_INTERVAL = 120;
+
+// Version 3 frames are positional arrays so field names are not repeated at
+// 60 Hz. Keep this layout synchronized with replay-file.js validation.
+const V3_FRAME = Object.freeze({
+	TIME_MS: 0,
+	ENVIRONMENT_REVISION: 1,
+	CAMERA_X: 2,
+	CAMERA_Y: 3,
+	ACTIVE_WEAPON_INDEX: 4,
+	MAX_DISTANCE: 5,
+	PLAYER: 6,
+	ENEMIES: 7,
+	PROJECTILES: 8,
+	PROJECTILE_TRAIL_EVENTS: 9,
+	LASER_WARMUPS: 10,
+	LASER_BEAMS: 11,
+	EXPLOSIONS: 12,
+});
 let nextRenderId = 1;
 
 function getRenderId(object, prefix) {
@@ -33,9 +54,19 @@ const ReplayRuntime = {
 	recordingStartedAt: null,
 	recordedFrames: [],
 	recordedRendering: null,
+	recordedViewport: null,
+	recordedPlayerStyle: null,
+	recordedSources: null,
 	recordedEnvironments: [],
+	recordedWallTuples: null,
 	lastRecordedEnvironmentStateRevision: null,
 	currentRecordedEnvironmentRevision: -1,
+	recordedRenderIds: new Map(),
+	nextRecordedRenderId: 1,
+	recordedEnemyDefinitions: [],
+	recordedEnemyDefinitionIds: new Set(),
+	recordedProjectileDefinitions: [],
+	recordedProjectileDefinitionIds: new Set(),
 	loadedReplay: null,
 	playbackActive: false,
 	playbackPlaying: false,
@@ -52,6 +83,130 @@ const ReplayRuntime = {
 
 function clonePlain(value) {
 	return JSON.parse(JSON.stringify(value));
+}
+
+function replayConfigSnapshot() {
+	const config = clonePlain(Config);
+	delete config.DEBUG;
+	return config;
+}
+
+function recordedRenderId(renderId) {
+	let id = ReplayRuntime.recordedRenderIds.get(renderId);
+	if (id === undefined) {
+		id = ReplayRuntime.nextRecordedRenderId++;
+		ReplayRuntime.recordedRenderIds.set(renderId, id);
+	}
+	return id;
+}
+
+function encodeEnemy(enemy) {
+	const id = recordedRenderId(enemy.renderId);
+	if (!ReplayRuntime.recordedEnemyDefinitionIds.has(id)) {
+		ReplayRuntime.recordedEnemyDefinitionIds.add(id);
+		ReplayRuntime.recordedEnemyDefinitions.push([
+			id,
+			enemy.size,
+			enemy.color,
+			enemy.maxHp,
+		]);
+	}
+	return [id, enemy.x, enemy.y, enemy.hp];
+}
+
+function encodeProjectile(projectile) {
+	const id = recordedRenderId(projectile.renderId);
+	if (!ReplayRuntime.recordedProjectileDefinitionIds.has(id)) {
+		ReplayRuntime.recordedProjectileDefinitionIds.add(id);
+		ReplayRuntime.recordedProjectileDefinitions.push([
+			id,
+			projectile.radius,
+			projectile.color,
+		]);
+	}
+	return [id, projectile.x, projectile.y];
+}
+
+function encodeLaserWarmup(warmup) {
+	const id = recordedRenderId(warmup.renderId);
+	if (warmup.type === "cone") {
+		return [
+			id,
+			1,
+			warmup.originX,
+			warmup.originY,
+			warmup.centerAngle,
+			warmup.halfAngle,
+			warmup.range,
+			warmup.color,
+			warmup.alpha,
+		];
+	}
+
+	return [
+		id,
+		0,
+		warmup.x1,
+		warmup.y1,
+		warmup.x2,
+		warmup.y2,
+		warmup.color,
+		warmup.radius,
+		warmup.alpha,
+	];
+}
+
+function encodeLaserBeam(beam) {
+	const id = recordedRenderId(beam.renderId);
+	if (beam.type === "cone") {
+		return [
+			id,
+			1,
+			(beam.points || []).flatMap((point) => [point.x, point.y]),
+			beam.color,
+			beam.alpha,
+		];
+	}
+
+	return [
+		id,
+		0,
+		beam.x1,
+		beam.y1,
+		beam.x2,
+		beam.y2,
+		beam.color,
+		beam.radius,
+		beam.alpha,
+	];
+}
+
+function encodeExplosion(explosion) {
+	return [
+		recordedRenderId(explosion.renderId),
+		explosion.x,
+		explosion.y,
+		explosion.radius,
+		explosion.color,
+	];
+}
+
+function encodeReplayFrame(snapshot, timeMs, environmentRevision) {
+	return [
+		timeMs,
+		environmentRevision,
+		snapshot.camera.x,
+		snapshot.camera.y,
+		snapshot.activeWeaponIndex,
+		snapshot.maxDistance,
+		[snapshot.player.x, snapshot.player.y, snapshot.player.hp],
+		(snapshot.enemies || []).map(encodeEnemy),
+		(snapshot.projectiles || []).map(encodeProjectile),
+		(snapshot.projectileTrailEvents || []).map(encodeProjectile),
+		(snapshot.laserWarmups || []).map(encodeLaserWarmup),
+		(snapshot.laserBeams || []).map(encodeLaserBeam),
+		(snapshot.explosions || []).map(encodeExplosion),
+	];
 }
 
 function renderingSnapshot() {
@@ -502,22 +657,53 @@ export function getLiveTrailEntries(
 	return entries.length >= 2 ? entries : [];
 }
 
-function cloneEnvironmentSnapshot(snapshot, revision) {
+function wallTuple(wall) {
+	return [wall.x, wall.y, wall.width, wall.height, wall.color];
+}
+
+function wallTupleKey(wall) {
+	return JSON.stringify(wall);
+}
+
+function countWallTuples(walls) {
+	const counts = new Map();
+	for (const wall of walls) {
+		const key = wallTupleKey(wall);
+		counts.set(key, (counts.get(key) || 0) + 1);
+	}
+	return counts;
+}
+
+function diffWallTuples(previousWalls, nextWalls) {
+	const previousCounts = countWallTuples(previousWalls);
+	const nextCounts = countWallTuples(nextWalls);
+	const additions = [];
+	const removals = [];
+
+	for (const wall of nextWalls) {
+		const key = wallTupleKey(wall);
+		const remaining = previousCounts.get(key) || 0;
+		if (remaining > 0) previousCounts.set(key, remaining - 1);
+		else additions.push(wall);
+	}
+
+	for (const wall of previousWalls) {
+		const key = wallTupleKey(wall);
+		const remaining = nextCounts.get(key) || 0;
+		if (remaining > 0) nextCounts.set(key, remaining - 1);
+		else removals.push(wall);
+	}
+
+	return { additions, removals };
+}
+
+function decodeWallTuple(wall) {
 	return {
-		revision,
-		walls: (snapshot.walls || []).map((wall) => ({
-			x: wall.x,
-			y: wall.y,
-			width: wall.width,
-			height: wall.height,
-			color: wall.color,
-		})),
-		enemySpawns: (snapshot.enemySpawns || []).map((spawn) => ({
-			x: spawn.x,
-			y: spawn.y,
-			size: spawn.size,
-			type: spawn.type,
-		})),
+		x: wall[0],
+		y: wall[1],
+		width: wall[2],
+		height: wall[3],
+		color: wall[4],
 	};
 }
 
@@ -525,18 +711,51 @@ function ensureRecordedEnvironment(snapshot) {
 	const stateRevision = Number(GameState.environmentRevision) || 0;
 
 	if (
-		ReplayRuntime.recordedEnvironments.length === 0 ||
-		ReplayRuntime.lastRecordedEnvironmentStateRevision !== stateRevision
+		ReplayRuntime.recordedEnvironments.length > 0 &&
+		ReplayRuntime.lastRecordedEnvironmentStateRevision === stateRevision
 	) {
-		const revision = ReplayRuntime.recordedEnvironments.length;
-		ReplayRuntime.recordedEnvironments.push(
-			cloneEnvironmentSnapshot(snapshot, revision),
-		);
-		ReplayRuntime.lastRecordedEnvironmentStateRevision = stateRevision;
-		ReplayRuntime.currentRecordedEnvironmentRevision = revision;
+		return ReplayRuntime.currentRecordedEnvironmentRevision;
 	}
 
+	const nextWalls = (snapshot.walls || []).map(wallTuple);
+	const previousWalls = ReplayRuntime.recordedWallTuples || [];
+	const { additions, removals } = diffWallTuples(previousWalls, nextWalls);
+	ReplayRuntime.lastRecordedEnvironmentStateRevision = stateRevision;
+
+	// Spawn-point changes are debug-only and therefore do not create replay
+	// environment revisions when the visible wall geometry is unchanged.
+	if (
+		ReplayRuntime.recordedEnvironments.length > 0 &&
+		additions.length === 0 &&
+		removals.length === 0
+	) {
+		return ReplayRuntime.currentRecordedEnvironmentRevision;
+	}
+
+	const revision = ReplayRuntime.recordedEnvironments.length;
+	const keyframe =
+		revision === 0 || revision % REPLAY_ENVIRONMENT_KEYFRAME_INTERVAL === 0;
+	ReplayRuntime.recordedEnvironments.push(
+		keyframe
+			? { r: revision, k: nextWalls }
+			: { r: revision, a: additions, d: removals },
+	);
+	ReplayRuntime.recordedWallTuples = nextWalls;
+	ReplayRuntime.currentRecordedEnvironmentRevision = revision;
+
 	return ReplayRuntime.currentRecordedEnvironmentRevision;
+}
+
+function applyWallDelta(previousWalls, additions, removals) {
+	const removalCounts = countWallTuples(removals || []);
+	const retainedWalls = previousWalls.filter((wall) => {
+		const key = wallTupleKey(wall);
+		const remaining = removalCounts.get(key) || 0;
+		if (remaining <= 0) return true;
+		removalCounts.set(key, remaining - 1);
+		return false;
+	});
+	return retainedWalls.concat((additions || []).map((wall) => [...wall]));
 }
 
 function environmentMapForReplay(replay) {
@@ -544,21 +763,212 @@ function environmentMapForReplay(replay) {
 
 	let environmentMap = replayEnvironmentMaps.get(replay);
 	if (!environmentMap) {
-		environmentMap = new Map(
-			(replay.environments || []).map((environment) => [
-				Number(environment.revision),
-				environment,
-			]),
-		);
+		if (Number(replay.replayVersion) >= 3) {
+			environmentMap = new Map();
+			let walls = [];
+			for (const environment of replay.environments || []) {
+				if (Array.isArray(environment.k)) {
+					walls = environment.k.map((wall) => [...wall]);
+				} else {
+					walls = applyWallDelta(walls, environment.a, environment.d);
+				}
+				environmentMap.set(Number(environment.r), {
+					revision: Number(environment.r),
+					walls: walls.map(decodeWallTuple),
+					enemySpawns: [],
+				});
+			}
+		} else {
+			environmentMap = new Map(
+				(replay.environments || []).map((environment) => [
+					Number(environment.revision),
+					environment,
+				]),
+			);
+		}
 		replayEnvironmentMaps.set(replay, environmentMap);
 	}
 
 	return environmentMap;
 }
 
+function entityDefinitionMapsForReplay(replay) {
+	let maps = replayEntityDefinitionMaps.get(replay);
+	if (!maps) {
+		maps = {
+			enemies: new Map(
+				(replay.entityDefinitions?.enemies || []).map((definition) => [
+					Number(definition[0]),
+					definition,
+				]),
+			),
+			projectiles: new Map(
+				(replay.entityDefinitions?.projectiles || []).map((definition) => [
+					Number(definition[0]),
+					definition,
+				]),
+			),
+		};
+		replayEntityDefinitionMaps.set(replay, maps);
+	}
+	return maps;
+}
+
+function replayFrameTimeMs(replay, frame) {
+	return Number(replay?.replayVersion) >= 3
+		? Number(frame?.[V3_FRAME.TIME_MS]) || 0
+		: Number(frame?.timeMs) || 0;
+}
+
+function replayFrameEnvironmentRevision(replay, frame) {
+	return Number(replay?.replayVersion) >= 3
+		? Number(frame?.[V3_FRAME.ENVIRONMENT_REVISION])
+		: Number(frame?.environmentRevision);
+}
+
+function decodeLaserWarmup(warmup) {
+	if (warmup[1] === 1) {
+		return {
+			renderId: warmup[0],
+			type: "cone",
+			originX: warmup[2],
+			originY: warmup[3],
+			centerAngle: warmup[4],
+			halfAngle: warmup[5],
+			range: warmup[6],
+			color: warmup[7],
+			alpha: warmup[8],
+		};
+	}
+
+	return {
+		renderId: warmup[0],
+		type: "beam",
+		x1: warmup[2],
+		y1: warmup[3],
+		x2: warmup[4],
+		y2: warmup[5],
+		color: warmup[6],
+		radius: warmup[7],
+		alpha: warmup[8],
+	};
+}
+
+function decodeLaserBeam(beam) {
+	if (beam[1] === 1) {
+		const coordinates = beam[2] || [];
+		const points = [];
+		for (let index = 0; index + 1 < coordinates.length; index += 2) {
+			points.push({ x: coordinates[index], y: coordinates[index + 1] });
+		}
+		return {
+			renderId: beam[0],
+			type: "cone",
+			points,
+			color: beam[3],
+			alpha: beam[4],
+		};
+	}
+
+	return {
+		renderId: beam[0],
+		type: "beam",
+		x1: beam[2],
+		y1: beam[3],
+		x2: beam[4],
+		y2: beam[5],
+		color: beam[6],
+		radius: beam[7],
+		alpha: beam[8],
+	};
+}
+
+function decodeV3Frame(replay, frame, frameIndex) {
+	const definitions = entityDefinitionMapsForReplay(replay);
+	const playerStyle = replay.playerStyle || [];
+	const viewport = replay.viewport || [];
+	const sources = replay.sources || {};
+	const playerFrame = frame[V3_FRAME.PLAYER] || [];
+
+	const decodeEnemy = (enemy) => {
+		const definition = definitions.enemies.get(Number(enemy[0])) || [];
+		return {
+			renderId: enemy[0],
+			x: enemy[1],
+			y: enemy[2],
+			size: definition[1],
+			color: definition[2],
+			hp: enemy[3],
+			maxHp: definition[3],
+		};
+	};
+	const decodeProjectile = (projectile) => {
+		const definition = definitions.projectiles.get(Number(projectile[0])) || [];
+		return {
+			renderId: projectile[0],
+			x: projectile[1],
+			y: projectile[2],
+			radius: definition[1],
+			color: definition[2],
+		};
+	};
+
+	return {
+		frame: frameIndex,
+		timeMs: replayFrameTimeMs(replay, frame),
+		environmentRevision: replayFrameEnvironmentRevision(replay, frame),
+		camera: {
+			x: frame[V3_FRAME.CAMERA_X],
+			y: frame[V3_FRAME.CAMERA_Y],
+			widthBlocks: viewport[0],
+			heightBlocks: viewport[1],
+		},
+		showEditorHelpers: false,
+		activeWeaponIndex: frame[V3_FRAME.ACTIVE_WEAPON_INDEX],
+		maxDistance: frame[V3_FRAME.MAX_DISTANCE],
+		configSource: sources.config,
+		levelSource: sources.level,
+		player: {
+			renderId: "player",
+			x: playerFrame[0],
+			y: playerFrame[1],
+			size: playerStyle[0],
+			color: playerStyle[1],
+			hp: playerFrame[2],
+			maxHp: playerStyle[2],
+		},
+		enemies: (frame[V3_FRAME.ENEMIES] || []).map(decodeEnemy),
+		projectiles: (frame[V3_FRAME.PROJECTILES] || []).map(decodeProjectile),
+		projectileTrailEvents: (
+			frame[V3_FRAME.PROJECTILE_TRAIL_EVENTS] || []
+		).map(decodeProjectile),
+		laserWarmups: (frame[V3_FRAME.LASER_WARMUPS] || []).map(
+			decodeLaserWarmup,
+		),
+		laserBeams: (frame[V3_FRAME.LASER_BEAMS] || []).map(decodeLaserBeam),
+		explosions: (frame[V3_FRAME.EXPLOSIONS] || []).map((explosion) => ({
+			renderId: explosion[0],
+			x: explosion[1],
+			y: explosion[2],
+			radius: explosion[3],
+			color: explosion[4],
+		})),
+	};
+}
+
 function hydrateReplayFrame(replay, frame, frameIndex) {
 	if (!replay || !frame) return null;
-	if (Number(replay.replayVersion) < 2) return frame;
+	if (Number(replay.replayVersion) < 2) {
+		return { ...frame, showEditorHelpers: false };
+	}
+	if (Number(replay.replayVersion) >= 3) {
+		let frameMap = replayHydratedFrameMaps.get(replay);
+		if (!frameMap) {
+			frameMap = new Map();
+			replayHydratedFrameMaps.set(replay, frameMap);
+		}
+		if (frameMap.has(frameIndex)) return frameMap.get(frameIndex);
+	}
 
 	if (
 		ReplayRuntime.playbackHydratedReplay === replay &&
@@ -568,11 +978,18 @@ function hydrateReplayFrame(replay, frame, frameIndex) {
 		return ReplayRuntime.playbackHydratedSnapshot;
 	}
 
+	const dynamicSnapshot =
+		Number(replay.replayVersion) >= 3
+			? decodeV3Frame(replay, frame, frameIndex)
+			: frame;
 	const environment = environmentMapForReplay(replay)?.get(
-		Number(frame.environmentRevision),
+		replayFrameEnvironmentRevision(replay, frame),
 	);
 	const snapshot = {
-		...frame,
+		...dynamicSnapshot,
+		// Replays intentionally reproduce the clean hidden-UI view, including
+		// older files that may contain recorded debug-helper state.
+		showEditorHelpers: false,
 		rendering: replay.rendering,
 		walls: environment?.walls || [],
 		enemySpawns: environment?.enemySpawns || [],
@@ -581,6 +998,9 @@ function hydrateReplayFrame(replay, frame, frameIndex) {
 	ReplayRuntime.playbackHydratedReplay = replay;
 	ReplayRuntime.playbackHydratedFrameIndex = frameIndex;
 	ReplayRuntime.playbackHydratedSnapshot = snapshot;
+	if (Number(replay.replayVersion) >= 3) {
+		replayHydratedFrameMaps.get(replay).set(frameIndex, snapshot);
+	}
 	return snapshot;
 }
 
@@ -619,9 +1039,19 @@ export function startReplayRecording() {
 	ReplayRuntime.recordingStartedAt = null;
 	ReplayRuntime.recordedFrames = [];
 	ReplayRuntime.recordedRendering = null;
+	ReplayRuntime.recordedViewport = null;
+	ReplayRuntime.recordedPlayerStyle = null;
+	ReplayRuntime.recordedSources = null;
 	ReplayRuntime.recordedEnvironments = [];
+	ReplayRuntime.recordedWallTuples = null;
 	ReplayRuntime.lastRecordedEnvironmentStateRevision = null;
 	ReplayRuntime.currentRecordedEnvironmentRevision = -1;
+	ReplayRuntime.recordedRenderIds = new Map();
+	ReplayRuntime.nextRecordedRenderId = 1;
+	ReplayRuntime.recordedEnemyDefinitions = [];
+	ReplayRuntime.recordedEnemyDefinitionIds = new Set();
+	ReplayRuntime.recordedProjectileDefinitions = [];
+	ReplayRuntime.recordedProjectileDefinitionIds = new Set();
 	setReplayStatus("Recording replay... 0 frames");
 	syncReplayButtons();
 	return true;
@@ -637,22 +1067,25 @@ export function recordReplaySnapshot(snapshot, currentTime) {
 	const timeMs = Math.max(0, currentTime - ReplayRuntime.recordingStartedAt);
 	if (!ReplayRuntime.recordedRendering) {
 		ReplayRuntime.recordedRendering = clonePlain(snapshot.rendering);
+		ReplayRuntime.recordedViewport = [
+			snapshot.camera.widthBlocks,
+			snapshot.camera.heightBlocks,
+		];
+		ReplayRuntime.recordedPlayerStyle = [
+			snapshot.player.size,
+			snapshot.player.color,
+			snapshot.player.maxHp,
+		];
+		ReplayRuntime.recordedSources = {
+			config: snapshot.configSource,
+			level: snapshot.levelSource,
+		};
 	}
 
 	const environmentRevision = ensureRecordedEnvironment(snapshot);
-	const {
-		rendering: _rendering,
-		walls: _walls,
-		enemySpawns: _enemySpawns,
-		...dynamicSnapshot
-	} = snapshot;
-
-	ReplayRuntime.recordedFrames.push({
-		...dynamicSnapshot,
-		frame: ReplayRuntime.recordedFrames.length,
-		timeMs,
-		environmentRevision,
-	});
+	ReplayRuntime.recordedFrames.push(
+		encodeReplayFrame(snapshot, timeMs, environmentRevision),
+	);
 
 	if (ReplayRuntime.recordedFrames.length % 30 === 0) {
 		setReplayStatus(
@@ -677,8 +1110,15 @@ export async function stopReplayRecording() {
 		configSchemaVersion: Config.CONFIG_SCHEMA_VERSION,
 		levelSeed: GameState.levelSeed,
 		gameModeId: GameState.gameModeId,
-		config: clonePlain(Config),
+		config: replayConfigSnapshot(),
 		rendering: ReplayRuntime.recordedRendering,
+		viewport: ReplayRuntime.recordedViewport,
+		playerStyle: ReplayRuntime.recordedPlayerStyle,
+		sources: ReplayRuntime.recordedSources,
+		entityDefinitions: {
+			enemies: ReplayRuntime.recordedEnemyDefinitions,
+			projectiles: ReplayRuntime.recordedProjectileDefinitions,
+		},
 		environments: ReplayRuntime.recordedEnvironments,
 		frames: ReplayRuntime.recordedFrames,
 	};
@@ -722,7 +1162,7 @@ export function getReplayPlaybackState(currentTime = performance.now()) {
 	const replay = ReplayRuntime.loadedReplay;
 	const frames = replay?.frames || [];
 	const durationMs = frames.length > 0
-		? Math.max(0, Number(frames[frames.length - 1].timeMs) || 0)
+		? Math.max(0, replayFrameTimeMs(replay, frames[frames.length - 1]))
 		: 0;
 	const playbackTimeMs = replay
 		? Math.min(durationMs, Math.max(0, currentPlaybackTimeMs(currentTime)))
@@ -754,7 +1194,7 @@ export function startOrResumeReplayPlayback(currentTime = performance.now()) {
 		const lastFrame = replay.frames[replay.frames.length - 1];
 		if (
 			ReplayRuntime.playbackFrameIndex >= replay.frames.length - 1 &&
-			ReplayRuntime.playbackBaseTimeMs >= Number(lastFrame.timeMs)
+			ReplayRuntime.playbackBaseTimeMs >= replayFrameTimeMs(replay, lastFrame)
 		) {
 			ReplayRuntime.playbackFrameIndex = 0;
 			ReplayRuntime.playbackBaseTimeMs = 0;
@@ -818,14 +1258,15 @@ function currentPlaybackTimeMs(currentTime) {
 	);
 }
 
-function findReplayFrameIndexAtTime(frames, targetTimeMs) {
+function findReplayFrameIndexAtTime(replay, targetTimeMs) {
+	const frames = replay.frames;
 	let low = 0;
 	let high = frames.length - 1;
 	let result = 0;
 
 	while (low <= high) {
 		const middle = Math.floor((low + high) / 2);
-		const frameTime = Number(frames[middle]?.timeMs) || 0;
+		const frameTime = replayFrameTimeMs(replay, frames[middle]);
 
 		if (frameTime <= targetTimeMs) {
 			result = middle;
@@ -858,7 +1299,7 @@ export function seekReplayPlayback(targetTimeMs, currentTime = performance.now()
 	const frames = replay.frames;
 	const durationMs = Math.max(
 		0,
-		Number(frames[frames.length - 1].timeMs) || 0,
+		replayFrameTimeMs(replay, frames[frames.length - 1]),
 	);
 	const target = Math.min(
 		durationMs,
@@ -871,7 +1312,7 @@ export function seekReplayPlayback(targetTimeMs, currentTime = performance.now()
 
 	ReplayRuntime.playbackBaseTimeMs = target;
 	ReplayRuntime.playbackStartedAt = currentTime;
-	ReplayRuntime.playbackFrameIndex = findReplayFrameIndexAtTime(frames, target);
+	ReplayRuntime.playbackFrameIndex = findReplayFrameIndexAtTime(replay, target);
 
 	if (target >= durationMs && ReplayRuntime.playbackPlaying) {
 		ReplayRuntime.playbackPlaying = false;
@@ -895,12 +1336,16 @@ export function getReplaySnapshotForRender(currentTime) {
 		return null;
 	}
 
-	const frames = ReplayRuntime.loadedReplay.frames;
+	const replay = ReplayRuntime.loadedReplay;
+	const frames = replay.frames;
 	const playbackTimeMs = currentPlaybackTimeMs(currentTime);
 
 	while (
 		ReplayRuntime.playbackFrameIndex + 1 < frames.length &&
-		Number(frames[ReplayRuntime.playbackFrameIndex + 1].timeMs) <=
+		replayFrameTimeMs(
+			replay,
+			frames[ReplayRuntime.playbackFrameIndex + 1],
+		) <=
 			playbackTimeMs
 	) {
 		ReplayRuntime.playbackFrameIndex += 1;
@@ -909,11 +1354,12 @@ export function getReplaySnapshotForRender(currentTime) {
 	if (
 		ReplayRuntime.playbackPlaying &&
 		ReplayRuntime.playbackFrameIndex === frames.length - 1 &&
-		playbackTimeMs >= Number(frames[frames.length - 1].timeMs)
+		playbackTimeMs >= replayFrameTimeMs(replay, frames[frames.length - 1])
 	) {
 		ReplayRuntime.playbackPlaying = false;
-		ReplayRuntime.playbackBaseTimeMs = Number(
-			frames[frames.length - 1].timeMs,
+		ReplayRuntime.playbackBaseTimeMs = replayFrameTimeMs(
+			replay,
+			frames[frames.length - 1],
 		);
 		setReplayStatus(`Replay finished (${frames.length} frames).`);
 		syncReplayButtons();
@@ -938,36 +1384,43 @@ export function getReplayTrailEntries(
 	detail = Math.min(60, Math.max(0, Math.round(Number(detail) || 0)));
 	if (trailLength <= 0 || detail <= 0) return [];
 
-	const frames = ReplayRuntime.loadedReplay.frames;
+	const replay = ReplayRuntime.loadedReplay;
+	const frames = replay.frames;
 	const currentIndex = ReplayRuntime.playbackFrameIndex;
 	const startIndex = Math.max(0, currentIndex - trailLength);
 	const entries = [];
 
 	for (let index = startIndex; index <= currentIndex; index++) {
-		const frameNumber = Number.isFinite(Number(frames[index]?.frame))
-			? Math.max(0, Math.floor(Number(frames[index].frame)))
+		const snapshot = hydrateReplayFrame(replay, frames[index], index);
+		const frameNumber = Number.isFinite(Number(snapshot?.frame))
+			? Math.max(0, Math.floor(Number(snapshot.frame)))
 			: index;
 		const hasProjectileTrailEvents =
 			preserveProjectileEvents &&
-			(frames[index]?.projectileTrailEvents?.length ?? 0) > 0;
+			(snapshot?.projectileTrailEvents?.length ?? 0) > 0;
 		if (!isTrailDetailFrame(frameNumber, detail) && !hasProjectileTrailEvents) {
 			continue;
 		}
 
 		const ageFrames = currentIndex - index;
 		entries.push({
-			snapshot: frames[index],
+			snapshot,
 			alpha: Math.max(0, 1 - ageFrames / trailLength),
 			frameNumber,
 		});
 	}
 
-	const currentFrameNumber = Number.isFinite(Number(frames[currentIndex]?.frame))
-		? Math.max(0, Math.floor(Number(frames[currentIndex].frame)))
+	const currentSnapshot = hydrateReplayFrame(
+		replay,
+		frames[currentIndex],
+		currentIndex,
+	);
+	const currentFrameNumber = Number.isFinite(Number(currentSnapshot?.frame))
+		? Math.max(0, Math.floor(Number(currentSnapshot.frame)))
 		: currentIndex;
 	if (entries.at(-1)?.frameNumber !== currentFrameNumber) {
 		entries.push({
-			snapshot: frames[currentIndex],
+			snapshot: currentSnapshot,
 			alpha: 1,
 			frameNumber: currentFrameNumber,
 		});
