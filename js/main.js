@@ -153,6 +153,10 @@ const PerformanceStats = {
 	tickDurationSamples: 0,
 };
 
+function setDebugStatVisibility(element, visible) {
+	if (element) element.hidden = !visible;
+}
+
 // Caps unexpected stalls while still allowing deliberately low target FPS
 // values to use their intended timestep rather than entering slow motion.
 export const MAX_DT_SECONDS = 0.05;
@@ -165,34 +169,62 @@ export function getTargetFps() {
 }
 
 function updatePerformanceUi(currentTime, tickDurationMs, targetFps) {
+	const debug = Config.DEBUG || {};
+	const showFps = debug.SHOW_FPS !== false;
+	const showTargetFps = debug.SHOW_TARGET_FPS !== false;
+	const showMsPerTick = debug.SHOW_MS_PER_TICK !== false;
+	const showEntityCount = debug.SHOW_ENTITY_COUNT !== false;
+	const showEnemyCount = debug.SHOW_ENEMY_COUNT !== false;
+	const showBulletCount = debug.SHOW_BULLET_COUNT !== false;
+
+	setDebugStatVisibility(performanceFps, showFps);
+	setDebugStatVisibility(performanceTargetFps, showTargetFps);
+	setDebugStatVisibility(performanceMsPerTick, showMsPerTick);
+	setDebugStatVisibility(performanceEntityCount, showEntityCount);
+	setDebugStatVisibility(performanceEnemyCount, showEnemyCount);
+	setDebugStatVisibility(performanceBulletCount, showBulletCount);
+
 	if (PerformanceStats.windowStartedAt === null) {
 		PerformanceStats.windowStartedAt = currentTime;
 	}
 
-	if (Number.isFinite(tickDurationMs) && tickDurationMs > 0) {
+	if (
+		(showFps || showMsPerTick) &&
+		Number.isFinite(tickDurationMs) &&
+		tickDurationMs > 0
+	) {
 		PerformanceStats.tickDurationTotalMs += tickDurationMs;
 		PerformanceStats.tickDurationSamples += 1;
 	}
 
-	if (performanceTargetFps) {
+	if (showTargetFps && performanceTargetFps) {
 		performanceTargetFps.textContent = `Target FPS: ${targetFps}`;
 	}
 
-	const enemyCount = GameState.enemies.length;
-	const playerBulletCount = GameState.bullets.length;
-	const enemyBulletCount = GameState.enemyBullets.length;
-	const bulletCount = playerBulletCount + enemyBulletCount;
-	const entityCount = enemyCount + bulletCount;
+	if (showEntityCount || showEnemyCount || showBulletCount) {
+		const enemyCount = GameState.enemies.length;
+		const playerBulletCount = GameState.bullets.length;
+		const enemyBulletCount = GameState.enemyBullets.length;
+		const bulletCount = playerBulletCount + enemyBulletCount;
 
-	if (performanceEntityCount) {
-		performanceEntityCount.textContent = `Entities: ${entityCount}`;
+		if (showEntityCount && performanceEntityCount) {
+			performanceEntityCount.textContent =
+				`Entities: ${enemyCount + bulletCount}`;
+		}
+		if (showEnemyCount && performanceEnemyCount) {
+			performanceEnemyCount.textContent = `Enemies: ${enemyCount}`;
+		}
+		if (showBulletCount && performanceBulletCount) {
+			performanceBulletCount.textContent =
+				`Bullets: ${bulletCount} (Player: ${playerBulletCount} / Enemy: ${enemyBulletCount})`;
+		}
 	}
-	if (performanceEnemyCount) {
-		performanceEnemyCount.textContent = `Enemies: ${enemyCount}`;
-	}
-	if (performanceBulletCount) {
-		performanceBulletCount.textContent =
-			`Bullets: ${bulletCount} (Player: ${playerBulletCount} / Enemy: ${enemyBulletCount})`;
+
+	if (!showFps && !showMsPerTick) {
+		PerformanceStats.windowStartedAt = currentTime;
+		PerformanceStats.tickDurationTotalMs = 0;
+		PerformanceStats.tickDurationSamples = 0;
+		return;
 	}
 
 	const windowMs = currentTime - PerformanceStats.windowStartedAt;
@@ -206,10 +238,10 @@ function updatePerformanceUi(currentTime, tickDurationMs, targetFps) {
 	const measuredFps =
 		measuredMsPerTick > 0 ? 1000 / measuredMsPerTick : 0;
 
-	if (performanceFps) {
+	if (showFps && performanceFps) {
 		performanceFps.textContent = `FPS: ${measuredFps.toFixed(1)}`;
 	}
-	if (performanceMsPerTick) {
+	if (showMsPerTick && performanceMsPerTick) {
 		performanceMsPerTick.textContent = `ms/tick: ${measuredMsPerTick.toFixed(2)}`;
 	}
 

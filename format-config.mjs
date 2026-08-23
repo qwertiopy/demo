@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const MAX_SUPPORTED_SCHEMA_VERSION = 20;
+const MAX_SUPPORTED_SCHEMA_VERSION = 21;
 const DEFAULT_CONFIG_PATH = "config.json";
 const CONFIG_SOURCE_PATH = path.join("js", "config.js");
 
@@ -23,6 +23,24 @@ const RENDERING_DEFAULTS = {
     TRAIL_LENGTH_FRAMES: 0,
     TRAIL_DETAIL: 60,
     TRAIL_QUAD_DETAIL: 30,
+};
+
+const DEBUG_DEFAULTS = {
+    MAX_DRAWS_PER_FRAME: 1000,
+    SHOW_FPS: true,
+    SHOW_TARGET_FPS: true,
+    SHOW_MS_PER_TICK: true,
+    SHOW_ENTITY_COUNT: true,
+    SHOW_ENEMY_COUNT: true,
+    SHOW_BULLET_COUNT: true,
+    DRAW_GRID_COORDINATES: true,
+    DRAW_ENEMY_SPAWNS: true,
+    DRAW_ENEMY_AIM_MAXIMUM_CONE: true,
+    DRAW_ENEMY_AIM_VISIBILITY_REGION: true,
+    DRAW_ENEMY_AIM_VISIBLE_INTERVAL: true,
+    DRAW_ENEMY_AIM_BOUNDARY_POINTS: true,
+    DRAW_ENEMY_AIM_LEAD_ANGLE: true,
+    DRAW_ENEMY_AIM_CACHED_CORNER: true,
 };
 
 const WEAPON_CURRENT_DEFAULTS = {
@@ -66,6 +84,7 @@ const TOP_LEVEL_ORDER = [
     "PLAYER_SPEED",
     "PLAYER_BULLET_SPEED",
     "RENDERING",
+    "DEBUG",
     "WEAPONS",
     "PLAYER_SIZE_BLOCKS",
     "MIN_SPAWN_DISTANCE_BLOCKS",
@@ -76,6 +95,7 @@ const TOP_LEVEL_ORDER = [
 ];
 
 const RENDERING_ORDER = Object.keys(RENDERING_DEFAULTS);
+const DEBUG_ORDER = Object.keys(DEBUG_DEFAULTS);
 
 const WEAPON_ORDER = [
     "speed",
@@ -276,6 +296,22 @@ function migrateRendering(config, originalVersion, targetVersion) {
     config.RENDERING = reorderObject(config.RENDERING, RENDERING_ORDER);
 }
 
+function migrateDebug(config, targetVersion) {
+    if (targetVersion < 21) {
+        return;
+    }
+
+    if (!isPlainObject(config.DEBUG)) {
+        config.DEBUG = {};
+    }
+
+    for (const [key, value] of Object.entries(DEBUG_DEFAULTS)) {
+        setDefault(config.DEBUG, key, value);
+    }
+
+    config.DEBUG = reorderObject(config.DEBUG, DEBUG_ORDER);
+}
+
 function migrateWeapon(weapon, originalVersion, targetVersion, oldGlobalCooldown) {
     if (!isPlainObject(weapon)) {
         return weapon;
@@ -385,6 +421,7 @@ function migrateConfig(config, targetVersion) {
     );
 
     migrateRendering(config, originalVersion, targetVersion);
+    migrateDebug(config, targetVersion);
 
     if (Array.isArray(config.WEAPONS)) {
         config.WEAPONS = config.WEAPONS.map((weapon) =>

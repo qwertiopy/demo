@@ -1,7 +1,7 @@
 export const CONFIG_STORAGE_KEY = "demoGameConfig";
 
 export const Config = {
-    CONFIG_SCHEMA_VERSION: 20,
+    CONFIG_SCHEMA_VERSION: 21,
     PLAYER_SPEED: 0,
     PLAYER_BULLET_SPEED: 0,
     WEAPONS: [],
@@ -23,6 +23,23 @@ export const Config = {
         TRAIL_LENGTH_FRAMES: 0,
         TRAIL_DETAIL: 60,
         TRAIL_QUAD_DETAIL: 30,
+    },
+    DEBUG: {
+        MAX_DRAWS_PER_FRAME: 1000,
+        SHOW_FPS: true,
+        SHOW_TARGET_FPS: true,
+        SHOW_MS_PER_TICK: true,
+        SHOW_ENTITY_COUNT: true,
+        SHOW_ENEMY_COUNT: true,
+        SHOW_BULLET_COUNT: true,
+        DRAW_GRID_COORDINATES: true,
+        DRAW_ENEMY_SPAWNS: true,
+        DRAW_ENEMY_AIM_MAXIMUM_CONE: true,
+        DRAW_ENEMY_AIM_VISIBILITY_REGION: true,
+        DRAW_ENEMY_AIM_VISIBLE_INTERVAL: true,
+        DRAW_ENEMY_AIM_BOUNDARY_POINTS: true,
+        DRAW_ENEMY_AIM_LEAD_ANGLE: true,
+        DRAW_ENEMY_AIM_CACHED_CORNER: true,
     },
     PLAYER_SIZE_BLOCKS: 0.5,
     MIN_SPAWN_DISTANCE_BLOCKS: 25,
@@ -376,6 +393,15 @@ function migrateConfig(defaultConfig, savedConfig) {
         }
 
         migratedConfig.ENEMY_TYPES = migratedEnemyTypes;
+    }
+
+    // Schema v21 adds independently configurable debug stats/draw layers and a
+    // shared per-frame debug drawing budget.
+    if (savedVersion < 21) {
+        migratedConfig.DEBUG = mergeConfig(
+            defaultConfig.DEBUG,
+            isPlainObject(savedConfig.DEBUG) ? savedConfig.DEBUG : {},
+        );
     }
 
     return migratedConfig;

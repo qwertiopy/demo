@@ -25,7 +25,7 @@ const WALL_ANGLE_EPSILON = 1e-9;
 const DEFAULT_ENEMY_AIM_CALCULATION_BUDGET_PER_FRAME = 100000;
 let enemyAimCalculationBudgetRemaining =
 	DEFAULT_ENEMY_AIM_CALCULATION_BUDGET_PER_FRAME;
-let enemyAimSchedulerCursor = 0;
+let enemyAimSchedulerNextEnemy = null;
 
 function resetEnemyAimCalculationBudget() {
 	enemyAimCalculationBudgetRemaining = Math.max(
@@ -481,6 +481,72 @@ function getRememberedBoundaryAngle(originX, originY, boundary) {
 	return tangentAngle + inwardSign * angularInset;
 }
 
+function hasWorldSpaceAimCorner(boundary) {
+	if (!boundary) return false;
+
+	const source = boundary.source;
+	return (
+		(source?.kind === "rounded-corner-tangent" &&
+			Number.isFinite(source.x) &&
+			Number.isFinite(source.y)) ||
+		(source?.kind === "point" &&
+			Number.isFinite(source.x) &&
+			Number.isFinite(source.y)) ||
+		(Number.isFinite(boundary.point?.x) &&
+			Number.isFinite(boundary.point?.y))
+	);
+}
+
+function getEnemyBudgetFallbackAim(
+	enemy,
+	originX,
+	originY,
+	preferredAngle,
+) {
+	let boundary = hasWorldSpaceAimCorner(enemy.lostLosCorner)
+		? enemy.lostLosCorner
+		: null;
+
+	if (!boundary && enemy.lastVisibleAimInterval) {
+		const intervalBoundary = getIntervalBoundaryTowardAngle(
+			enemy.lastVisibleAimInterval,
+			preferredAngle,
+		);
+		if (hasWorldSpaceAimCorner(intervalBoundary)) {
+			boundary = intervalBoundary;
+		}
+	}
+
+	if (boundary) {
+		const angle = getRememberedBoundaryAngle(
+			originX,
+			originY,
+			boundary,
+		);
+		if (Number.isFinite(angle)) {
+			return {
+				angle,
+				boundary: cloneAimBoundary(boundary),
+			};
+		}
+	}
+
+	const fallbackX = Number.isFinite(enemy.aimFallbackLastSeenX)
+		? enemy.aimFallbackLastSeenX
+		: enemy.lastSeenX;
+	const fallbackY = Number.isFinite(enemy.aimFallbackLastSeenY)
+		? enemy.aimFallbackLastSeenY
+		: enemy.lastSeenY;
+	if (!Number.isFinite(fallbackX) || !Number.isFinite(fallbackY)) {
+		return null;
+	}
+
+	return {
+		angle: Math.atan2(fallbackY - originY, fallbackX - originX),
+		boundary: null,
+	};
+}
+
 function getSingleAngleInterval(angle) {
 	return {
 		centerAngle: angle,
@@ -564,7 +630,8 @@ function scheduleEnemyAimCalculations() {
 	const losByEnemy = new Map();
 	const hasTargetByEnemy = new Map();
 	const scanResultByEnemy = new Map();
-	const jobs = [];
+	const priorityJobs = [];
+	const normalJobs = [];
 	const maximumPlayerSpeed = getMaximumPlayerMovementSpeed();
 
 	for (let index = 0; index < GameState.enemies.length; index++) {
@@ -593,9 +660,15 @@ function scheduleEnemyAimCalculations() {
 		// Idle enemies have no target and perform no aiming work at all.
 		if (!hasTarget) continue;
 
-		const reacquiredTarget = los &&
-			(!hasRememberedTarget || enemy.lastAimLos === false);
-		prepareEnemyAimCornerCache(enemy, reacquiredTarget);
+		const gainedLos = los && enemy.lastAimLos !== true;
+		if (gainedLos) {
+			// Capture this before any budgeted work. If the first visibility scan
+			// cannot run this frame, the enemy can still fire at the exact player
+			// world position observed when LOS was gained.
+			enemy.aimFallbackLastSeenX = playerCenterX;
+			enemy.aimFallbackLastSeenY = playerCenterY;
+		}
+		prepareEnemyAimCornerCache(enemy, gainedLos);
 		updateAimWallCornerAngles(
 			enemy.aimWallCornerCache,
 			originX,
@@ -623,7 +696,7 @@ function scheduleEnemyAimCalculations() {
 		const scanningWallCone = enemy.aimMode === "wall" ||
 			wallGeometry.canStart;
 
-		jobs.push({
+		const job = {
 			enemy,
 			originalIndex: index,
 			playerDistance,
@@ -638,34 +711,22 @@ function scheduleEnemyAimCalculations() {
 			maxDistance: scanningWallCone
 				? wallGeometry.encounterDistance
 				: leadDistance,
-		});
+		};
+		(gainedLos ? priorityJobs : normalJobs).push(job);
 	}
 
-	jobs.sort((first, second) =>
+	const sortNearestFirst = (first, second) =>
 		first.playerDistance - second.playerDistance ||
-		first.originalIndex - second.originalIndex,
-	);
-	if (jobs.length === 0) {
-		enemyAimSchedulerCursor = 0;
+		first.originalIndex - second.originalIndex;
+	priorityJobs.sort(sortNearestFirst);
+	normalJobs.sort(sortNearestFirst);
+	if (priorityJobs.length === 0 && normalJobs.length === 0) {
+		enemyAimSchedulerNextEnemy = null;
 		return { losByEnemy, hasTargetByEnemy, scanResultByEnemy };
 	}
 
-	const startIndex = enemyAimSchedulerCursor % jobs.length;
-	const orderedJobs = [
-		...jobs.slice(startIndex),
-		...jobs.slice(0, startIndex),
-	];
-	let attemptedJobs = 0;
-
-	for (let index = 0; index < orderedJobs.length; index++) {
-		if (enemyAimCalculationBudgetRemaining <= 0) break;
-
-		const job = orderedJobs[index];
-		const jobsRemaining = orderedJobs.length - index;
-		const allowance = Math.max(
-			1,
-			Math.floor(enemyAimCalculationBudgetRemaining / jobsRemaining),
-		);
+	const runJob = (job) => {
+		if (enemyAimCalculationBudgetRemaining <= 0) return null;
 		const result = advanceEnemyAimWallScan(
 			job.enemy,
 			job.originX,
@@ -673,18 +734,51 @@ function scheduleEnemyAimCalculations() {
 			job.directAngle,
 			job.halfAngle,
 			job.maxDistance,
-			allowance,
+			enemyAimCalculationBudgetRemaining,
 		);
 		scanResultByEnemy.set(job.enemy, result);
-		attemptedJobs++;
+		return result;
+	};
+
+	// A newly acquired target is always serviced first, nearest enemy first.
+	// Every job receives the entire remaining budget so it either completes or
+	// remains the sole partial scan carried into a later frame.
+	for (const job of priorityJobs) {
+		const result = runJob(job);
+		if (!result) {
+			enemyAimSchedulerNextEnemy = job.enemy;
+			return { losByEnemy, hasTargetByEnemy, scanResultByEnemy };
+		}
+		if (result.truncated) {
+			enemyAimSchedulerNextEnemy = job.enemy;
+			return { losByEnemy, hasTargetByEnemy, scanResultByEnemy };
+		}
 	}
 
-	// Resume with the next nearest entry in the sorted ring. When every target
-	// received a slice, rotate the starting point by one for equal long-term use
-	// of any remainder that could not be divided evenly.
-	enemyAimSchedulerCursor = attemptedJobs >= orderedJobs.length
-		? (startIndex + 1) % jobs.length
-		: (startIndex + attemptedJobs) % jobs.length;
+	if (normalJobs.length === 0) {
+		enemyAimSchedulerNextEnemy = null;
+		return { losByEnemy, hasTargetByEnemy, scanResultByEnemy };
+	}
+
+	const resumeIndex = normalJobs.findIndex(
+		(job) => job.enemy === enemyAimSchedulerNextEnemy,
+	);
+	const startIndex = resumeIndex >= 0 ? resumeIndex : 0;
+	const orderedJobs = [
+		...normalJobs.slice(startIndex),
+		...normalJobs.slice(0, startIndex),
+	];
+
+	for (let index = 0; index < orderedJobs.length; index++) {
+		const job = orderedJobs[index];
+		enemyAimSchedulerNextEnemy = job.enemy;
+		const result = runJob(job);
+		if (!result || result.truncated) break;
+
+		// Move only after this enemy's complete wall set has been published.
+		enemyAimSchedulerNextEnemy =
+			orderedJobs[(index + 1) % orderedJobs.length].enemy;
+	}
 
 	return { losByEnemy, hasTargetByEnemy, scanResultByEnemy };
 }
@@ -740,6 +834,8 @@ export function updateEnemies(currentTime, dt) {
 					ai: stats.ai,
 					lastSeenX: null,
 					lastSeenY: null,
+					aimFallbackLastSeenX: null,
+					aimFallbackLastSeenY: null,
 					vx: 0,
 					vy: 0,
 					moveX: 0,
@@ -902,7 +998,10 @@ export function updateEnemies(currentTime, dt) {
 		e.debugAimWallScanTruncated = hasAimTarget &&
 			!trackedAimGeometryComplete;
 		const trackedAimVisibilityProfile =
-			trackedAimGeometryComplete && GameState.showEditorHelpers
+			trackedAimGeometryComplete &&
+			GameState.showEditorHelpers &&
+			Number(Config.DEBUG?.MAX_DRAWS_PER_FRAME ?? 1000) > 0 &&
+			Config.DEBUG?.DRAW_ENEMY_AIM_VISIBILITY_REGION !== false
 			? getEnemyAimVisibilityProfile(
 				e,
 				eCenterX,
@@ -932,8 +1031,16 @@ export function updateEnemies(currentTime, dt) {
 		e.debugUsingCachedCorner = false;
 
 		if (los) {
-			e.lostLosCorner = null;
-			e.lostLosCornerAngle = null;
+			if (trackedAimGeometryComplete) {
+				e.lostLosCorner = null;
+				e.lostLosCornerAngle = null;
+			} else {
+				e.lostLosCornerAngle = getRememberedBoundaryAngle(
+					eCenterX,
+					eCenterY,
+					e.lostLosCorner,
+				);
+			}
 			e.debugVisibleAimInterval = trackedVisibleInterval;
 			e.debugAimVisibilityProfile = trackedAimVisibilityProfile;
 			e.debugAimDistance = trackingMaximumDistance;
@@ -975,12 +1082,46 @@ export function updateEnemies(currentTime, dt) {
 		}
 
 		const readyToShoot = currentTime - e.lastShot > e.shootCooldown;
+		let firedBudgetFallback = false;
+
+		// An unfinished or unvisited budget job must not suppress shooting. Prefer
+		// the last real world-space wall corner, then fall back to the player world
+		// position captured on the frame LOS was gained.
+		if (readyToShoot && !trackedAimGeometryComplete) {
+			const fallbackAim = getEnemyBudgetFallbackAim(
+				e,
+				eCenterX,
+				eCenterY,
+				directAngle,
+			);
+			if (fallbackAim) {
+				if (fallbackAim.boundary) {
+					e.lostLosCorner = fallbackAim.boundary;
+					e.lostLosCornerAngle = fallbackAim.angle;
+					e.debugUsingCachedCorner = true;
+				}
+
+				fireEnemyProjectile(
+					e,
+					eCenterX,
+					eCenterY,
+					pCenterX,
+					pCenterY,
+					currentTime,
+					fallbackAim.angle,
+					spread,
+					getSingleAngleInterval(fallbackAim.angle),
+				);
+				firedBudgetFallback = true;
+			}
+		}
 
 		// Once the player crosses behind a wall, keep suppressing the exact
 		// projectile-safe corner found on the final visible frame. A zero-width
 		// bound also prevents spread or multi-projectile volleys from entering the
 		// wall. Regaining LOS immediately returns control to normal aiming.
 		if (
+			!firedBudgetFallback &&
 			!los &&
 			readyToShoot &&
 			Number.isFinite(e.lostLosCornerAngle)
@@ -1149,7 +1290,9 @@ export function updateEnemies(currentTime, dt) {
 					const wallAimVisibilityProfile =
 						wallGeometry.canStart &&
 						wallAimGeometryComplete &&
-						GameState.showEditorHelpers
+						GameState.showEditorHelpers &&
+						Number(Config.DEBUG?.MAX_DRAWS_PER_FRAME ?? 1000) > 0 &&
+						Config.DEBUG?.DRAW_ENEMY_AIM_VISIBILITY_REGION !== false
 							? getEnemyAimVisibilityProfile(
 								e,
 								eCenterX,

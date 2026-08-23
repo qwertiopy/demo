@@ -1,5 +1,5 @@
 {
-    "CONFIG_SCHEMA_VERSION": 20,
+    "CONFIG_SCHEMA_VERSION": 21,
     "PLAYER_SPEED": 5,
     "PLAYER_BULLET_SPEED": 10,
     "RENDERING": {
@@ -14,10 +14,27 @@
         "CLEANUP_BUFFER_BLOCKS": 0,
         "LASER_FLASH_DURATION_MS": 100,
         "LASER_CALCULATION_BUDGET_PER_FRAME": 1000000,
-        "ENEMY_AIM_CALCULATION_BUDGET_PER_FRAME": 10000,
+        "ENEMY_AIM_CALCULATION_BUDGET_PER_FRAME": 100000000,
         "TRAIL_LENGTH_FRAMES": 10,
         "TRAIL_DETAIL": 60,
         "TRAIL_QUAD_DETAIL": 30
+    },
+    "DEBUG": {
+        "MAX_DRAWS_PER_FRAME": 500,
+        "SHOW_FPS": true,
+        "SHOW_TARGET_FPS": true,
+        "SHOW_MS_PER_TICK": true,
+        "SHOW_ENTITY_COUNT": true,
+        "SHOW_ENEMY_COUNT": true,
+        "SHOW_BULLET_COUNT": true,
+        "DRAW_GRID_COORDINATES": false,
+        "DRAW_ENEMY_SPAWNS": true,
+        "DRAW_ENEMY_AIM_MAXIMUM_CONE": false,
+        "DRAW_ENEMY_AIM_VISIBILITY_REGION": false,
+        "DRAW_ENEMY_AIM_VISIBLE_INTERVAL": true,
+        "DRAW_ENEMY_AIM_BOUNDARY_POINTS": true,
+        "DRAW_ENEMY_AIM_LEAD_ANGLE": true,
+        "DRAW_ENEMY_AIM_CACHED_CORNER": true
     },
     "WEAPONS": [
         {
@@ -311,7 +328,7 @@
             "predictionVariationThreshold": 0.1,
             "predictionVariation": 0.75,
             "wallVelocityChangeThreshold": 0.1,
-            "wallGapSafetyFactor": 2,
+            "wallGapSafetyFactor": 0.9,
             "wallMaxDurationMs": 500,
             "bulletExplosionRadiusBlocks": 0,
             "bulletDetonationTimeMs": 0,
@@ -339,7 +356,7 @@
             "predictionVariationThreshold": 0.1,
             "predictionVariation": 0.5,
             "wallVelocityChangeThreshold": 0.1,
-            "wallGapSafetyFactor": 1.1,
+            "wallGapSafetyFactor": 0.9,
             "wallMaxDurationMs": 500,
             "bulletExplosionRadiusBlocks": 0,
             "bulletDetonationTimeMs": 0,
@@ -368,7 +385,7 @@
             "predictionVariation": 0.375,
             "wallVelocityChangeThreshold": 0,
             "wallGapSafetyFactor": 0.9,
-            "wallMaxDurationMs": 0,
+            "wallMaxDurationMs": 0.1,
             "bulletExplosionRadiusBlocks": 0,
             "bulletDetonationTimeMs": 0,
             "bulletExplosionDurationMs": 0,

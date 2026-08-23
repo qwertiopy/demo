@@ -4,6 +4,53 @@
 import { Config } from "./config.js";
 import { canvas, ctx, respawnBtn } from "./dom.js";
 
+const DEFAULT_MAX_DEBUG_DRAWS_PER_FRAME = 1000;
+let debugDrawBudgetRemaining = 0;
+
+function normalizedDebugSettings(snapshot) {
+	const source = snapshot?.debug || Config.DEBUG || {};
+	const configuredBudget = Number(source.MAX_DRAWS_PER_FRAME);
+
+	return {
+		MAX_DRAWS_PER_FRAME: Number.isFinite(configuredBudget)
+			? Math.max(0, Math.floor(configuredBudget))
+			: DEFAULT_MAX_DEBUG_DRAWS_PER_FRAME,
+		SHOW_FPS: source.SHOW_FPS !== false,
+		SHOW_TARGET_FPS: source.SHOW_TARGET_FPS !== false,
+		SHOW_MS_PER_TICK: source.SHOW_MS_PER_TICK !== false,
+		SHOW_ENTITY_COUNT: source.SHOW_ENTITY_COUNT !== false,
+		SHOW_ENEMY_COUNT: source.SHOW_ENEMY_COUNT !== false,
+		SHOW_BULLET_COUNT: source.SHOW_BULLET_COUNT !== false,
+		DRAW_GRID_COORDINATES: source.DRAW_GRID_COORDINATES !== false,
+		DRAW_ENEMY_SPAWNS: source.DRAW_ENEMY_SPAWNS !== false,
+		DRAW_ENEMY_AIM_MAXIMUM_CONE:
+			source.DRAW_ENEMY_AIM_MAXIMUM_CONE !== false,
+		DRAW_ENEMY_AIM_VISIBILITY_REGION:
+			source.DRAW_ENEMY_AIM_VISIBILITY_REGION !== false,
+		DRAW_ENEMY_AIM_VISIBLE_INTERVAL:
+			source.DRAW_ENEMY_AIM_VISIBLE_INTERVAL !== false,
+		DRAW_ENEMY_AIM_BOUNDARY_POINTS:
+			source.DRAW_ENEMY_AIM_BOUNDARY_POINTS !== false,
+		DRAW_ENEMY_AIM_LEAD_ANGLE:
+			source.DRAW_ENEMY_AIM_LEAD_ANGLE !== false,
+		DRAW_ENEMY_AIM_CACHED_CORNER:
+			source.DRAW_ENEMY_AIM_CACHED_CORNER !== false,
+	};
+}
+
+function resetDebugDrawBudget(snapshot, debug) {
+	debugDrawBudgetRemaining = snapshot.showEditorHelpers
+		? debug.MAX_DRAWS_PER_FRAME
+		: 0;
+}
+
+function consumeDebugDrawBudget(cost = 1) {
+	const normalizedCost = Math.max(0, Math.floor(Number(cost) || 0));
+	if (normalizedCost > debugDrawBudgetRemaining) return false;
+	debugDrawBudgetRemaining -= normalizedCost;
+	return true;
+}
+
 function normalizedRendering(snapshot) {
 	const source = snapshot?.rendering || Config.RENDERING || {};
 	return {
@@ -36,7 +83,11 @@ function syncCanvasToSnapshot(rendering) {
 
 // Draws the checker/grid world background and optional enemy-spawn debug markers
 // for a supplied snapshot.
-export function drawProceduralEnvironment(snapshot, rendering) {
+export function drawProceduralEnvironment(
+	snapshot,
+	rendering,
+	debug = normalizedDebugSettings(snapshot),
+) {
 	const blockSizePx = rendering.BLOCK_SIZE_PX;
 	const snapshotCamera = snapshot.camera;
 	const overscan = rendering.ENVIRONMENT_OVERSCAN_BLOCKS;
@@ -58,7 +109,11 @@ export function drawProceduralEnvironment(snapshot, rendering) {
 			ctx.strokeStyle = "#222222";
 			ctx.strokeRect(px, py, blockSizePx, blockSizePx);
 
-			if (snapshot.showEditorHelpers) {
+			if (
+				snapshot.showEditorHelpers &&
+				debug.DRAW_GRID_COORDINATES &&
+				consumeDebugDrawBudget()
+			) {
 				ctx.fillStyle = "rgba(255, 255, 255, 0.25)";
 				ctx.font = "10px monospace";
 				ctx.fillText(`${x},${y}`, px + 4, py + 14);
@@ -66,9 +121,12 @@ export function drawProceduralEnvironment(snapshot, rendering) {
 		}
 	}
 
-	if (!snapshot.showEditorHelpers) return;
+	if (!snapshot.showEditorHelpers || !debug.DRAW_ENEMY_SPAWNS) return;
 
 	for (const spawn of snapshot.enemySpawns || []) {
+		// One unit each for the outline, fill, and label. Skip the whole marker if the
+		// shared budget cannot afford a complete representation.
+		if (!consumeDebugDrawBudget(3)) break;
 		const renderSizePx = (spawn.size || 0.5) * blockSizePx;
 		const px = spawn.x * blockSizePx;
 		const py = spawn.y * blockSizePx;
@@ -123,7 +181,7 @@ function drawActor(actor, blockSizePx, healthColor, includeUi) {
 	}
 }
 
-function drawEnemyAimDebug(enemy, blockSizePx) {
+function drawEnemyAimDebug(enemy, blockSizePx, settings) {
 	const debug = enemy?.aimDebug;
 	if (!debug) return;
 
@@ -155,9 +213,11 @@ function drawEnemyAimDebug(enemy, blockSizePx) {
 	// Draw the projectile-speed limit first so the wall-clipped visible region
 	// remains legible as the more specific interval on top of it.
 	if (
+		settings.DRAW_ENEMY_AIM_MAXIMUM_CONE &&
 		maximumInterval &&
 		Number.isFinite(maximumInterval.minAngle) &&
-		Number.isFinite(maximumInterval.maxAngle)
+		Number.isFinite(maximumInterval.maxAngle) &&
+		consumeDebugDrawBudget(3)
 	) {
 		ctx.fillStyle = "rgba(120, 160, 255, 0.05)";
 		ctx.beginPath();
@@ -189,7 +249,12 @@ function drawEnemyAimDebug(enemy, blockSizePx) {
 		}
 	}
 
-	if (visibilityProfile?.rays?.length >= 2) {
+	let visibilityProfileDrawn = false;
+	if (
+		settings.DRAW_ENEMY_AIM_VISIBILITY_REGION &&
+		visibilityProfile?.rays?.length >= 2 &&
+		consumeDebugDrawBudget(visibilityProfile.rays.length + 2)
+	) {
 		const profilePoints = visibilityProfile.rays.map((ray) => {
 			const rayDistance = Number.isFinite(ray.distance)
 				? Math.max(0, Math.min(distanceBlocks, ray.distance))
@@ -235,14 +300,19 @@ function drawEnemyAimDebug(enemy, blockSizePx) {
 		ctx.closePath();
 		ctx.fill();
 		ctx.stroke();
+		visibilityProfileDrawn = true;
 	}
 
-	if (
+	const hasVisibleInterval =
 		interval &&
 		Number.isFinite(interval.minAngle) &&
-		Number.isFinite(interval.maxAngle)
+		Number.isFinite(interval.maxAngle);
+	if (
+		settings.DRAW_ENEMY_AIM_VISIBLE_INTERVAL &&
+		hasVisibleInterval &&
+		consumeDebugDrawBudget(visibilityProfileDrawn ? 2 : 3)
 	) {
-		if (!visibilityProfile) {
+		if (!visibilityProfileDrawn) {
 			ctx.fillStyle = intervalFill;
 			ctx.beginPath();
 			ctx.moveTo(originX, originY);
@@ -269,14 +339,25 @@ function drawEnemyAimDebug(enemy, blockSizePx) {
 			);
 			ctx.stroke();
 		}
+	}
 
+	if (
+		settings.DRAW_ENEMY_AIM_BOUNDARY_POINTS &&
+		hasVisibleInterval
+	) {
 		ctx.setLineDash([]);
 		ctx.fillStyle = intervalColor;
 		for (const point of [
 			interval.minBoundaryPoint,
 			interval.maxBoundaryPoint,
 		]) {
-			if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) continue;
+			if (
+				!Number.isFinite(point?.x) ||
+				!Number.isFinite(point?.y) ||
+				!consumeDebugDrawBudget()
+			) {
+				continue;
+			}
 			ctx.beginPath();
 			ctx.arc(
 				point.x * blockSizePx,
@@ -289,7 +370,11 @@ function drawEnemyAimDebug(enemy, blockSizePx) {
 		}
 	}
 
-	if (Number.isFinite(debug.leadAngle)) {
+	if (
+		settings.DRAW_ENEMY_AIM_LEAD_ANGLE &&
+		Number.isFinite(debug.leadAngle) &&
+		consumeDebugDrawBudget()
+	) {
 		ctx.setLineDash([4, 4]);
 		ctx.strokeStyle = "rgba(255, 0, 255, 0.95)";
 		ctx.lineWidth = 2;
@@ -302,7 +387,12 @@ function drawEnemyAimDebug(enemy, blockSizePx) {
 		ctx.stroke();
 	}
 
-	if (debug.usingCachedCorner && Number.isFinite(debug.cachedCornerAngle)) {
+	if (
+		settings.DRAW_ENEMY_AIM_CACHED_CORNER &&
+		debug.usingCachedCorner &&
+		Number.isFinite(debug.cachedCornerAngle) &&
+		consumeDebugDrawBudget()
+	) {
 		ctx.setLineDash([]);
 		ctx.strokeStyle = "rgba(255, 170, 0, 1)";
 		ctx.lineWidth = 3;
@@ -316,7 +406,8 @@ function drawEnemyAimDebug(enemy, blockSizePx) {
 
 		if (
 			Number.isFinite(debug.cachedCornerPoint?.x) &&
-			Number.isFinite(debug.cachedCornerPoint?.y)
+			Number.isFinite(debug.cachedCornerPoint?.y) &&
+			consumeDebugDrawBudget()
 		) {
 			ctx.fillStyle = "rgba(255, 170, 0, 1)";
 			ctx.beginPath();
@@ -448,7 +539,10 @@ export function drawDynamicSnapshot(
 	snapshot,
 	rendering,
 	alphaMultiplier = 1,
-	{ includeUi = true } = {},
+	{
+		includeUi = true,
+		debug = normalizedDebugSettings(snapshot),
+	} = {},
 ) {
 	const alpha = Math.min(1, Math.max(0, Number(alphaMultiplier) || 0));
 	if (alpha <= 0) return;
@@ -459,7 +553,7 @@ export function drawDynamicSnapshot(
 
 	if (includeUi && snapshot.showEditorHelpers) {
 		for (const enemy of snapshot.enemies || []) {
-			drawEnemyAimDebug(enemy, blockSizePx);
+			drawEnemyAimDebug(enemy, blockSizePx, debug);
 		}
 	}
 
@@ -1188,6 +1282,8 @@ export function draw(snapshot, trailEntries = [], options = {}) {
 	if (!snapshot) return;
 
 	const rendering = normalizedRendering(snapshot);
+	const debug = normalizedDebugSettings(snapshot);
+	resetDebugDrawBudget(snapshot, debug);
 	syncCanvasToSnapshot(rendering);
 	ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -1198,7 +1294,7 @@ export function draw(snapshot, trailEntries = [], options = {}) {
 		-Math.floor(snapshot.camera.y * rendering.BLOCK_SIZE_PX),
 	);
 
-	drawProceduralEnvironment(snapshot, rendering);
+	drawProceduralEnvironment(snapshot, rendering, debug);
 	drawWalls(snapshot, rendering);
 
 	if (trailEntries.length > 0 || options.quadTrailEntries?.length > 0) {
@@ -1211,7 +1307,10 @@ export function draw(snapshot, trailEntries = [], options = {}) {
 
 	// Current-frame UI is rendered exactly once. Historical/swept trail frames
 	// intentionally omit health bars and all other UI elements.
-	drawDynamicSnapshot(snapshot, rendering, 1, { includeUi: true });
+	drawDynamicSnapshot(snapshot, rendering, 1, {
+		includeUi: true,
+		debug,
+	});
 	ctx.restore();
 
 	drawWeaponHud(snapshot);

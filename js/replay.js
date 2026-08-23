@@ -95,14 +95,143 @@ function renderingSnapshot() {
 	};
 }
 
+function debugSnapshot() {
+	const source = Config.DEBUG || {};
+	const configuredBudget = Number(source.MAX_DRAWS_PER_FRAME);
+
+	return {
+		MAX_DRAWS_PER_FRAME: Number.isFinite(configuredBudget)
+			? Math.max(0, Math.floor(configuredBudget))
+			: 1000,
+		SHOW_FPS: source.SHOW_FPS !== false,
+		SHOW_TARGET_FPS: source.SHOW_TARGET_FPS !== false,
+		SHOW_MS_PER_TICK: source.SHOW_MS_PER_TICK !== false,
+		SHOW_ENTITY_COUNT: source.SHOW_ENTITY_COUNT !== false,
+		SHOW_ENEMY_COUNT: source.SHOW_ENEMY_COUNT !== false,
+		SHOW_BULLET_COUNT: source.SHOW_BULLET_COUNT !== false,
+		DRAW_GRID_COORDINATES: source.DRAW_GRID_COORDINATES !== false,
+		DRAW_ENEMY_SPAWNS: source.DRAW_ENEMY_SPAWNS !== false,
+		DRAW_ENEMY_AIM_MAXIMUM_CONE:
+			source.DRAW_ENEMY_AIM_MAXIMUM_CONE !== false,
+		DRAW_ENEMY_AIM_VISIBILITY_REGION:
+			source.DRAW_ENEMY_AIM_VISIBILITY_REGION !== false,
+		DRAW_ENEMY_AIM_VISIBLE_INTERVAL:
+			source.DRAW_ENEMY_AIM_VISIBLE_INTERVAL !== false,
+		DRAW_ENEMY_AIM_BOUNDARY_POINTS:
+			source.DRAW_ENEMY_AIM_BOUNDARY_POINTS !== false,
+		DRAW_ENEMY_AIM_LEAD_ANGLE:
+			source.DRAW_ENEMY_AIM_LEAD_ANGLE !== false,
+		DRAW_ENEMY_AIM_CACHED_CORNER:
+			source.DRAW_ENEMY_AIM_CACHED_CORNER !== false,
+	};
+}
+
+function captureEnemyAimDebugSnapshot(enemy, debug) {
+	const maximumAimInterval =
+		debug.DRAW_ENEMY_AIM_MAXIMUM_CONE && enemy.debugMaximumAimInterval
+			? {
+				originX: enemy.debugMaximumAimInterval.originX,
+				originY: enemy.debugMaximumAimInterval.originY,
+				minAngle: enemy.debugMaximumAimInterval.minAngle,
+				maxAngle: enemy.debugMaximumAimInterval.maxAngle,
+			}
+			: null;
+	const aimVisibilityProfile =
+		debug.DRAW_ENEMY_AIM_VISIBILITY_REGION && enemy.debugAimVisibilityProfile
+			? {
+				originX: enemy.debugAimVisibilityProfile.originX,
+				originY: enemy.debugAimVisibilityProfile.originY,
+				maxDistance: Number.isFinite(
+					enemy.debugAimVisibilityProfile.maxDistance,
+				)
+					? enemy.debugAimVisibilityProfile.maxDistance
+					: 50,
+				rays: enemy.debugAimVisibilityProfile.rays.map((ray) => ({
+					angle: ray.angle,
+					distance: Number.isFinite(ray.distance) ? ray.distance : 50,
+					blocked: ray.blocked === true,
+				})),
+			}
+			: null;
+	const visibleInterval =
+		(debug.DRAW_ENEMY_AIM_VISIBLE_INTERVAL ||
+			debug.DRAW_ENEMY_AIM_BOUNDARY_POINTS) &&
+		enemy.debugVisibleAimInterval
+			? {
+				originX: enemy.debugVisibleAimInterval.originX,
+				originY: enemy.debugVisibleAimInterval.originY,
+				minAngle: enemy.debugVisibleAimInterval.minAngle,
+				maxAngle: enemy.debugVisibleAimInterval.maxAngle,
+				minBoundaryPoint:
+					enemy.debugVisibleAimInterval.minBoundary?.point || null,
+				maxBoundaryPoint:
+					enemy.debugVisibleAimInterval.maxBoundary?.point || null,
+			}
+			: null;
+	let cachedCornerPoint = null;
+	if (debug.DRAW_ENEMY_AIM_CACHED_CORNER) {
+		if (
+			enemy.lostLosCorner?.source?.kind === "point" ||
+			enemy.lostLosCorner?.source?.kind === "rounded-corner-tangent"
+		) {
+			cachedCornerPoint = {
+				x: enemy.lostLosCorner.source.x,
+				y: enemy.lostLosCorner.source.y,
+			};
+		} else {
+			cachedCornerPoint = enemy.lostLosCorner?.point || null;
+		}
+	}
+
+	return {
+		originX: Number.isFinite(enemy.debugAimOriginX)
+			? enemy.debugAimOriginX
+			: enemy.x + enemy.size / 2,
+		originY: Number.isFinite(enemy.debugAimOriginY)
+			? enemy.debugAimOriginY
+			: enemy.y + enemy.size / 2,
+		leadAngle:
+			debug.DRAW_ENEMY_AIM_LEAD_ANGLE &&
+			Number.isFinite(enemy.currentPredictedShotAngle)
+				? enemy.currentPredictedShotAngle
+				: null,
+		maximumAimInterval,
+		aimVisibilityProfile,
+		visibleInterval,
+		distance: Number.isFinite(enemy.debugAimDistance)
+			? Math.max(0, enemy.debugAimDistance)
+			: 50,
+		cachedCornerAngle:
+			debug.DRAW_ENEMY_AIM_CACHED_CORNER &&
+			Number.isFinite(enemy.lostLosCornerAngle)
+				? enemy.lostLosCornerAngle
+				: null,
+		cachedCornerPoint,
+		usingCachedCorner: enemy.debugUsingCachedCorner === true,
+	};
+}
+
 // Captures render-relevant data for the current frame. Environment arrays are
 // referenced directly for live drawing; trail history strips them, and replay
 // recording clones them only when GameState.environmentRevision changes.
 export function captureVisualSnapshot(currentTime) {
 	const rendering = renderingSnapshot();
+	const debug = debugSnapshot();
+	const captureEnemyAimDebug =
+		GameState.showEditorHelpers &&
+		debug.MAX_DRAWS_PER_FRAME > 0 &&
+		(
+			debug.DRAW_ENEMY_AIM_MAXIMUM_CONE ||
+			debug.DRAW_ENEMY_AIM_VISIBILITY_REGION ||
+			debug.DRAW_ENEMY_AIM_VISIBLE_INTERVAL ||
+			debug.DRAW_ENEMY_AIM_BOUNDARY_POINTS ||
+			debug.DRAW_ENEMY_AIM_LEAD_ANGLE ||
+			debug.DRAW_ENEMY_AIM_CACHED_CORNER
+		);
 
 	return {
 		rendering,
+		debug,
 		camera: {
 			x: camera.x,
 			y: camera.y,
@@ -131,78 +260,8 @@ export function captureVisualSnapshot(currentTime) {
 			color: enemy.color,
 			hp: enemy.hp,
 			maxHp: enemy.maxHp,
-			aimDebug: GameState.showEditorHelpers
-				? {
-					originX: Number.isFinite(enemy.debugAimOriginX)
-						? enemy.debugAimOriginX
-						: enemy.x + enemy.size / 2,
-					originY: Number.isFinite(enemy.debugAimOriginY)
-						? enemy.debugAimOriginY
-						: enemy.y + enemy.size / 2,
-					leadAngle: Number.isFinite(enemy.currentPredictedShotAngle)
-						? enemy.currentPredictedShotAngle
-						: null,
-					maximumAimInterval: enemy.debugMaximumAimInterval
-						? {
-							originX: enemy.debugMaximumAimInterval.originX,
-							originY: enemy.debugMaximumAimInterval.originY,
-							minAngle: enemy.debugMaximumAimInterval.minAngle,
-							maxAngle: enemy.debugMaximumAimInterval.maxAngle,
-						}
-						: null,
-					aimVisibilityProfile: enemy.debugAimVisibilityProfile
-						? {
-							originX: enemy.debugAimVisibilityProfile.originX,
-							originY: enemy.debugAimVisibilityProfile.originY,
-							maxDistance: Number.isFinite(
-								enemy.debugAimVisibilityProfile.maxDistance,
-							)
-								? enemy.debugAimVisibilityProfile.maxDistance
-								: 50,
-							rays: enemy.debugAimVisibilityProfile.rays.map(
-								(ray) => ({
-									angle: ray.angle,
-									distance: Number.isFinite(ray.distance)
-										? ray.distance
-										: 50,
-									blocked: ray.blocked === true,
-								}),
-							),
-						}
-						: null,
-					visibleInterval: enemy.debugVisibleAimInterval
-						? {
-							originX: enemy.debugVisibleAimInterval.originX,
-							originY: enemy.debugVisibleAimInterval.originY,
-							minAngle: enemy.debugVisibleAimInterval.minAngle,
-							maxAngle: enemy.debugVisibleAimInterval.maxAngle,
-							minBoundaryPoint:
-								enemy.debugVisibleAimInterval.minBoundary?.point || null,
-							maxBoundaryPoint:
-								enemy.debugVisibleAimInterval.maxBoundary?.point || null,
-						}
-						: null,
-					distance: Number.isFinite(enemy.debugAimDistance)
-						? Math.max(0, enemy.debugAimDistance)
-						: 50,
-					cachedCornerAngle: Number.isFinite(enemy.lostLosCornerAngle)
-						? enemy.lostLosCornerAngle
-						: null,
-					cachedCornerPoint:
-						enemy.lostLosCorner?.source?.kind === "point"
-							? {
-								x: enemy.lostLosCorner.source.x,
-								y: enemy.lostLosCorner.source.y,
-							}
-							: enemy.lostLosCorner?.source?.kind ===
-									"rounded-corner-tangent"
-								? {
-									x: enemy.lostLosCorner.source.x,
-									y: enemy.lostLosCorner.source.y,
-								}
-								: enemy.lostLosCorner?.point || null,
-					usingCachedCorner: enemy.debugUsingCachedCorner === true,
-				}
+			aimDebug: captureEnemyAimDebug
+				? captureEnemyAimDebugSnapshot(enemy, debug)
 				: null,
 		})),
 		projectiles: [...GameState.bullets, ...GameState.enemyBullets].map(

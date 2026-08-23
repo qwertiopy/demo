@@ -99,6 +99,25 @@ function validateEnemyPredictionStats(enemyTypes) {
 	}
 }
 
+function validateDebugSettings(debug) {
+	if (!isPlainObject(debug)) {
+		throw new Error("DEBUG must be a JSON object.");
+	}
+
+	if (
+		!Number.isInteger(debug.MAX_DRAWS_PER_FRAME) ||
+		debug.MAX_DRAWS_PER_FRAME < 0
+	) {
+		throw new Error("DEBUG.MAX_DRAWS_PER_FRAME must be a non-negative integer.");
+	}
+
+	for (const [key, value] of Object.entries(debug)) {
+		if (key !== "MAX_DRAWS_PER_FRAME" && typeof value !== "boolean") {
+			throw new Error(`DEBUG.${key} must be true or false.`);
+		}
+	}
+}
+
 function validateWeapons(weapons) {
 	if (!Array.isArray(weapons) || weapons.length !== 10) {
 		throw new Error("WEAPONS must be an array containing exactly 10 weapons.");
@@ -507,6 +526,14 @@ function migrateSavedConfig(savedConfig) {
 		migrated.ENEMY_TYPES = migratedEnemyTypes;
 	}
 
+	// Schema v21 adds per-stat and per-layer debug toggles plus a draw budget.
+	if (savedVersion < 21) {
+		migrated.DEBUG = mergeConfig(
+			defaultConfig.DEBUG,
+			isPlainObject(savedConfig.DEBUG) ? savedConfig.DEBUG : {},
+		);
+	}
+
 	return migrated;
 }
 
@@ -589,6 +616,7 @@ function syncConfigToUI() {
 		config.STRUCTURE_DENSITY_BLOCKS ?? "";
 
 	const advancedData = {
+		DEBUG: config.DEBUG,
 		WEAPONS: config.WEAPONS,
 		ENEMY_TYPES: config.ENEMY_TYPES,
 		STRUCTURE_LIBRARY: config.STRUCTURE_LIBRARY,
@@ -757,6 +785,11 @@ function readConfigFromUI() {
 		const normalizedWeapons = normalizeWeaponOptionalStatsList(advancedData.WEAPONS);
 		validateWeapons(normalizedWeapons);
 		config.WEAPONS = normalizedWeapons;
+	}
+
+	if (advancedData.DEBUG !== undefined) {
+		validateDebugSettings(advancedData.DEBUG);
+		config.DEBUG = advancedData.DEBUG;
 	}
 
 	if (advancedData.ENEMY_TYPES !== undefined) {
