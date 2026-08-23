@@ -38,7 +38,7 @@ canvas {
 #respawnBtn {
 	position: fixed;
 	left: 50%;
-	top: calc(50% + 85px);
+	top: calc(50% + 145px);
 	transform: translateX(-50%);
 	padding: 10px 22px;
 	cursor: pointer;

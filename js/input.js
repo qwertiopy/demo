@@ -93,6 +93,37 @@ function cloneLevelDefinition(level) {
 	return JSON.parse(JSON.stringify(level));
 }
 
+function readEnemySpawnRate(value, fallback) {
+	const numericValue = Number(value);
+	return Number.isFinite(numericValue) && numericValue >= 0
+		? numericValue
+		: fallback;
+}
+
+// Procedural runs become denser according to furthest forward progress. Keeping
+// a high-water mark prevents retreating from reducing the current difficulty.
+export function updateProgressiveEnemySpawnRate(playerX = player.x) {
+	if (!GameState.enemySpawnRateProgressionEnabled) {
+		return GameState.enemySpawnRate;
+	}
+
+	const forwardProgress = Math.max(
+		0,
+		(Number(playerX) || 0) - GameState.enemySpawnProgressOriginX,
+	);
+	GameState.enemySpawnProgressBlocks = Math.max(
+		GameState.enemySpawnProgressBlocks,
+		forwardProgress,
+	);
+
+	const completedHundreds = Math.floor(
+		(GameState.enemySpawnProgressBlocks + 1e-9) / 100,
+	);
+	GameState.enemySpawnRate =
+		GameState.enemySpawnBaseRate + completedHundreds * 0.1;
+	return GameState.enemySpawnRate;
+}
+
 // Resets runtime entities/procedural state and loads either a seeded procedural
 // level or explicit walls/spawns. The main menu supplies the initial definition;
 // respawns reuse the same active definition without depending on game-page DOM.
@@ -130,14 +161,24 @@ export function loadLevel(levelDefinition = null) {
 		GameState.lastSpawnTime = performance.now();
 		GameState.isPlayerDead = false;
 
-		if (data.seed !== undefined) {
+		const proceduralLevel = data.seed !== undefined;
+		const configuredSpawnRate = readEnemySpawnRate(
+			data.enemySpawnRate,
+			proceduralLevel ? 0.5 : 0,
+		);
+
+		GameState.enemySpawnBaseRate = configuredSpawnRate;
+		GameState.enemySpawnRate = configuredSpawnRate;
+		GameState.enemySpawnProgressOriginX = player.x;
+		GameState.enemySpawnProgressBlocks = 0;
+		GameState.enemySpawnRateProgressionEnabled = proceduralLevel;
+
+		if (proceduralLevel) {
 			GameState.levelSeed = data.seed;
 			GameState.currentSeed = data.seed;
-			GameState.enemySpawnRate = data.enemySpawnRate || 0.5;
 		} else {
 			GameState.walls = data.walls || [];
 			GameState.enemySpawns = data.enemySpawns || [];
-			GameState.enemySpawnRate = data.enemySpawnRate || 0;
 		}
 
 		markWallIndexDirty();

@@ -9,6 +9,7 @@ const GAME_MODE_DEFINITIONS = [
 		description: "Editable sandbox gameplay using the saved browser config and configured level.",
 		available: true,
 		allowsEditedConfig: true,
+		allowsEditedLevel: true,
 		prepareLevel(level) {
 			return level;
 		},
@@ -17,9 +18,10 @@ const GAME_MODE_DEFINITIONS = [
 	{
 		id: "endless",
 		label: "Endless",
-		description: "Endless gameplay using the factory config.json. Browser config edits are ignored.",
+		description: "Endless gameplay using the factory config.json and level.json. Browser edits are ignored.",
 		available: true,
 		allowsEditedConfig: false,
+		allowsEditedLevel: false,
 		prepareLevel(level) {
 			return level;
 		},

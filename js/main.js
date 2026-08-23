@@ -24,7 +24,12 @@ import {
 	resetLaserCalculationBudget,
 	resolveProjectileVectorCollisions,
 } from "./combat.js";
-import { initInput, loadLevel, processAutofire } from "./input.js";
+import {
+	initInput,
+	loadLevel,
+	processAutofire,
+	updateProgressiveEnemySpawnRate,
+} from "./input.js";
 import { isActionDown, loadHotkeys } from "./hotkeys.js";
 import { draw } from "./render.js";
 import {
@@ -100,6 +105,7 @@ export function update(currentTime, dt) {
 		player.vy = 0;
 	}
 
+	updateProgressiveEnemySpawnRate(player.x);
 	updateEnemies(currentTime, dt);
 	resolveEnemyVectorCollisions(dt);
 
@@ -335,9 +341,10 @@ export async function initGame() {
 
 		const defaultConfig = await response.json();
 
+		const defaultLevel = await loadDefaultLevelDefinition();
 		let launchOptions = readLaunchOptions();
 		if (!launchOptions.level) {
-			launchOptions.level = await loadDefaultLevelDefinition();
+			launchOptions.level = defaultLevel;
 			launchOptions = writeLaunchOptions(launchOptions);
 		}
 
@@ -355,12 +362,17 @@ export async function initGame() {
 			...(Config.RENDERING || {}),
 			TARGET_FPS: getTargetFps(),
 		};
+		const sourceLevel = gameMode.allowsEditedLevel
+			? launchOptions.level
+			: defaultLevel;
 		const levelDefinition = prepareLevelForGameMode(
 			gameModeId,
-			launchOptions.level,
+			sourceLevel,
 		);
 
 		GameState.gameModeId = gameModeId;
+		GameState.configSource = gameMode.allowsEditedConfig ? "session" : "factory";
+		GameState.levelSource = gameMode.allowsEditedLevel ? "session" : "factory";
 		GameState.isInvincible = launchOptions.godMode === true;
 		player.speed = Config.PLAYER_SPEED;
 		player.size = Config.PLAYER_SIZE_BLOCKS;

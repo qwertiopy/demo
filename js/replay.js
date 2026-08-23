@@ -241,6 +241,8 @@ export function captureVisualSnapshot(currentTime) {
 		showEditorHelpers: GameState.showEditorHelpers,
 		activeWeaponIndex: GameState.activeWeaponIndex,
 		maxDistance: GameState.MaxDistance,
+		configSource: GameState.configSource,
+		levelSource: GameState.levelSource,
 		walls: GameState.walls,
 		enemySpawns: GameState.enemySpawns,
 		player: {

@@ -1319,16 +1319,38 @@ export function draw(snapshot, trailEntries = [], options = {}) {
 	respawnBtn.hidden = replayActive || snapshot.player.hp > 0;
 
 	if (snapshot.player.hp <= 0) {
+		const sourceStatus = (source) =>
+			source === "factory"
+				? "UNEDITED"
+				: source === "session"
+					? "SESSION EDITABLE"
+					: "UNKNOWN";
+
+		ctx.save();
 		ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
 		ctx.fillRect(0, 0, canvas.width, canvas.height);
+		ctx.textAlign = "center";
 		ctx.fillStyle = "red";
 		ctx.font = "40px sans-serif";
-		ctx.fillText("GAME OVER", canvas.width / 2 - 120, canvas.height / 2);
+		ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2);
+		ctx.fillStyle = "white";
 		ctx.font = "24px sans-serif";
 		ctx.fillText(
 			`Max Distance: ${Math.floor(snapshot.maxDistance)}`,
-			canvas.width / 2 - 100,
+			canvas.width / 2,
 			canvas.height / 2 + 40,
 		);
+		ctx.font = "20px monospace";
+		ctx.fillText(
+			`config.json: ${sourceStatus(snapshot.configSource)}`,
+			canvas.width / 2,
+			canvas.height / 2 + 75,
+		);
+		ctx.fillText(
+			`level.json: ${sourceStatus(snapshot.levelSource)}`,
+			canvas.width / 2,
+			canvas.height / 2 + 105,
+		);
+		ctx.restore();
 	}
 }
