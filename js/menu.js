@@ -7,6 +7,7 @@ import {
 	writeLaunchOptions,
 } from "./launch-options.js";
 import { loadDefaultLevelDefinition } from "./level.js";
+import { readJsonObjectFile } from "./json-file.js";
 import { downloadReplay, readReplayFile, validateReplayData } from "./replay-file.js";
 import { clearActiveReplay, loadActiveReplay, saveActiveReplay } from "./replay-store.js";
 
@@ -15,11 +16,13 @@ const panels = Array.from(document.querySelectorAll("[data-menu-panel]"));
 const gameModeList = document.getElementById("gameModeList");
 const launchGameBtn = document.getElementById("launchGameBtn");
 const launchSummary = document.getElementById("launchSummary");
-const launchStatus = document.getElementById("launchStatus");
+const levelStatus = document.getElementById("levelStatus");
 const godModeToggle = document.getElementById("menuGodModeToggle");
 const levelData = document.getElementById("menuLevelData");
 const saveLaunchOptionsBtn = document.getElementById("saveLaunchOptionsBtn");
 const resetLaunchOptionsBtn = document.getElementById("resetLaunchOptionsBtn");
+const importLevelBtn = document.getElementById("importLevelBtn");
+const importLevelFileInput = document.getElementById("importLevelFileInput");
 const replaySetupLoadBtn = document.getElementById("replaySetupLoadBtn");
 const replaySetupSaveBtn = document.getElementById("replaySetupSaveBtn");
 const replaySetupPlayBtn = document.getElementById("replaySetupPlayBtn");
@@ -33,10 +36,10 @@ let launchOptions = readLaunchOptions();
 let factoryLevelDefinition = null;
 let activeReplay = null;
 
-function setStatus(message, isError = false) {
-	if (!launchStatus) return;
-	launchStatus.textContent = message;
-	launchStatus.classList.toggle("error", isError);
+function setStatus(target, message, isError = false) {
+	if (!target) return;
+	target.textContent = message;
+	target.classList.toggle("error", isError);
 }
 
 function selectedTabFromHash() {
@@ -270,9 +273,9 @@ saveLaunchOptionsBtn.addEventListener("click", () => {
 	try {
 		readLaunchOptionsFromUi();
 		updateLaunchSummary();
-		setStatus("Launch options saved for this browser session.");
+		setStatus(levelStatus, "Launch options saved for this browser session.");
 	} catch (error) {
-		setStatus(error.message, true);
+		setStatus(levelStatus, error.message, true);
 	}
 });
 
@@ -284,9 +287,31 @@ resetLaunchOptionsBtn.addEventListener("click", async () => {
 		launchOptions = writeLaunchOptions(launchOptions);
 		syncLaunchOptionsToUi();
 		renderGameModes();
-		setStatus("Level setup reloaded from level.json.");
+		setStatus(levelStatus, "Level setup reloaded from level.json.");
 	} catch (error) {
-		setStatus(`Could not reload level.json: ${error.message}`, true);
+		setStatus(levelStatus, `Could not reload level.json: ${error.message}`, true);
+	}
+});
+
+importLevelBtn.addEventListener("click", () => importLevelFileInput.click());
+importLevelFileInput.addEventListener("change", async () => {
+	const file = importLevelFileInput.files?.[0];
+	importLevelFileInput.value = "";
+	if (!file) return;
+
+	try {
+		const importedLevel = await readJsonObjectFile(file, "level.json");
+		launchOptions = writeLaunchOptions({
+			...launchOptions,
+			level: importedLevel,
+		});
+		syncLaunchOptionsToUi();
+		setStatus(
+			levelStatus,
+			`Imported ${file.name} for Sandbox. Endless will continue using the factory level.json.`,
+		);
+	} catch (error) {
+		setStatus(levelStatus, `Could not import level.json: ${error.message}`, true);
 	}
 });
 
@@ -295,7 +320,7 @@ launchGameBtn.addEventListener("click", () => {
 		const options = readLaunchOptionsFromUi();
 		window.location.href = `index.html?mode=${encodeURIComponent(options.gameModeId)}`;
 	} catch (error) {
-		setStatus(error.message, true);
+		setStatus(levelStatus, error.message, true);
 		showTab("level");
 	}
 });
@@ -314,7 +339,7 @@ async function initMenu() {
 	} catch (error) {
 		console.error("Could not initialize level setup:", error);
 		showTab("level", false);
-		setStatus(`Could not load level.json: ${error.message}`, true);
+		setStatus(levelStatus, `Could not load level.json: ${error.message}`, true);
 		launchGameBtn.disabled = true;
 		saveLaunchOptionsBtn.disabled = true;
 	}

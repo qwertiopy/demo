@@ -30,7 +30,6 @@
 						<p>Select a mode, then launch using the saved level setup. Sandbox can use browser-edited inputs; Endless always uses the factory config.json and level.json.</p>
 					</div>
 				</div>
-				<div id="gameModeList" class="game-mode-grid"></div>
 
 				<div class="launch-summary">
 					<div>
@@ -39,7 +38,8 @@
 					</div>
 					<button id="launchGameBtn" class="primary-launch" type="button">Launch Game</button>
 				</div>
-				<div id="launchStatus" class="menu-status"></div>
+
+				<div id="gameModeList" class="game-mode-grid"></div>
 			</section>
 
 			<section class="menu-panel" data-menu-panel="level" hidden>
@@ -49,6 +49,14 @@
 						<p>Factory level data is loaded from <code>level.json</code>. Changes here apply to Sandbox in this browser session; Endless ignores them.</p>
 					</div>
 				</div>
+
+				<div class="menu-actions">
+					<button id="importLevelBtn" class="export-btn" type="button">Import level.json</button>
+					<button id="saveLaunchOptionsBtn" class="apply-btn" type="button">Save Launch Options</button>
+					<button id="resetLaunchOptionsBtn" class="reset-btn" type="button">Reset Level Setup</button>
+				</div>
+				<input id="importLevelFileInput" type="file" accept=".json,application/json" hidden />
+				<div id="levelStatus" class="menu-status"></div>
 
 				<label class="menu-toggle">
 					<input type="checkbox" id="menuGodModeToggle" />
@@ -61,11 +69,6 @@
 
 				<label for="menuLevelData" class="menu-field-label">Level JSON</label>
 				<textarea id="menuLevelData" rows="18" spellcheck="false"></textarea>
-
-				<div class="menu-actions">
-					<button id="saveLaunchOptionsBtn" class="apply-btn" type="button">Save Launch Options</button>
-					<button id="resetLaunchOptionsBtn" class="reset-btn" type="button">Reset Level Setup</button>
-				</div>
 			</section>
 
 			<section class="menu-panel" data-menu-panel="replays" hidden>
@@ -77,12 +80,6 @@
 				</div>
 
 				<div class="replay-setup-card">
-					<div class="replay-setup-summary">
-						<span class="summary-label">Active replay</span>
-						<strong id="replaySetupTitle">No replay loaded</strong>
-						<span id="replaySetupDetails">Record one in-game or load a .replay file.</span>
-					</div>
-
 					<div class="menu-actions replay-setup-actions">
 						<button id="replaySetupLoadBtn" class="apply-btn" type="button">Load Replay</button>
 						<button id="replaySetupSaveBtn" class="export-btn" type="button" disabled>Save Replay</button>
@@ -91,6 +88,12 @@
 					</div>
 					<input id="replaySetupFileInput" type="file" accept=".replay,application/json" hidden />
 					<div id="replaySetupStatus" class="menu-status">Checking replay storage...</div>
+
+					<div class="replay-setup-summary">
+						<span class="summary-label">Active replay</span>
+						<strong id="replaySetupTitle">No replay loaded</strong>
+						<span id="replaySetupDetails">Record one in-game or load a .replay file.</span>
+					</div>
 				</div>
 			</section>
 
@@ -101,6 +104,28 @@
 						<p>Edits saved here are used by Sandbox only. Endless always loads the unedited factory <code>config.json</code>.</p>
 					</div>
 				</div>
+
+				<section class="config-actions">
+					<button id="importConfigBtn" class="export-btn" type="button">
+						Import config.json
+					</button>
+					<input id="importConfigFileInput" type="file" accept=".json,application/json" hidden />
+
+					<button id="applyConfigBtn" class="apply-btn">
+						Save Locally
+					</button>
+
+					<button id="exportConfigBtn" class="export-btn">
+						Export config.json
+					</button>
+
+					<button id="resetConfigBtn" class="reset-btn">
+						Reset to config.json
+					</button>
+				</section>
+
+				<div id="statusMessage"></div>
+
                 <section class="config-section">
                     <h2>Player</h2>
                 
@@ -341,21 +366,6 @@
                     ></textarea>
                 </section>
                 
-                <section class="config-actions">
-                    <button id="applyConfigBtn" class="apply-btn">
-                        Save Locally
-                    </button>
-                
-                    <button id="exportConfigBtn" class="export-btn">
-                        Export config.json
-                    </button>
-                
-                    <button id="resetConfigBtn" class="reset-btn">
-                        Reset to config.json
-                    </button>
-                </section>
-                
-                <div id="statusMessage"></div>
 			</section>
 		</main>
 

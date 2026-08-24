@@ -1,4 +1,5 @@
 import { CONFIG_STORAGE_KEY, isPlainObject, mergeConfig } from "./config.js";
+import { readJsonObjectFile } from "./json-file.js";
 
 let defaultConfig = null;
 let config = null;
@@ -815,6 +816,53 @@ function applyConfig() {
 	}
 }
 
+function captureConfigUiValues() {
+	return new Map(
+		Array.from(document.querySelectorAll('[id^="cfg_"]')).map((element) => [
+			element.id,
+			element.value,
+		]),
+	);
+}
+
+function restoreConfigUiValues(values) {
+	for (const [id, value] of values) {
+		const element = document.getElementById(id);
+		if (element) element.value = value;
+	}
+}
+
+async function importConfigFile() {
+	const input = document.getElementById("importConfigFileInput");
+	const file = input.files?.[0];
+	input.value = "";
+	if (!file) return;
+
+	if (!defaultConfig || !config) {
+		showStatus("Config has not finished loading yet.", true);
+		return;
+	}
+
+	const previousConfig = cloneConfig(config);
+	const previousUiValues = captureConfigUiValues();
+
+	try {
+		const importedConfig = await readJsonObjectFile(file, "config.json");
+		config = migrateSavedConfig(importedConfig);
+		config.WEAPONS = normalizeWeaponOptionalStatsList(config.WEAPONS);
+		syncConfigToUI();
+		readConfigFromUI();
+		saveLocalConfig();
+		showStatus(
+			`Imported and saved ${file.name} for Sandbox. Endless will continue using the factory config.json.`,
+		);
+	} catch (error) {
+		config = previousConfig;
+		restoreConfigUiValues(previousUiValues);
+		showStatus(`Could not import config.json: ${error.message}`, true);
+	}
+}
+
 function exportConfig() {
 	try {
 		readConfigFromUI();
@@ -864,6 +912,14 @@ function showStatus(message, error = false) {
 document
 	.getElementById("applyConfigBtn")
 	.addEventListener("click", applyConfig);
+
+document.getElementById("importConfigBtn").addEventListener("click", () => {
+	document.getElementById("importConfigFileInput").click();
+});
+
+document
+	.getElementById("importConfigFileInput")
+	.addEventListener("change", importConfigFile);
 
 document
 	.getElementById("exportConfigBtn")

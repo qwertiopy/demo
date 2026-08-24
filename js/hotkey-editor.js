@@ -4,12 +4,14 @@ import {
     clearLocalHotkeys,
     fetchDefaultHotkeys,
     formatInputCode,
+    isKnownAction,
     mouseEventToInputCode,
     normalizeHotkeyConfig,
     readLocalHotkeys,
     saveLocalHotkeys,
     keyboardEventToInputCode,
 } from "./hotkeys.js";
+import { readJsonObjectFile } from "./json-file.js";
 
 let defaultHotkeys = null;
 let hotkeys = null;
@@ -202,6 +204,57 @@ function exportHotkeys() {
     showStatus("hotkeys.json exported successfully.");
 }
 
+async function importHotkeysFile() {
+    const input = document.getElementById("importHotkeysFileInput");
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+
+    if (!defaultHotkeys) {
+        showStatus("Hotkeys have not finished loading yet.", true);
+        return;
+    }
+
+    try {
+        const importedHotkeys = await readJsonObjectFile(file, "hotkeys.json");
+        const bindings = importedHotkeys.bindings;
+
+        if (!bindings || typeof bindings !== "object" || Array.isArray(bindings)) {
+            throw new Error("hotkeys.json.bindings must be a JSON object.");
+        }
+
+        for (const [actionId, actionBindings] of Object.entries(bindings)) {
+            if (!isKnownAction(actionId)) {
+                throw new Error(`Unknown hotkey action: ${actionId}.`);
+            }
+            if (!Array.isArray(actionBindings)) {
+                throw new Error(`Bindings for ${actionId} must be an array.`);
+            }
+            if (actionBindings.length > MAX_BINDINGS_PER_ACTION) {
+                throw new Error(
+                    `${actionId} has more than ${MAX_BINDINGS_PER_ACTION} bindings.`,
+                );
+            }
+            if (
+                actionBindings.some(
+                    (binding) => typeof binding !== "string" || !binding.trim(),
+                )
+            ) {
+                throw new Error(
+                    `Every binding for ${actionId} must be a non-empty string.`,
+                );
+            }
+        }
+
+        hotkeys = clone(normalizeHotkeyConfig(defaultHotkeys, importedHotkeys));
+        saveLocalHotkeys(hotkeys);
+        render();
+        showStatus(`Imported and saved ${file.name}. Reload the game to apply it.`);
+    } catch (error) {
+        showStatus(`Could not import hotkeys.json: ${error.message}`, true);
+    }
+}
+
 function reset() {
     if (!defaultHotkeys) return;
 
@@ -227,6 +280,12 @@ async function init() {
 }
 
 document.getElementById("saveHotkeysBtn").addEventListener("click", save);
+document.getElementById("importHotkeysBtn").addEventListener("click", () => {
+    document.getElementById("importHotkeysFileInput").click();
+});
+document
+    .getElementById("importHotkeysFileInput")
+    .addEventListener("change", importHotkeysFile);
 document
     .getElementById("exportHotkeysBtn")
     .addEventListener("click", exportHotkeys);

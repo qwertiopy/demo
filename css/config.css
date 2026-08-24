@@ -172,6 +172,8 @@ body {
     gap: 10px;
 
     flex-wrap: wrap;
+
+    margin-bottom: 12px;
 }
 
 .config-actions button {
@@ -220,7 +222,9 @@ body {
    ========================================== */
 
 #statusMessage {
-    margin-top: 15px;
+    min-height: 1.2em;
+
+    margin: 0 0 18px;
 
     color: #aaa;
 
