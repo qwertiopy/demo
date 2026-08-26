@@ -137,7 +137,11 @@ function updateLaunchSummary() {
 		? launchOptions.level
 		: factoryLevelDefinition;
 	const seed = effectiveLevel?.seed;
-	const seedText = seed === undefined ? "explicit level" : `seed ${seed}`;
+	const seedText = seed === undefined
+		? "explicit level"
+		: mode.id === "endless"
+			? "new random seed per run"
+			: `seed ${seed}`;
 	launchSummary.textContent = `${mode.label} · ${seedText}${effectiveLevel?.invincibility === true ? " · Invincible" : ""}`;
 }
 

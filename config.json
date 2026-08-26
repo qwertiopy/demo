@@ -1,7 +1,58 @@
 {
-    "CONFIG_SCHEMA_VERSION": 21,
+    "CONFIG_SCHEMA_VERSION": 23,
     "PLAYER_SPEED": 5,
-    "PLAYER_BULLET_SPEED": 10,
+    "BASE_PROJECTILE": {
+        "speed": 20,
+        "radiusBlocks": 0.05,
+        "color": "crimson",
+        "damage": 1,
+        "maxBounces": 0,
+        "lifetimeMs": 60000,
+        "cooldownMs": 100,
+        "penetrationBlocks": 0,
+        "bulletCollision": false,
+        "chain": 0,
+        "variation": {
+            "enabled": false,
+            "speed": 0,
+            "radius": 0,
+            "damage": 0,
+            "rng": {
+                "luck": 0,
+                "maximumLuck": 8
+            }
+        },
+        "volley": {
+            "enabled": false,
+            "count": 1,
+            "spread": 0
+        },
+        "explosion": {
+            "enabled": false,
+            "radiusBlocks": 0,
+            "detonationTimeMs": 0,
+            "durationMs": 0,
+            "damage": 0,
+            "onImpact": false
+        },
+        "throwable": {
+            "enabled": false,
+            "distanceMultiplier": 1,
+            "deceleration": 20
+        },
+        "laser": {
+            "enabled": false,
+            "warmupMs": 0
+        },
+        "split": {
+            "enabled": false,
+            "count": 0,
+            "timeMs": 0,
+            "onImpact": false,
+            "spread": 0,
+            "children": []
+        }
+    },
     "RENDERING": {
         "CANVAS_WIDTH_PX": 1920,
         "CANVAS_HEIGHT_PX": 1080,
@@ -13,8 +64,6 @@
         "ENVIRONMENT_OVERSCAN_BLOCKS": 2,
         "CLEANUP_BUFFER_BLOCKS": 0,
         "LASER_FLASH_DURATION_MS": 100,
-        "LASER_CALCULATION_BUDGET_PER_FRAME": 1000000,
-        "ENEMY_AIM_CALCULATION_BUDGET_PER_FRAME": 1000,
         "TRAIL_LENGTH_FRAMES": 10,
         "TRAIL_DETAIL": 60,
         "TRAIL_QUAD_DETAIL": 30
@@ -39,360 +88,783 @@
     "WEAPONS": [
         {
             "speed": 20,
-            "speedVariation": 0,
-            "radiusBlocks": 0.1,
-            "radiusVariation": 0,
-            "color": "crimson",
-            "damage": 10,
-            "damageVariation": 0,
-            "maxBounces": 1,
-            "spread": 0,
-            "lifetimeMs": 60000,
-            "explosionRadiusBlocks": 0,
-            "detonationTimeMs": 0,
-            "explosionDurationMs": 0,
-            "explosionDamage": 0,
-            "detonatesOnImpact": false,
-            "throwable": false,
-            "throwDistanceMultiplier": 1,
-            "throwDeceleration": 20,
-            "laser": false,
-            "laserWarmupMs": 0,
-            "cooldownMs": 500,
-            "penetrationBlocks": 0,
-            "bulletCollision": false,
-            "bulletCount": 1,
-            "chain": 0
-        },
-        {
-            "speed": 20,
-            "speedVariation": 5,
-            "radiusBlocks": 0.06,
-            "radiusVariation": 0.04,
+            "radiusBlocks": 0.05,
             "color": "crimson",
             "damage": 2.5,
-            "damageVariation": 0,
-            "maxBounces": 0,
-            "spread": 0.5,
+            "maxBounces": 1,
             "lifetimeMs": 60000,
-            "explosionRadiusBlocks": 0,
-            "detonationTimeMs": 0,
-            "explosionDurationMs": 250,
-            "explosionDamage": 0,
-            "detonatesOnImpact": false,
-            "throwable": false,
-            "throwDistanceMultiplier": 1,
-            "throwDeceleration": 20,
-            "laser": false,
-            "laserWarmupMs": 0,
-            "cooldownMs": 2500,
+            "cooldownMs": 250,
             "penetrationBlocks": 0,
             "bulletCollision": false,
-            "bulletCount": 50,
-            "chain": 0
+            "chain": 0,
+            "variation": {
+                "enabled": false,
+                "speed": 0,
+                "radius": 0,
+                "damage": 0,
+                "rng": {
+                    "luck": 0,
+                    "maximumLuck": 8
+                }
+            },
+            "volley": {
+                "enabled": false,
+                "count": 1,
+                "spread": 0
+            },
+            "explosion": {
+                "enabled": false,
+                "radiusBlocks": 0,
+                "detonationTimeMs": 0,
+                "durationMs": 0,
+                "damage": 0,
+                "onImpact": false
+            },
+            "throwable": {
+                "enabled": false,
+                "distanceMultiplier": 1,
+                "deceleration": 20
+            },
+            "laser": {
+                "enabled": false,
+                "warmupMs": 0
+            },
+            "split": {
+                "enabled": false,
+                "count": 0,
+                "timeMs": 0,
+                "onImpact": false,
+                "spread": 0,
+                "children": []
+            }
         },
         {
             "speed": 20,
-            "speedVariation": 0,
             "radiusBlocks": 0.1,
-            "radiusVariation": 0,
             "color": "crimson",
-            "damage": 10,
-            "damageVariation": 0,
+            "damage": 2.5,
             "maxBounces": 0,
-            "spread": 0,
             "lifetimeMs": 60000,
-            "explosionRadiusBlocks": 1.5,
-            "detonationTimeMs": 0,
-            "explosionDurationMs": 250,
-            "explosionDamage": 10,
-            "detonatesOnImpact": true,
-            "throwable": false,
-            "throwDistanceMultiplier": 1,
-            "throwDeceleration": 20,
-            "laser": false,
-            "laserWarmupMs": 0,
-            "cooldownMs": 500,
+            "cooldownMs": 1000,
             "penetrationBlocks": 0,
             "bulletCollision": false,
-            "bulletCount": 1,
-            "chain": 0
+            "chain": 0,
+            "variation": {
+                "enabled": true,
+                "speed": 10,
+                "radius": 0.05,
+                "damage": 0,
+                "rng": {
+                    "luck": 0,
+                    "maximumLuck": 8
+                }
+            },
+            "volley": {
+                "enabled": true,
+                "count": 25,
+                "spread": 0.5
+            },
+            "explosion": {
+                "enabled": false,
+                "radiusBlocks": 0,
+                "detonationTimeMs": 0,
+                "durationMs": 0,
+                "damage": 0,
+                "onImpact": false
+            },
+            "throwable": {
+                "enabled": false,
+                "distanceMultiplier": 1,
+                "deceleration": 20
+            },
+            "laser": {
+                "enabled": false,
+                "warmupMs": 0
+            },
+            "split": {
+                "enabled": false,
+                "count": 0,
+                "timeMs": 0,
+                "onImpact": false,
+                "spread": 0,
+                "children": []
+            }
         },
         {
-            "speed": 10,
-            "speedVariation": 0,
+            "speed": 20,
             "radiusBlocks": 0.1,
-            "radiusVariation": 0,
             "color": "crimson",
             "damage": 0,
-            "damageVariation": 0,
             "maxBounces": 0,
-            "spread": 0,
             "lifetimeMs": 60000,
-            "explosionRadiusBlocks": 2,
-            "detonationTimeMs": 1500,
-            "explosionDurationMs": 250,
-            "explosionDamage": 10,
-            "detonatesOnImpact": false,
-            "throwable": true,
-            "throwDistanceMultiplier": 1,
-            "throwDeceleration": 20,
-            "laser": false,
-            "laserWarmupMs": 0,
-            "cooldownMs": 500,
-            "penetrationBlocks": 0,
-            "bulletCollision": false,
-            "bulletCount": 1,
-            "chain": 0
-        },
-        {
-            "speed": 10,
-            "speedVariation": 0,
-            "radiusBlocks": 0.05,
-            "radiusVariation": 0,
-            "color": "crimson",
-            "damage": 10,
-            "damageVariation": 0,
-            "maxBounces": 0,
-            "spread": 0,
-            "lifetimeMs": 60000,
-            "explosionRadiusBlocks": 0,
-            "detonationTimeMs": 0,
-            "explosionDurationMs": 0,
-            "explosionDamage": 0,
-            "detonatesOnImpact": false,
-            "throwable": false,
-            "throwDistanceMultiplier": 1,
-            "throwDeceleration": 20,
-            "laser": true,
-            "laserWarmupMs": 250,
             "cooldownMs": 250,
             "penetrationBlocks": 0,
             "bulletCollision": false,
-            "bulletCount": 1,
-            "chain": 0
-        },
-        {
-            "speed": 10,
-            "speedVariation": 0,
-            "radiusBlocks": 0.1,
-            "radiusVariation": 0,
-            "color": "crimson",
-            "damage": 2.5,
-            "damageVariation": 0,
-            "maxBounces": 10,
-            "spread": 0,
-            "lifetimeMs": 60000,
-            "explosionRadiusBlocks": 0,
-            "detonationTimeMs": 0,
-            "explosionDurationMs": 0,
-            "explosionDamage": 0,
-            "detonatesOnImpact": false,
-            "throwable": false,
-            "throwDistanceMultiplier": 1,
-            "throwDeceleration": 20,
-            "laser": false,
-            "laserWarmupMs": 0,
-            "cooldownMs": 250,
-            "penetrationBlocks": 0,
-            "bulletCollision": false,
-            "bulletCount": 1,
-            "chain": 0
+            "chain": 0,
+            "variation": {
+                "enabled": false,
+                "speed": 0,
+                "radius": 0,
+                "damage": 0,
+                "rng": {
+                    "luck": 0,
+                    "maximumLuck": 8
+                }
+            },
+            "volley": {
+                "enabled": false,
+                "count": 1,
+                "spread": 0
+            },
+            "explosion": {
+                "enabled": true,
+                "radiusBlocks": 1,
+                "detonationTimeMs": 0,
+                "durationMs": 250,
+                "damage": 2.5,
+                "onImpact": true
+            },
+            "throwable": {
+                "enabled": false,
+                "distanceMultiplier": 1,
+                "deceleration": 20
+            },
+            "laser": {
+                "enabled": false,
+                "warmupMs": 0
+            },
+            "split": {
+                "enabled": false,
+                "count": 0,
+                "timeMs": 0,
+                "onImpact": false,
+                "spread": 0,
+                "children": []
+            }
         },
         {
             "speed": 20,
-            "speedVariation": 5,
-            "radiusBlocks": 0.06,
-            "radiusVariation": 0.04,
+            "radiusBlocks": 0.1,
+            "color": "crimson",
+            "damage": 0,
+            "maxBounces": 0,
+            "lifetimeMs": 60000,
+            "cooldownMs": 250,
+            "penetrationBlocks": 0,
+            "bulletCollision": false,
+            "chain": 0,
+            "variation": {
+                "enabled": false,
+                "speed": 0,
+                "radius": 0,
+                "damage": 0,
+                "rng": {
+                    "luck": 0,
+                    "maximumLuck": 8
+                }
+            },
+            "volley": {
+                "enabled": false,
+                "count": 1,
+                "spread": 0
+            },
+            "explosion": {
+                "enabled": true,
+                "radiusBlocks": 2.5,
+                "detonationTimeMs": 1500,
+                "durationMs": 250,
+                "damage": 2.5,
+                "onImpact": false
+            },
+            "throwable": {
+                "enabled": true,
+                "distanceMultiplier": 1,
+                "deceleration": 20
+            },
+            "laser": {
+                "enabled": false,
+                "warmupMs": 0
+            },
+            "split": {
+                "enabled": false,
+                "count": 0,
+                "timeMs": 0,
+                "onImpact": false,
+                "spread": 0,
+                "children": []
+            }
+        },
+        {
+            "speed": 20,
+            "radiusBlocks": 0.01,
+            "color": "crimson",
+            "damage": 10,
+            "maxBounces": 0,
+            "lifetimeMs": 60000,
+            "cooldownMs": 250,
+            "penetrationBlocks": 0,
+            "bulletCollision": false,
+            "chain": 0,
+            "variation": {
+                "enabled": false,
+                "speed": 0,
+                "radius": 0,
+                "damage": 0,
+                "rng": {
+                    "luck": 0,
+                    "maximumLuck": 8
+                }
+            },
+            "volley": {
+                "enabled": false,
+                "count": 1,
+                "spread": 0
+            },
+            "explosion": {
+                "enabled": false,
+                "radiusBlocks": 0,
+                "detonationTimeMs": 0,
+                "durationMs": 0,
+                "damage": 0,
+                "onImpact": false
+            },
+            "throwable": {
+                "enabled": false,
+                "distanceMultiplier": 1,
+                "deceleration": 20
+            },
+            "laser": {
+                "enabled": true,
+                "warmupMs": 250
+            },
+            "split": {
+                "enabled": false,
+                "count": 0,
+                "timeMs": 0,
+                "onImpact": false,
+                "spread": 0,
+                "children": []
+            }
+        },
+        {
+            "speed": 20,
+            "radiusBlocks": 0.1,
+            "color": "crimson",
+            "damage": 0,
+            "maxBounces": 0,
+            "lifetimeMs": 60000,
+            "cooldownMs": 250,
+            "penetrationBlocks": 0,
+            "bulletCollision": false,
+            "chain": 0,
+            "variation": {
+                "enabled": true,
+                "speed": 15,
+                "radius": 0.05,
+                "damage": 10,
+                "rng": {
+                    "luck": 0,
+                    "maximumLuck": 8
+                }
+            },
+            "volley": {
+                "enabled": false,
+                "count": 1,
+                "spread": 0
+            },
+            "explosion": {
+                "enabled": false,
+                "radiusBlocks": 0,
+                "detonationTimeMs": 0,
+                "durationMs": 0,
+                "damage": 0,
+                "onImpact": false
+            },
+            "throwable": {
+                "enabled": false,
+                "distanceMultiplier": 1,
+                "deceleration": 20
+            },
+            "laser": {
+                "enabled": false,
+                "warmupMs": 0
+            },
+            "split": {
+                "enabled": false,
+                "count": 0,
+                "timeMs": 0,
+                "onImpact": false,
+                "spread": 0,
+                "children": []
+            }
+        },
+        {
+            "speed": 0,
+            "radiusBlocks": 1,
+            "color": "crimson",
+            "damage": 0,
+            "maxBounces": 100000000000,
+            "lifetimeMs": 0,
+            "cooldownMs": 0,
+            "penetrationBlocks": 0,
+            "bulletCollision": true,
+            "chain": 0,
+            "variation": {
+                "enabled": false,
+                "speed": 0,
+                "radius": 0,
+                "damage": 0,
+                "rng": {
+                    "luck": 0,
+                    "maximumLuck": 8
+                }
+            },
+            "volley": {
+                "enabled": false,
+                "count": 1,
+                "spread": 0
+            },
+            "explosion": {
+                "enabled": false,
+                "radiusBlocks": 1,
+                "detonationTimeMs": 0,
+                "durationMs": 0,
+                "damage": 0,
+                "onImpact": false
+            },
+            "throwable": {
+                "enabled": false,
+                "distanceMultiplier": 1,
+                "deceleration": 20
+            },
+            "laser": {
+                "enabled": false,
+                "warmupMs": 0
+            },
+            "split": {
+                "enabled": false,
+                "count": 0,
+                "timeMs": 0,
+                "onImpact": false,
+                "spread": 0,
+                "children": []
+            }
+        },
+        {
+            "speed": 20,
+            "radiusBlocks": 0.1,
+            "color": "crimson",
+            "damage": 0,
+            "maxBounces": 0,
+            "lifetimeMs": 60000,
+            "cooldownMs": 250,
+            "penetrationBlocks": 0,
+            "bulletCollision": false,
+            "chain": 0,
+            "variation": {
+                "enabled": false,
+                "speed": 0,
+                "radius": 0,
+                "damage": 0,
+                "rng": {
+                    "luck": 0,
+                    "maximumLuck": 8
+                }
+            },
+            "volley": {
+                "enabled": false,
+                "count": 1,
+                "spread": 0
+            },
+            "explosion": {
+                "enabled": false,
+                "radiusBlocks": 0,
+                "detonationTimeMs": 0,
+                "durationMs": 0,
+                "damage": 0,
+                "onImpact": false
+            },
+            "throwable": {
+                "enabled": false,
+                "distanceMultiplier": 1,
+                "deceleration": 20
+            },
+            "laser": {
+                "enabled": false,
+                "warmupMs": 0
+            },
+            "split": {
+                "enabled": true,
+                "count": 10,
+                "timeMs": 0,
+                "onImpact": true,
+                "spread": 3.14159,
+                "children": [
+                    {
+                        "weight": 1,
+                        "projectile": {
+                            "speed": 10,
+                            "radiusBlocks": 0.1,
+                            "color": "crimson",
+                            "damage": 0.5,
+                            "maxBounces": 0,
+                            "lifetimeMs": 60000,
+                            "cooldownMs": 0,
+                            "penetrationBlocks": 0,
+                            "bulletCollision": false,
+                            "chain": 0,
+                            "variation": {
+                                "enabled": false,
+                                "speed": 0,
+                                "radius": 0,
+                                "damage": 0,
+                                "rng": {
+                                    "luck": 0,
+                                    "maximumLuck": 8
+                                }
+                            },
+                            "volley": {
+                                "enabled": false,
+                                "count": 1,
+                                "spread": 0
+                            },
+                            "explosion": {
+                                "enabled": false,
+                                "radiusBlocks": 0,
+                                "detonationTimeMs": 0,
+                                "durationMs": 0,
+                                "damage": 0,
+                                "onImpact": false
+                            },
+                            "throwable": {
+                                "enabled": false,
+                                "distanceMultiplier": 1,
+                                "deceleration": 20
+                            },
+                            "laser": {
+                                "enabled": false,
+                                "warmupMs": 0
+                            },
+                            "split": {
+                                "enabled": false,
+                                "count": 0,
+                                "timeMs": 0,
+                                "onImpact": false,
+                                "spread": 0,
+                                "children": []
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "speed": 20,
+            "radiusBlocks": 0.01,
             "color": "crimson",
             "damage": 2.5,
-            "damageVariation": 0,
-            "maxBounces": 1,
-            "spread": 0.25,
+            "maxBounces": 0,
             "lifetimeMs": 60000,
-            "explosionRadiusBlocks": 0,
-            "detonationTimeMs": 0,
-            "explosionDurationMs": 0,
-            "explosionDamage": 0,
-            "detonatesOnImpact": false,
-            "throwable": false,
-            "throwDistanceMultiplier": 1,
-            "throwDeceleration": 20,
-            "laser": false,
-            "laserWarmupMs": 0,
             "cooldownMs": 2500,
             "penetrationBlocks": 0,
             "bulletCollision": false,
-            "bulletCount": 25,
-            "chain": 0
-        },
-        {
-            "speed": 10,
-            "speedVariation": 0,
-            "radiusBlocks": 0.1,
-            "radiusVariation": 0,
-            "color": "crimson",
-            "damage": 1,
-            "damageVariation": 0,
-            "maxBounces": 100,
-            "spread": 0,
-            "lifetimeMs": 6000,
-            "explosionRadiusBlocks": 0,
-            "detonationTimeMs": 0,
-            "explosionDurationMs": 0,
-            "explosionDamage": 0,
-            "detonatesOnImpact": false,
-            "throwable": true,
-            "throwDistanceMultiplier": 1,
-            "throwDeceleration": 20,
-            "laser": false,
-            "laserWarmupMs": 0,
-            "cooldownMs": 250,
-            "penetrationBlocks": 0,
-            "bulletCollision": false,
-            "bulletCount": 1,
-            "chain": 0
-        },
-        {
-            "speed": 10,
-            "speedVariation": 0,
-            "radiusBlocks": 0.08,
-            "radiusVariation": 0,
-            "color": "crimson",
-            "damage": 0.1,
-            "damageVariation": 0,
-            "maxBounces": 0,
-            "spread": 0,
-            "lifetimeMs": 60000,
-            "explosionRadiusBlocks": 0,
-            "detonationTimeMs": 0,
-            "explosionDurationMs": 0,
-            "explosionDamage": 0,
-            "detonatesOnImpact": false,
-            "throwable": false,
-            "throwDistanceMultiplier": 1,
-            "throwDeceleration": 20,
-            "laser": true,
-            "laserWarmupMs": 0,
-            "cooldownMs": 0,
-            "penetrationBlocks": 0,
-            "bulletCollision": false,
-            "bulletCount": 1,
-            "chain": 1000
+            "chain": 10,
+            "variation": {
+                "enabled": false,
+                "speed": 0,
+                "radius": 0,
+                "damage": 0,
+                "rng": {
+                    "luck": 0,
+                    "maximumLuck": 8
+                }
+            },
+            "volley": {
+                "enabled": true,
+                "count": 1,
+                "spread": 0.05
+            },
+            "explosion": {
+                "enabled": false,
+                "radiusBlocks": 0,
+                "detonationTimeMs": 0,
+                "durationMs": 0,
+                "damage": 0,
+                "onImpact": false
+            },
+            "throwable": {
+                "enabled": false,
+                "distanceMultiplier": 1,
+                "deceleration": 20
+            },
+            "laser": {
+                "enabled": false,
+                "warmupMs": 0
+            },
+            "split": {
+                "enabled": false,
+                "count": 0,
+                "timeMs": 0,
+                "onImpact": false,
+                "spread": 0,
+                "children": []
+            }
         },
         {
             "speed": 20,
-            "speedVariation": 0,
             "radiusBlocks": 0.05,
-            "radiusVariation": 0,
             "color": "crimson",
             "damage": 2.5,
-            "damageVariation": 0,
             "maxBounces": 0,
-            "spread": 0.1,
             "lifetimeMs": 60000,
-            "explosionRadiusBlocks": 0,
-            "detonationTimeMs": 0,
-            "explosionDurationMs": 0,
-            "explosionDamage": 0,
-            "detonatesOnImpact": false,
-            "throwable": false,
-            "throwDistanceMultiplier": 1,
-            "throwDeceleration": 20,
-            "laser": false,
-            "laserWarmupMs": 0,
             "cooldownMs": 50,
             "penetrationBlocks": 0,
             "bulletCollision": false,
-            "bulletCount": 1,
-            "chain": 0
+            "chain": 0,
+            "variation": {
+                "enabled": false,
+                "speed": 0,
+                "radius": 0,
+                "damage": 0,
+                "rng": {
+                    "luck": 0,
+                    "maximumLuck": 8
+                }
+            },
+            "volley": {
+                "enabled": true,
+                "count": 1,
+                "spread": 0.05
+            },
+            "explosion": {
+                "enabled": false,
+                "radiusBlocks": 0,
+                "detonationTimeMs": 0,
+                "durationMs": 0,
+                "damage": 0,
+                "onImpact": false
+            },
+            "throwable": {
+                "enabled": false,
+                "distanceMultiplier": 1,
+                "deceleration": 20
+            },
+            "laser": {
+                "enabled": false,
+                "warmupMs": 0
+            },
+            "split": {
+                "enabled": false,
+                "count": 0,
+                "timeMs": 0,
+                "onImpact": false,
+                "spread": 0,
+                "children": []
+            }
         }
     ],
-    "STRUCTURE_DENSITY_BLOCKS": 5,
+    "STRUCTURE_DENSITY_BLOCKS": 1,
     "ENEMY_TYPES": {
         "g-bot": {
             "sizeBlocks": 0.5,
             "speed": 5,
             "hp": 5,
             "color": "orange",
-            "shootCooldown": 100,
-            "bulletSpeed": 10,
-            "bulletSpeedVariation": 0,
-            "bulletRadiusBlocks": 0.1,
-            "bulletRadiusVariation": 0,
-            "bulletColor": "gold",
-            "bulletDamage": 1,
-            "bulletDamageVariation": 0,
             "ai": "aggressive",
-            "spread": 0,
+            "maximumProjectileCount": 50,
+            "weapons": [
+                {
+                    "speed": 10,
+                    "radiusBlocks": 0.1,
+                    "color": "gold",
+                    "damage": 1,
+                    "maxBounces": 0,
+                    "lifetimeMs": 60000,
+                    "cooldownMs": 100,
+                    "penetrationBlocks": 0,
+                    "bulletCollision": false,
+                    "chain": 0,
+                    "variation": {
+                        "enabled": false,
+                        "speed": 0,
+                        "radius": 0,
+                        "damage": 0,
+                        "rng": {
+                            "luck": 0,
+                            "maximumLuck": 8
+                        }
+                    },
+                    "volley": {
+                        "enabled": false,
+                        "count": 1,
+                        "spread": 0
+                    },
+                    "explosion": {
+                        "enabled": false,
+                        "radiusBlocks": 0,
+                        "detonationTimeMs": 0,
+                        "durationMs": 0,
+                        "damage": 0,
+                        "onImpact": false
+                    },
+                    "throwable": {
+                        "enabled": false,
+                        "distanceMultiplier": 0,
+                        "deceleration": 0
+                    },
+                    "laser": {
+                        "enabled": false,
+                        "warmupMs": 0
+                    },
+                    "split": {
+                        "enabled": false,
+                        "count": 0,
+                        "timeMs": 0,
+                        "onImpact": false,
+                        "spread": 0,
+                        "children": []
+                    }
+                }
+            ],
             "predictionVariationThreshold": 0.1,
             "predictionVariation": 0.75,
             "wallVelocityChangeThreshold": 0.1,
             "wallGapSafetyFactor": 0.9,
-            "wallMaxDurationMs": 500,
-            "bulletExplosionRadiusBlocks": 0,
-            "bulletDetonationTimeMs": 0,
-            "bulletExplosionDurationMs": 0,
-            "bulletExplosionDamage": 0,
-            "bulletDetonatesOnImpact": false,
-            "bulletPenetrationBlocks": 0,
-            "bulletCollision": false
+            "wallMaxDurationMs": 500
         },
         "j-bot": {
             "sizeBlocks": 0.75,
             "speed": 2.5,
             "hp": 10,
             "color": "darkred",
-            "shootCooldown": 250,
-            "bulletSpeed": 15,
-            "bulletSpeedVariation": 0,
-            "bulletRadiusBlocks": 0.125,
-            "bulletRadiusVariation": 0,
-            "bulletColor": "red",
-            "bulletDamage": 1,
-            "bulletDamageVariation": 0,
             "ai": "aggressive",
-            "spread": 0,
+            "maximumProjectileCount": 50,
+            "weapons": [
+                {
+                    "speed": 15,
+                    "radiusBlocks": 0.125,
+                    "color": "red",
+                    "damage": 1,
+                    "maxBounces": 0,
+                    "lifetimeMs": 60000,
+                    "cooldownMs": 250,
+                    "penetrationBlocks": 0,
+                    "bulletCollision": false,
+                    "chain": 0,
+                    "variation": {
+                        "enabled": false,
+                        "speed": 0,
+                        "radius": 0,
+                        "damage": 0,
+                        "rng": {
+                            "luck": 0,
+                            "maximumLuck": 8
+                        }
+                    },
+                    "volley": {
+                        "enabled": false,
+                        "count": 1,
+                        "spread": 0
+                    },
+                    "explosion": {
+                        "enabled": false,
+                        "radiusBlocks": 0,
+                        "detonationTimeMs": 0,
+                        "durationMs": 0,
+                        "damage": 0,
+                        "onImpact": false
+                    },
+                    "throwable": {
+                        "enabled": false,
+                        "distanceMultiplier": 0,
+                        "deceleration": 0
+                    },
+                    "laser": {
+                        "enabled": false,
+                        "warmupMs": 0
+                    },
+                    "split": {
+                        "enabled": false,
+                        "count": 0,
+                        "timeMs": 0,
+                        "onImpact": false,
+                        "spread": 0,
+                        "children": []
+                    }
+                }
+            ],
             "predictionVariationThreshold": 0.1,
             "predictionVariation": 0.5,
             "wallVelocityChangeThreshold": 0.1,
             "wallGapSafetyFactor": 0.9,
-            "wallMaxDurationMs": 500,
-            "bulletExplosionRadiusBlocks": 0,
-            "bulletDetonationTimeMs": 0,
-            "bulletExplosionDurationMs": 0,
-            "bulletExplosionDamage": 0,
-            "bulletDetonatesOnImpact": false,
-            "bulletPenetrationBlocks": 0,
-            "bulletCollision": false
+            "wallMaxDurationMs": 500
         },
         "h-bot": {
             "sizeBlocks": 0.375,
             "speed": 2.5,
             "hp": 3,
             "color": "purple",
-            "shootCooldown": 1000,
-            "bulletSpeed": 20,
-            "bulletSpeedVariation": 0,
-            "bulletRadiusBlocks": 0.05,
-            "bulletRadiusVariation": 0,
-            "bulletColor": "fuchsia",
-            "bulletDamage": 1,
-            "bulletDamageVariation": 0,
             "ai": "passive",
-            "spread": 0,
+            "maximumProjectileCount": 50,
+            "weapons": [
+                {
+                    "speed": 20,
+                    "radiusBlocks": 0.05,
+                    "color": "fuchsia",
+                    "damage": 1,
+                    "maxBounces": 0,
+                    "lifetimeMs": 60000,
+                    "cooldownMs": 1000,
+                    "penetrationBlocks": 0,
+                    "bulletCollision": false,
+                    "chain": 0,
+                    "variation": {
+                        "enabled": false,
+                        "speed": 0,
+                        "radius": 0,
+                        "damage": 0,
+                        "rng": {
+                            "luck": 0,
+                            "maximumLuck": 8
+                        }
+                    },
+                    "volley": {
+                        "enabled": false,
+                        "count": 1,
+                        "spread": 0
+                    },
+                    "explosion": {
+                        "enabled": false,
+                        "radiusBlocks": 0,
+                        "detonationTimeMs": 0,
+                        "durationMs": 0,
+                        "damage": 0,
+                        "onImpact": false
+                    },
+                    "throwable": {
+                        "enabled": false,
+                        "distanceMultiplier": 0,
+                        "deceleration": 0
+                    },
+                    "laser": {
+                        "enabled": false,
+                        "warmupMs": 0
+                    },
+                    "split": {
+                        "enabled": false,
+                        "count": 0,
+                        "timeMs": 0,
+                        "onImpact": false,
+                        "spread": 0,
+                        "children": []
+                    }
+                }
+            ],
             "predictionVariationThreshold": 0.1,
             "predictionVariation": 0.375,
             "wallVelocityChangeThreshold": 0,
             "wallGapSafetyFactor": 0.9,
-            "wallMaxDurationMs": 0.1,
-            "bulletExplosionRadiusBlocks": 0,
-            "bulletDetonationTimeMs": 0,
-            "bulletExplosionDurationMs": 0,
-            "bulletExplosionDamage": 0,
-            "bulletDetonatesOnImpact": false,
-            "bulletPenetrationBlocks": 0,
-            "bulletCollision": false
+            "wallMaxDurationMs": 0.1
         }
     },
     "STRUCTURE_LIBRARY": [

@@ -1,6 +1,8 @@
 // Entry point: update loop, initialization, config/hotkey loading, and config export.
 
 import { Config, loadLocalConfig } from "./config.js";
+import { loadCombatDefaults } from "./combat/defaults.js";
+import { validateBaseProjectile } from "./combat/projectile-schema.js";
 import { readLaunchOptions, writeLaunchOptions } from "./launch-options.js";
 import { loadDefaultLevelDefinition } from "./level.js";
 import {
@@ -18,7 +20,7 @@ import {
 import {
 	updateEnemies,
 	resolveEnemyVectorCollisions,
-	processBullets,
+	processProjectiles,
 	processExplosions,
 	processLasers,
 	resetLaserCalculationBudget,
@@ -116,8 +118,7 @@ export function update(currentTime, dt) {
 	// aim against the current frame's camera position.
 	processAutofire(currentTime);
 
-	processBullets(GameState.bullets, true, currentTime, dt);
-	processBullets(GameState.enemyBullets, false, currentTime, dt);
+	processProjectiles(currentTime, dt);
 	resolveProjectileVectorCollisions();
 	processLasers(currentTime);
 	processExplosions(currentTime);
@@ -209,9 +210,13 @@ function updatePerformanceUi(currentTime, tickDurationMs, targetFps) {
 
 	if (showEntityCount || showEnemyCount || showBulletCount) {
 		const enemyCount = GameState.enemies.length;
-		const playerBulletCount = GameState.bullets.length;
-		const enemyBulletCount = GameState.enemyBullets.length;
-		const bulletCount = playerBulletCount + enemyBulletCount;
+		let playerBulletCount = 0;
+		let enemyBulletCount = 0;
+		for (const projectile of GameState.projectiles) {
+			if (projectile.team === player.team) playerBulletCount++;
+			else enemyBulletCount++;
+		}
+		const bulletCount = GameState.projectiles.length;
 
 		if (showEntityCount && performanceEntityCount) {
 			performanceEntityCount.textContent =
@@ -340,6 +345,7 @@ export async function initGame() {
 		}
 
 		const defaultConfig = await response.json();
+		validateBaseProjectile(defaultConfig.BASE_PROJECTILE);
 
 		const defaultLevel = await loadDefaultLevelDefinition();
 		let launchOptions = readLaunchOptions();
@@ -353,6 +359,9 @@ export async function initGame() {
 			launchOptions.gameModeId,
 		);
 		const gameMode = getGameMode(gameModeId);
+		await loadCombatDefaults({
+			allowLocal: gameMode.allowsEditedDefaults,
+		});
 		const loadedData = gameMode.allowsEditedConfig
 			? loadLocalConfig(defaultConfig)
 			: defaultConfig;
@@ -368,11 +377,15 @@ export async function initGame() {
 		const levelDefinition = prepareLevelForGameMode(
 			gameModeId,
 			sourceLevel,
+			{ newRun: true },
 		);
 
 		GameState.gameModeId = gameModeId;
 		GameState.configSource = gameMode.allowsEditedConfig ? "session" : "factory";
 		GameState.levelSource = gameMode.allowsEditedLevel ? "session" : "factory";
+		GameState.defaultsSource = gameMode.allowsEditedDefaults
+			? "session"
+			: "factory";
 		player.speed = Config.PLAYER_SPEED;
 		player.size = Config.PLAYER_SIZE_BLOCKS;
 		syncCameraViewport();

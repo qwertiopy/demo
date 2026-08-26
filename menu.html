@@ -20,6 +20,7 @@
 					<button type="button" data-menu-tab="replays">Replays</button>
 					<button type="button" data-menu-tab="config">Config</button>
 					<a href="hotkeys.html">Controls</a>
+					<a href="defaults.html">Combat Defaults</a>
 				</nav>
 			</header>
 
@@ -136,21 +137,6 @@
                         <input type="number" id="cfg_PLAYER_SPEED" step="0.01" />
                     </div>
                 
-                    <div class="config-row">
-                        <label for="cfg_PLAYER_BULLET_SPEED">
-                            Fallback Bullet Speed (blocks/sec)
-                        </label>
-                        <input
-                            type="number"
-                            id="cfg_PLAYER_BULLET_SPEED"
-                            step="0.01"
-                        />
-                        <p class="config-help compact-help">
-                            The 10 weapon entries below normally provide their own
-                            bullet speed. This value is only used as a fallback if a
-                            weapon has no speed value.
-                        </p>
-                    </div>
                 </section>
                 
                 <section class="config-section">
@@ -225,14 +211,6 @@
                         <input type="number" id="cfg_RENDER_LASER_FLASH_DURATION_MS" min="0" step="1" />
                     </div>
                 
-                    <div class="config-row">
-                        <label for="cfg_RENDER_LASER_CALCULATION_BUDGET_PER_FRAME">Laser Calculation Budget / Frame</label>
-                        <input type="number" id="cfg_RENDER_LASER_CALCULATION_BUDGET_PER_FRAME" min="1" step="1" />
-                        <p class="config-help compact-help">
-                            Maximum laser geometry/collision checks shared by all laser shots
-                            in one simulation frame. Default: 100000.
-                        </p>
-                    </div>
                 
                     <div class="config-row">
                         <label for="cfg_RENDER_TRAIL_LENGTH_FRAMES">Trail Length (frames)</label>
@@ -282,14 +260,10 @@
                     <h2>Advanced Configuration</h2>
                 
                     <p class="config-help">
-                        <strong>WEAPONS</strong> contains exactly 10 player weapons.
-                        Each entry is bullet stats: speed, radiusBlocks, color,
-                        damage, maxBounces, spread, lifetimeMs,
-                        explosionRadiusBlocks, detonationTimeMs,
-                        explosionDurationMs, explosionDamage, detonatesOnImpact,
-                        throwable, throwDistanceMultiplier, throwDeceleration, laser,
-                        laserWarmupMs, cooldownMs, penetrationBlocks, and
-                        bulletCollision.
+                        <strong>BASE_PROJECTILE</strong> is the required complete global
+                        projectile definition. Player weapons, enemy weapons, and split
+                        children are partial overlays on that base. Modifiers use nested
+                        objects with an <code>enabled</code> flag.
                     </p>
                 
                     <p class="config-help">
@@ -362,7 +336,7 @@
                         id="cfg_ADVANCED"
                         rows="20"
                         spellcheck="false"
-                        placeholder='{"WEAPONS": [...], "ENEMY_TYPES": {...}}'
+                        placeholder='{"BASE_PROJECTILE": {...}, "WEAPONS": [...], "ENEMY_TYPES": {...}}'
                     ></textarea>
                 </section>
                 

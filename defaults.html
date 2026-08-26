@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Demo — Combat Defaults</title>
+		<link rel="stylesheet" href="css/config.css" />
+		<link rel="stylesheet" href="css/menu.css" />
+	</head>
+	<body>
+		<main class="menu-container">
+			<header class="menu-header">
+				<div>
+					<p class="menu-kicker">DEMO</p>
+					<h1>Combat Defaults</h1>
+				</div>
+				<nav class="menu-tabs" aria-label="Combat defaults navigation">
+					<a href="menu.html">Main Menu</a>
+					<a href="hotkeys.html">Controls</a>
+				</nav>
+			</header>
+
+			<section class="menu-panel">
+				<div class="menu-actions">
+					<button id="importDefaultsBtn" class="export-btn" type="button">Import defaults.json</button>
+					<button id="saveDefaultsBtn" class="apply-btn" type="button">Save Locally</button>
+					<button id="exportDefaultsBtn" class="export-btn" type="button">Export defaults.json</button>
+					<button id="resetDefaultsBtn" class="reset-btn" type="button">Reset to Factory</button>
+				</div>
+				<input id="importDefaultsFileInput" type="file" accept=".json,application/json" hidden />
+				<div id="defaultsStatus" class="menu-status"></div>
+
+				<p class="config-help">
+					These algorithmic constants apply only to Sandbox. Endless always uses
+					the factory <code>js/combat/defaults.json</code>. Device-specific settings
+					and competitive fairness are intentionally deferred until after community
+					consultation.
+				</p>
+				<label for="defaultsData" class="menu-field-label">Combat defaults JSON</label>
+				<textarea id="defaultsData" rows="24" spellcheck="false"></textarea>
+			</section>
+		</main>
+		<script type="module" src="js/defaults-editor.js"></script>
+	</body>
+</html>

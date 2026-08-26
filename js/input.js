@@ -1,12 +1,28 @@
 // Keyboard/mouse input, hotkey action dispatch, aiming, and level/UI controls.
 
 import { Config } from "./config.js";
-import { GameState, player, camera, markEnvironmentChanged } from "./state.js";
+import {
+	GameState,
+	player,
+	camera,
+	markEnvironmentChanged,
+	resetEntityIds,
+} from "./state.js";
 import { markWallIndexDirty } from "./spatial/wall-index.js";
 import { canvas, debugUI, respawnBtn } from "./dom.js";
 import { readLaunchOptions } from "./launch-options.js";
 import { resolveLevelRuntimeSettings } from "./level.js";
-import { requestLaserShot, shoot } from "./combat.js";
+import { prepareLevelForGameMode } from "./game-modes.js";
+import {
+	getMinimumStructureOriginXExclusive,
+	getProceduralPlayerSpawn,
+} from "./procgen.js";
+import {
+	normalizeVariationLuckUpgrade,
+	requestLaserShot,
+	shoot,
+} from "./combat.js";
+import { clampProjectileCount, resetProjectileCaps } from "./combat/projectile-cap.js";
 import {
 	getActionsForInput,
 	isActionDown,
@@ -143,21 +159,41 @@ export function loadLevel(levelDefinition = null) {
 		const data = cloneLevelDefinition(activeLevelDefinition);
 		const runtimeSettings = resolveLevelRuntimeSettings(data, Config);
 
-		if (data.playerSpawn) {
-			player.x = data.playerSpawn.x;
-			player.y = data.playerSpawn.y;
+		const playerDefinition = data.player || {
+			spawn: data.playerSpawn,
+		};
+		const proceduralLevel = data.seed !== undefined;
+		if (proceduralLevel) {
+			GameState.levelSeed = data.seed;
+			GameState.currentSeed = data.seed;
+		}
+
+		const playerSpawn = proceduralLevel
+			? getProceduralPlayerSpawn(runtimeSettings, player.size)
+			: playerDefinition.spawn;
+		if (playerSpawn) {
+			player.x = playerSpawn.x;
+			player.y = playerSpawn.y;
 			player.hp = player.maxHp;
 			player.vx = 0;
 			player.vy = 0;
 		}
+		player.maximumProjectileCount = clampProjectileCount(
+			playerDefinition.maximumProjectileCount,
+			"level.player.maximumProjectileCount",
+		);
+		player.upgrades.variationLuck = normalizeVariationLuckUpgrade(
+			playerDefinition.upgrades?.variationLuck,
+		);
 
-		GameState.bullets.length = 0;
-		GameState.enemyBullets.length = 0;
+		GameState.projectiles.length = 0;
 		GameState.explosions.length = 0;
 		GameState.laserWarmups.length = 0;
 		GameState.laserBeams.length = 0;
 		GameState.weaponCooldownUntilByWeapon.length = 0;
+		resetProjectileCaps();
 		GameState.enemies.length = 0;
+		resetEntityIds();
 		GameState.walls.length = 0;
 		GameState.enemySpawns.length = 0;
 		GameState.generatedColumns.clear();
@@ -165,7 +201,6 @@ export function loadLevel(levelDefinition = null) {
 		GameState.lastSpawnTime = performance.now();
 		GameState.isPlayerDead = false;
 
-		const proceduralLevel = data.seed !== undefined;
 		const configuredSpawnRate = readEnemySpawnRate(
 			data.enemySpawnRate,
 			proceduralLevel ? 0.5 : 0,
@@ -188,12 +223,11 @@ export function loadLevel(levelDefinition = null) {
 		GameState.corridorWidthBlocks = runtimeSettings.corridorWidthBlocks;
 		GameState.structureSpawnChance = runtimeSettings.structureSpawnChance;
 		GameState.structureDensityBlocks = runtimeSettings.structureDensityBlocks;
+		GameState.minimumStructureOriginXExclusive =
+			getMinimumStructureOriginXExclusive(Config.STRUCTURE_LIBRARY);
 		GameState.isInvincible = runtimeSettings.invincibility;
 
-		if (proceduralLevel) {
-			GameState.levelSeed = data.seed;
-			GameState.currentSeed = data.seed;
-		} else {
+		if (!proceduralLevel) {
 			GameState.walls = data.walls || [];
 			GameState.enemySpawns = data.enemySpawns || [];
 		}
@@ -207,13 +241,22 @@ export function loadLevel(levelDefinition = null) {
 	}
 }
 
-// Restarts the current level from its configured player spawn after death.
+// Starts another run after death. Endless receives a fresh procedural seed;
+// other modes continue to reload their configured level unchanged.
 export function respawnGame() {
 	if (isReplayPlaybackActive() || player.hp > 0) return;
 
 	GameState.pressedInputs.clear();
 	GameState.MaxDistance = -1;
-	loadLevel();
+	const nextLevelDefinition = prepareLevelForGameMode(
+		GameState.gameModeId,
+		activeLevelDefinition,
+		{
+			newRun: true,
+			previousSeed: GameState.levelSeed,
+		},
+	);
+	loadLevel(nextLevelDefinition);
 }
 
 function isEditableTarget(target) {
@@ -289,7 +332,6 @@ export function fireActiveWeapon(currentTime = performance.now()) {
 		player,
 		GameState.aimWorldX,
 		GameState.aimWorldY,
-		GameState.bullets,
 		stats,
 	);
 

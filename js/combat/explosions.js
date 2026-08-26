@@ -1,11 +1,11 @@
 // Explosion creation, lifetime, and damage handling.
 
-import { GameState, player } from "../state.js";
+import { GameState, player, TEAM_PLAYER } from "../state.js";
 import { circleIntersectsRect } from "./collision.js";
 
 // Creates a circular explosion at the projectile's current position. A radius
 // of 0 means the projectile is non-explosive and no explosion object is made.
-export function detonateBullet(bullet, isPlayerBullet, currentTime) {
+export function detonateBullet(bullet, currentTime) {
 	const radius = bullet.explosionRadiusBlocks ?? 0;
 
 	if (radius <= 0) return false;
@@ -18,7 +18,8 @@ export function detonateBullet(bullet, isPlayerBullet, currentTime) {
 		color: bullet.color ?? "orange",
 		createdAt: currentTime,
 		durationMs: bullet.explosionDurationMs ?? 0,
-		isPlayerExplosion: isPlayerBullet,
+		ownerId: bullet.ownerId,
+		team: bullet.team,
 		hitTargets: new Set(),
 	});
 
@@ -31,7 +32,8 @@ export function detonateBullet(bullet, isPlayerBullet, currentTime) {
 export function processExplosions(currentTime) {
 	for (let i = GameState.explosions.length - 1; i >= 0; i--) {
 		const explosion = GameState.explosions[i];
-		const targets = explosion.isPlayerExplosion
+		const isPlayerExplosion = explosion.team === TEAM_PLAYER;
+		const targets = isPlayerExplosion
 			? GameState.enemies
 			: [player];
 
@@ -46,7 +48,7 @@ export function processExplosions(currentTime) {
 					target,
 				)
 			) {
-				if (explosion.isPlayerExplosion || !GameState.isInvincible) {
+				if (isPlayerExplosion || !GameState.isInvincible) {
 					target.hp -= explosion.damage;
 				}
 

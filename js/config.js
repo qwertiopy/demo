@@ -1,9 +1,11 @@
+import { validateBaseProjectile } from "./combat/projectile-schema.js";
+
 export const CONFIG_STORAGE_KEY = "demoGameConfig";
 
 export const Config = {
-    CONFIG_SCHEMA_VERSION: 21,
+    CONFIG_SCHEMA_VERSION: 23,
     PLAYER_SPEED: 0,
-    PLAYER_BULLET_SPEED: 0,
+    BASE_PROJECTILE: {},
     WEAPONS: [],
     STRUCTURE_DENSITY_BLOCKS: 0,
     ENEMY_TYPES: {},
@@ -19,7 +21,6 @@ export const Config = {
         ENVIRONMENT_OVERSCAN_BLOCKS: 2,
         CLEANUP_BUFFER_BLOCKS: 0,
         LASER_FLASH_DURATION_MS: 90,
-        LASER_CALCULATION_BUDGET_PER_FRAME: 100000,
         TRAIL_LENGTH_FRAMES: 0,
         TRAIL_DETAIL: 60,
         TRAIL_QUAD_DETAIL: 30,
@@ -70,6 +71,46 @@ export function mergeConfig(base, override) {
 
 function cloneConfig(value) {
     return JSON.parse(JSON.stringify(value));
+}
+
+function addVariationRngDefaults(projectile, rngDefaults) {
+    if (!isPlainObject(projectile)) return;
+
+    if (isPlainObject(projectile.variation)) {
+        projectile.variation.rng = mergeConfig(
+            rngDefaults,
+            isPlainObject(projectile.variation.rng)
+                ? projectile.variation.rng
+                : {},
+        );
+    }
+
+    const children = projectile.split?.children;
+    if (!Array.isArray(children)) return;
+    for (const child of children) {
+        addVariationRngDefaults(child?.projectile, rngDefaults);
+    }
+}
+
+function migrateVariationRng(defaultConfig, migratedConfig) {
+    const rngDefaults = defaultConfig.BASE_PROJECTILE?.variation?.rng;
+    if (!isPlainObject(rngDefaults)) return;
+
+    addVariationRngDefaults(migratedConfig.BASE_PROJECTILE, rngDefaults);
+    for (const weapon of Array.isArray(migratedConfig.WEAPONS)
+        ? migratedConfig.WEAPONS
+        : []) {
+        addVariationRngDefaults(weapon, rngDefaults);
+    }
+    if (isPlainObject(migratedConfig.ENEMY_TYPES)) {
+        for (const enemy of Object.values(migratedConfig.ENEMY_TYPES)) {
+            for (const weapon of Array.isArray(enemy?.weapons)
+                ? enemy.weapons
+                : []) {
+                addVariationRngDefaults(weapon, rngDefaults);
+            }
+        }
+    }
 }
 
 function migrateConfig(defaultConfig, savedConfig) {
@@ -404,11 +445,19 @@ function migrateConfig(defaultConfig, savedConfig) {
         );
     }
 
+    // Schema v23 adds bounded, upgradeable luck to every variation modifier.
+    // Use the factory base as the only source of RNG defaults, including for
+    // recursive split-child projectile definitions.
+    if (savedVersion < 23) {
+        migrateVariationRng(defaultConfig, migratedConfig);
+    }
+
     return migratedConfig;
 }
 
 export function loadLocalConfig(defaultConfig) {
     try {
+        validateBaseProjectile(defaultConfig.BASE_PROJECTILE);
         const savedJson = localStorage.getItem(CONFIG_STORAGE_KEY);
 
         if (!savedJson) {
@@ -425,7 +474,14 @@ export function loadLocalConfig(defaultConfig) {
             savedConfig.CONFIG_SCHEMA_VERSION !==
             defaultConfig.CONFIG_SCHEMA_VERSION
         ) {
+            // Schema v22 introduced the required global base. Those configs are
+            // structurally safe to merge with v23's nested variation RNG defaults.
+            // Pre-v22 flat configs still require explicit formatter migration.
+            if (Number(savedConfig.CONFIG_SCHEMA_VERSION) < 22) {
+                validateBaseProjectile(savedConfig.BASE_PROJECTILE);
+            }
             const migratedConfig = migrateConfig(defaultConfig, savedConfig);
+            validateBaseProjectile(migratedConfig.BASE_PROJECTILE);
 
             localStorage.setItem(
                 CONFIG_STORAGE_KEY,
@@ -435,7 +491,10 @@ export function loadLocalConfig(defaultConfig) {
             return migratedConfig;
         }
 
-        return mergeConfig(defaultConfig, savedConfig);
+        validateBaseProjectile(savedConfig.BASE_PROJECTILE);
+        const merged = mergeConfig(defaultConfig, savedConfig);
+        validateBaseProjectile(merged.BASE_PROJECTILE);
+        return merged;
     } catch (error) {
         console.warn(
             "Could not load local config; using config.json defaults.",

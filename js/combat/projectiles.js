@@ -1,19 +1,116 @@
 // Projectile spawning, projectile/projectile collision, penetration, wall response, and movement.
 
-import { GameState, player } from "../state.js";
+import { Config } from "../config.js";
+import { GameState, player, TEAM_PLAYER } from "../state.js";
 import { queryWallsInAabb } from "../spatial/wall-index.js";
 import { isColliding } from "../utils.js";
 import { detonateBullet } from "./explosions.js";
 import { findChainTarget, getAngleToTarget } from "./targeting.js";
 import { clampAngleToInterval } from "./visibility.js";
+import { getCombatDefault } from "./defaults.js";
+import { registerProjectile, releaseProjectile } from "./projectile-cap.js";
 import {
-	MIN_THROW_DECELERATION,
+	getSplitChildDefinition,
+	resolveProjectileDefinition,
+} from "./projectile-schema.js";
+import {
+	getMinimumThrowDeceleration,
+	getEffectiveVariationLuck,
 	getProjectileVolleyAngles,
 	getVariedStat,
+	normalizeVariationLuckUpgrade,
 	getThrowableBoomerangTravelDistance,
 	getThrowableKinematics,
 	getThrowableTravelDistance,
 } from "./weapon-utils.js";
+
+let splitLaserFirer = null;
+
+export function registerSplitLaserFirer(firer) {
+	splitLaserFirer = typeof firer === "function" ? firer : null;
+}
+
+function getSplitAngles(baseAngle, count, spread) {
+	if (count <= 0) return [];
+	if (count === 1) return [baseAngle];
+	const cappedSpread = Math.min(Math.PI * 2, Math.max(0, Number(spread)));
+	if (cappedSpread >= Math.PI * 2) {
+		return Array.from(
+			{ length: count },
+			(_, index) => baseAngle - Math.PI + index * Math.PI * 2 / count,
+		);
+	}
+	return Array.from(
+		{ length: count },
+		(_, index) => baseAngle - cappedSpread / 2 + index * cappedSpread / (count - 1),
+	);
+}
+
+function selectSplitChildEntries(children, count) {
+	if (!Array.isArray(children) || children.length === 0) {
+		return Array.from({ length: count }, () => null);
+	}
+	const weights = children.map((entry) => Math.max(0, Number(entry?.weight) || 0));
+	const weightTotal = weights.reduce((sum, weight) => sum + weight, 0);
+	if (weightTotal <= 0) {
+		return Array.from({ length: count }, (_, index) => children[index % children.length]);
+	}
+	return Array.from({ length: count }, () => {
+		let roll = Math.random() * weightTotal;
+		let lastPositive = children[0];
+		for (let index = 0; index < children.length; index++) {
+			if (weights[index] <= 0) continue;
+			lastPositive = children[index];
+			roll -= weights[index];
+			if (roll <= 0) return children[index];
+		}
+		return lastPositive;
+	});
+}
+
+function getProjectileDirectionAngle(projectile) {
+	return projectile.throwable
+		? Math.atan2(projectile.throwDirY, projectile.throwDirX)
+		: Math.atan2(projectile.vy, projectile.vx);
+}
+
+export function fireSplitChildren(projectile, baseAngle, currentTime) {
+	if (!projectile.splitEnabled || projectile.splitCount <= 0) return false;
+	const angles = getSplitAngles(baseAngle, projectile.splitCount, projectile.splitSpread);
+	const entries = selectSplitChildEntries(projectile.splitChildren, angles.length);
+	const origin = { x: projectile.x, y: projectile.y, size: 0 };
+
+	for (let index = 0; index < angles.length; index++) {
+		const childStats = getSplitChildDefinition(Config.BASE_PROJECTILE, entries[index]);
+		const angle = angles[index];
+		if (childStats.laser) {
+			splitLaserFirer?.({
+				shooter: origin,
+				ownerId: projectile.ownerId,
+				team: projectile.team,
+				variationLuckUpgrade: projectile.variationLuckUpgrade,
+				angle,
+				stats: childStats,
+				currentTime,
+			});
+		} else {
+			shoot(
+				origin,
+				origin.x + Math.cos(angle),
+				origin.y + Math.sin(angle),
+				childStats,
+				{
+					ownerId: projectile.ownerId,
+					team: projectile.team,
+					variationLuckUpgrade: projectile.variationLuckUpgrade,
+					splitCreated: true,
+					forcedBaseAngle: angle,
+				},
+			);
+		}
+	}
+	return true;
+}
 
 // Trails are sampled once per render frame, but projectile wall impacts and
 // removals can happen between those samples. Keep a tiny transient path for
@@ -45,107 +142,226 @@ function redirectProjectileTowardTarget(projectile, target) {
 	projectile.vy = dirY * speed;
 }
 
+function isActiveProjectileChainTarget(projectile, target) {
+	if (
+		!target ||
+		(Number(target.hp) || 0) <= 0 ||
+		projectile.chainVisitedTargets?.has(target)
+	) {
+		return false;
+	}
+
+	return projectile.team === TEAM_PLAYER
+		? GameState.enemies.includes(target)
+		: target === player;
+}
+
+// Active chain projectiles greedily home along the direct current line to their
+// acquired target. An untargeted projectile scans once per simulation frame;
+// after a target is acquired it retains that target until the target is hit,
+// dies, or leaves the active target list. Returns true only when this acquisition
+// consumes a post-hit chain redirect, so impact modifiers trigger once rather
+// than on every steering adjustment.
+export function updateProjectileChainAim(projectile) {
+	if (Math.max(0, Number(projectile.chain) || 0) <= 0) return false;
+
+	projectile.chainVisitedTargets ??= new Set();
+	if (isActiveProjectileChainTarget(projectile, projectile.chainTarget)) {
+		redirectProjectileTowardTarget(projectile, projectile.chainTarget);
+		return false;
+	}
+
+	projectile.chainTarget = null;
+	const isPostHitRedirect = projectile.chainVisitedTargets.size > 0;
+	if (isPostHitRedirect && (projectile.chainsRemaining ?? 0) <= 0) {
+		return false;
+	}
+
+	const referenceAngle = projectile.chainReferenceAngle ??
+		getProjectileDirectionAngle(projectile);
+	const target = projectile.team === TEAM_PLAYER
+		? findChainTarget(
+			projectile.x,
+			projectile.y,
+			referenceAngle,
+			projectile.chainVisitedTargets,
+			isPostHitRedirect ? "distance" : "angle",
+		)
+		: player.hp > 0 && !projectile.chainVisitedTargets.has(player)
+			? player
+			: null;
+
+	if (!target) return false;
+
+	projectile.chainTarget = target;
+	if (isPostHitRedirect) projectile.chainsRemaining--;
+	redirectProjectileTowardTarget(projectile, target);
+	return isPostHitRedirect;
+}
+
+function triggerChainRedirectEffects(projectile, currentTime) {
+	if (projectile.detonatesOnImpact) {
+		detonateBullet(projectile, currentTime);
+	}
+	if (projectile.splitsOnImpact) {
+		fireSplitChildren(
+			projectile,
+			getProjectileDirectionAngle(projectile),
+			currentTime,
+		);
+	}
+}
+
 // Creates one projectile or a whole configured volley from the shooter's center.
-export function shoot(shooter, targetX, targetY, bulletArray, stats) {
+// Ownership identifies one entity's FIFO queue; team independently controls
+// targeting and damage. Both are copied directly to every split descendant.
+export function shoot(shooter, targetX, targetY, stats, options = {}) {
 	if (GameState.isPlayerDead) return;
+	stats = resolveProjectileDefinition(Config.BASE_PROJECTILE, stats);
+	const ownerId = options.ownerId ?? shooter.id;
+	const team = options.team ?? shooter.team;
+	const maximumProjectileCount = options.maximumProjectileCount ??
+		shooter.maximumProjectileCount;
+	const variationLuckUpgrade = normalizeVariationLuckUpgrade(
+		options.variationLuckUpgrade ?? shooter.upgrades?.variationLuck,
+	);
+	const effectiveVariationLuck = getEffectiveVariationLuck(
+		stats,
+		variationLuckUpgrade,
+	);
+	if (!Number.isSafeInteger(ownerId) || ownerId <= 0) {
+		throw new Error(`Projectile ownerId must be a positive integer; received ${ownerId}.`);
+	}
+	if (typeof team !== "string" || team.length === 0) {
+		throw new Error("Projectile team must be a non-empty string.");
+	}
 
 	const centerX = shooter.x + shooter.size / 2;
 	const centerY = shooter.y + shooter.size / 2;
 	const targetDx = targetX - centerX;
 	const targetDy = targetY - centerY;
-	const baseAngle = Math.atan2(targetDy, targetDx);
+	const baseAngle = Number.isFinite(options.forcedBaseAngle)
+		? options.forcedBaseAngle
+		: Math.atan2(targetDy, targetDx);
 	const requestedAngles = getProjectileVolleyAngles(baseAngle, stats);
 	const constrainedAngles = stats.aimAngleBounds
 		? requestedAngles.map((angle) =>
 			clampAngleToInterval(angle, stats.aimAngleBounds),
 		)
 		: requestedAngles;
-	const volleyAngles = bulletArray === GameState.bullets
-		? constrainedAngles.slice(0, 100)
-		: constrainedAngles;
+	const volleyAngles = constrainedAngles;
 	const throwable = stats.throwable === true;
 	const throwDistanceMultiplier = Math.max(
 		0,
-		Number(stats.throwDistanceMultiplier ?? 1) || 0,
+		Number(stats.throwDistanceMultiplier) || 0,
 	);
 	const throwDistanceBlocks = throwable
 		? Math.hypot(targetDx, targetDy) * throwDistanceMultiplier
 		: 0;
 	const throwDeceleration = throwable
 		? Math.max(
-			MIN_THROW_DECELERATION,
-			Number(stats.throwDeceleration ?? 20) || 0,
+			getMinimumThrowDeceleration(),
+			Number(stats.throwDeceleration) || 0,
 		)
 		: 0;
-	const throwKinematics = throwable
-		? getThrowableKinematics(throwDistanceBlocks, throwDeceleration)
-		: null;
 	const createdAt = performance.now();
-	const chain = bulletArray === GameState.bullets
-		? Math.max(0, Math.floor(Number(stats.chain ?? 0) || 0))
-		: 0;
+	const chain = Math.max(0, Math.floor(Number(stats.chain) || 0));
 	const initialChainTarget = chain > 0
-		? findChainTarget(centerX, centerY, baseAngle)
+		? team === TEAM_PLAYER
+			? findChainTarget(centerX, centerY, baseAngle)
+			: player.hp > 0 ? player : null
 		: null;
 	const chainedLaunchAngle = initialChainTarget
 		? getAngleToTarget(centerX, centerY, initialChainTarget)
 		: null;
-
-	// Preserve the existing 100-player-projectile cap without allowing a volley
-	// to overshoot it. Very large configured volleys are themselves capped at 100.
-	if (bulletArray === GameState.bullets) {
-		while (GameState.bullets.length + volleyAngles.length > 100) {
-			GameState.bullets.shift();
-		}
-	}
 
 	for (const angle of volleyAngles) {
 		// chain>0 overrides spread/volley direction when an eligible target exists:
 		// the projectile aims directly at the enemy closest to the mouse angle.
 		const projectileAngle = chainedLaunchAngle ?? angle;
 
-		// Variation is rolled independently for every projectile in a volley. The
-		// configured variation fields are absolute +/- ranges around each base stat.
+		// Variation is rolled independently for every projectile and stat. The
+		// owner upgrade is snapshotted once per firing action, then combined with
+		// this weapon's configured luck and maximum.
 		const speed = throwable
 			? 0
-			: getVariedStat(stats.speed ?? 12, stats.speedVariation ?? 0, 0);
+			: getVariedStat(
+				stats.speed,
+				stats.speedVariation,
+				0,
+				effectiveVariationLuck,
+			);
 		const radius = getVariedStat(
-			stats.radiusBlocks ?? 0.08,
-			stats.radiusVariation ?? 0,
+			stats.radiusBlocks,
+			stats.radiusVariation,
 			0,
+			effectiveVariationLuck,
 		);
 		const damage = getVariedStat(
-			stats.damage ?? 1,
-			stats.damageVariation ?? 0,
+			stats.damage,
+			stats.damageVariation,
 			0,
+			effectiveVariationLuck,
 		);
+		const splitThrowInitialSpeed = options.splitCreated && throwable
+			? getVariedStat(
+				stats.speed,
+				stats.speedVariation,
+				0,
+				effectiveVariationLuck,
+			)
+			: 0;
+		const projectileThrowDistanceBlocks = options.splitCreated && throwable
+			? splitThrowInitialSpeed * splitThrowInitialSpeed /
+				(2 * throwDeceleration) * throwDistanceMultiplier
+			: throwDistanceBlocks;
+		const projectileThrowDeceleration = options.splitCreated && throwable &&
+			throwDistanceMultiplier > 0
+			? throwDeceleration / throwDistanceMultiplier
+			: throwDeceleration;
+		const throwKinematics = throwable
+			? getThrowableKinematics(
+				projectileThrowDistanceBlocks,
+				projectileThrowDeceleration,
+			)
+			: null;
 
 		// Throwable vx/vy are intentionally zero: their movement is driven by the
-		// closed-form throw-distance equation in processBullets(). throwDirX/Y are
+		// closed-form throw-distance equation in processProjectiles(). throwDirX/Y are
 		// unit direction components and can still be reflected by wall bounces.
-		bulletArray.push({
+		const projectile = {
 			x: centerX,
 			y: centerY,
 			radius,
 			vx: Math.cos(projectileAngle) * speed,
 			vy: Math.sin(projectileAngle) * speed,
-			color: stats.color ?? "white",
+			color: stats.color,
 			damage,
 			bounces: 0,
-			maxBounces: stats.maxBounces ?? 0,
+			maxBounces: stats.maxBounces,
 			throwBounces: 0,
 			hitTargets: new Set(),
 			chain,
 			chainsRemaining: Math.max(0, chain - 1),
 			chainReferenceAngle: baseAngle,
 			chainVisitedTargets: new Set(),
+			chainTarget: initialChainTarget,
 			createdAt,
-			lifetimeMs: stats.lifetimeMs ?? 60000,
-			explosionRadiusBlocks: stats.explosionRadiusBlocks ?? 0,
-			detonationTimeMs: stats.detonationTimeMs ?? 0,
-			explosionDurationMs: stats.explosionDurationMs ?? 0,
-			explosionDamage: stats.explosionDamage ?? 0,
-			detonatesOnImpact: stats.detonatesOnImpact ?? false,
+			lifetimeMs: stats.lifetimeMs,
+			explosionRadiusBlocks: stats.explosionRadiusBlocks,
+			detonationTimeMs: stats.detonationTimeMs,
+			explosionDurationMs: stats.explosionDurationMs,
+			explosionDamage: stats.explosionDamage,
+			detonatesOnImpact: stats.detonatesOnImpact,
+			splitEnabled: stats.splitEnabled,
+			splitCount: stats.splitCount,
+			splitTimeMs: stats.splitTimeMs,
+			splitsOnImpact: stats.splitsOnImpact,
+			splitSpread: stats.splitSpread,
+			splitChildren: stats.splitChildren,
+			ownerId,
+			team,
+			variationLuckUpgrade,
 			penetrationBlocks: Math.max(0, Number(stats.penetrationBlocks ?? 0) || 0),
 			remainingPenetrationBlocks: Math.max(
 				0,
@@ -155,14 +371,14 @@ export function shoot(shooter, targetX, targetY, bulletArray, stats) {
 			throwable,
 			throwDirX: Math.cos(projectileAngle),
 			throwDirY: Math.sin(projectileAngle),
-			throwDistanceBlocks,
+			throwDistanceBlocks: projectileThrowDistanceBlocks,
 			throwDistanceMultiplier,
 			throwTravelledBlocks: 0,
 			throwLegStartedAt: createdAt,
-			throwDeceleration,
+			throwDeceleration: projectileThrowDeceleration,
 			throwInitialSpeed: throwKinematics?.initialSpeed ?? 0,
 			throwFlightDurationMs: throwKinematics?.durationMs ?? 0,
-			throwComplete: !throwable || throwDistanceBlocks === 0,
+			throwComplete: !throwable || projectileThrowDistanceBlocks === 0,
 			dv: 0,
 			bulletCollision: stats.bulletCollision === true,
 
@@ -175,7 +391,13 @@ export function shoot(shooter, targetX, targetY, bulletArray, stats) {
 			get size() {
 				return this.radius * 2;
 			},
-		});
+		};
+		GameState.projectiles.push(projectile);
+		projectile.projectileCapEntry = registerProjectile(
+			ownerId,
+			projectile,
+			maximumProjectileCount,
+		);
 	}
 }
 
@@ -185,7 +407,9 @@ export function shoot(shooter, targetX, targetY, bulletArray, stats) {
 // moving. dv is used only to keep a truly stationary projectile fixed when it
 // is hit by a moving one; otherwise the overlap is split by projectile radius.
 export function resolveProjectileVectorCollisions() {
-	const allProjectiles = [...GameState.bullets, ...GameState.enemyBullets];
+	const allProjectiles = GameState.projectiles.filter(
+		(projectile) => !projectile.removedByProjectileCap,
+	);
 	const stationaryEpsilon = 1e-12;
 
 	for (let i = 0; i < allProjectiles.length; i++) {
@@ -280,7 +504,9 @@ export function getPenetratedCollisionRect(
 // Maximum projectile travel per collision substep; limiting this prevents fast
 // bullets from tunneling through targets. Wall collision itself is now swept
 // continuously across the whole 2D substep rather than resolving X then Y.
-export const BULLET_MAX_STEP_BLOCKS = 0.2;
+export function getBulletMaxStepBlocks() {
+	return getCombatDefault("PROJECTILE_MAX_STEP_BLOCKS");
+}
 
 // Returns whether a projectile has bounce behaviour available. Throwables are
 // always wall-bouncy; their configured maxBounces is reserved for boomerang
@@ -289,12 +515,15 @@ function isBouncyProjectile(bullet) {
 	return bullet.throwable === true || Math.max(0, bullet.maxBounces ?? 0) > 0;
 }
 
-function triggerSuccessfulBounceExplosion(bullet, isPlayerBullets, currentTime) {
+function triggerSuccessfulBounceEffects(bullet, currentTime) {
 	if (
 		bullet.detonatesOnImpact === true &&
 		(bullet.explosionRadiusBlocks ?? 0) > 0
 	) {
-		detonateBullet(bullet, isPlayerBullets, currentTime);
+		detonateBullet(bullet, currentTime);
+	}
+	if (bullet.splitsOnImpact === true) {
+		fireSplitChildren(bullet, getProjectileDirectionAngle(bullet), currentTime);
 	}
 }
 
@@ -342,10 +571,17 @@ function projectileOverlapsAnyWall(bullet) {
 	);
 }
 
-const WALL_TOI_EPSILON = 1e-8;
-const WALL_APPROACH_EPSILON = 1e-12;
-const WALL_CONTACT_NUDGE = 1e-8;
-const MAX_WALL_IMPACTS_PER_SUBSTEP = 8;
+function dynamicCombatDefault(key) {
+	return { valueOf: () => getCombatDefault(key) };
+}
+
+const WALL_TOI_EPSILON = dynamicCombatDefault("WALL_TOI_EPSILON");
+const WALL_APPROACH_EPSILON = dynamicCombatDefault("WALL_APPROACH_EPSILON");
+const WALL_CONTACT_NUDGE = dynamicCombatDefault("WALL_CONTACT_NUDGE");
+const MAX_WALL_IMPACTS_PER_SUBSTEP = dynamicCombatDefault(
+	"MAX_WALL_IMPACTS_PER_SUBSTEP",
+);
+const BULLET_MAX_STEP_BLOCKS = dynamicCombatDefault("PROJECTILE_MAX_STEP_BLOCKS");
 
 function reflectVector(x, y, normalX, normalY) {
 	const dot = x * normalX + y * normalY;
@@ -606,10 +842,18 @@ function consumeProjectilePenetrationStep(bullet, travelDistanceBlocks, isBouncy
 // Substeps projectile movement, reflects bullets from walls, applies damage to
 // valid targets, handles penetration/bounce synergies, advances closed-form
 // throwable legs, tags zero-movement projectiles, and removes expired bullets.
-export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
-	for (let i = bulletArray.length - 1; i >= 0; i--) {
-		const b = bulletArray[i];
-		const targets = isPlayerBullets ? GameState.enemies : [player];
+export function processProjectiles(currentTime, dt) {
+	const projectiles = GameState.projectiles;
+	for (let i = projectiles.length - 1; i >= 0; i--) {
+		const b = projectiles[i];
+		const isPlayerProjectile = b.team === TEAM_PLAYER;
+		const targets = isPlayerProjectile ? GameState.enemies : [player];
+
+		if (b.removedByProjectileCap) {
+			releaseProjectile(b);
+			projectiles.splice(i, 1);
+			continue;
+		}
 
 		const frameStartX = b.x;
 		const frameStartY = b.y;
@@ -626,14 +870,30 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 			pushProjectileTrailEvent(b);
 		};
 
-		if (
-			b.detonationTimeMs > 0 &&
-			currentTime - b.createdAt >= b.detonationTimeMs
-		) {
+		const explosionTimerExpired = b.detonationTimeMs > 0 &&
+			currentTime - b.createdAt >= b.detonationTimeMs;
+		const splitTimerExpired = b.splitTimeMs > 0 &&
+			currentTime - b.createdAt >= b.splitTimeMs;
+		if (explosionTimerExpired || splitTimerExpired) {
 			recordTrailCheckpoint();
-			detonateBullet(b, isPlayerBullets, currentTime);
-			bulletArray.splice(i, 1);
+			if (explosionTimerExpired) {
+				detonateBullet(b, currentTime);
+			}
+			if (splitTimerExpired) {
+				fireSplitChildren(b, getProjectileDirectionAngle(b), currentTime);
+			}
+			releaseProjectile(b);
+			projectiles.splice(i, 1);
 			continue;
+		}
+
+		if (updateProjectileChainAim(b)) {
+			triggerChainRedirectEffects(b, currentTime);
+			if (b.removedByProjectileCap) {
+				releaseProjectile(b);
+				projectiles.splice(i, 1);
+				continue;
+			}
 		}
 
 		let frameDistance;
@@ -696,6 +956,8 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 
 		let removeBullet = false;
 		let detonateOnRemoval = false;
+		let splitOnRemoval = false;
+		let terminalWallAngle = null;
 
 		for (let step = 0; step < steps; step++) {
 			const intendedStepDistance = b.throwable
@@ -768,6 +1030,11 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 					if (!canBounce) {
 						removeBullet = true;
 						detonateOnRemoval = b.detonatesOnImpact;
+						splitOnRemoval = b.splitsOnImpact;
+						terminalWallAngle = Math.atan2(
+							wallHit.normalY,
+							wallHit.normalX,
+						);
 						break;
 					}
 
@@ -796,11 +1063,13 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 						b.bounces++;
 					}
 
-					triggerSuccessfulBounceExplosion(
-						b,
-						isPlayerBullets,
-						currentTime,
-					);
+					triggerSuccessfulBounceEffects(b, currentTime);
+					if (b.removedByProjectileCap) {
+						removeBullet = true;
+						detonateOnRemoval = false;
+						splitOnRemoval = false;
+						break;
+					}
 
 					const remainingFraction = Math.max(0, 1 - wallHit.time);
 					const reflectedRemainder = reflectVector(
@@ -834,9 +1103,10 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 
 			// Target damage is independent of wall penetration. Any actual overlap
 			// damages immediately and target contact never consumes penetration. A
-			// chain can redirect at most once for this substep even if several target
-			// hitboxes overlap at the same point; every newly hit enemy is still marked
-			// visited so the projectile can never chain back through an earlier target.
+			// chain can acquire at most one new target for this substep even if several
+			// target hitboxes overlap at the same point; every newly hit enemy is still
+			// marked visited so the projectile can never chain back through an earlier
+			// target.
 			let chainTriggeredThisStep = false;
 
 			for (const t of targets) {
@@ -844,33 +1114,20 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 
 				if (isTargetCollision) {
 					if (!b.hitTargets.has(t)) {
-						if (isPlayerBullets || !GameState.isInvincible) {
+						if (isPlayerProjectile || !GameState.isInvincible) {
 							t.hp -= b.damage ?? 1;
 						}
 						b.hitTargets.add(t);
 
-						if (isPlayerBullets && (b.chain ?? 0) > 0) {
+						if ((b.chain ?? 0) > 0) {
 							b.chainVisitedTargets ??= new Set();
 							b.chainVisitedTargets.add(t);
+							if (b.chainTarget === t) b.chainTarget = null;
 
-							if (
-								!chainTriggeredThisStep &&
-								(b.chainsRemaining ?? 0) > 0
-							) {
-								chainTriggeredThisStep = true;
-								b.chainsRemaining--;
-
-								const nextTarget = findChainTarget(
-									b.x,
-									b.y,
-									b.chainReferenceAngle ??
-										Math.atan2(b.vy, b.vx),
-									b.chainVisitedTargets,
-									"distance",
-								);
-
-								if (nextTarget) {
-									redirectProjectileTowardTarget(b, nextTarget);
+							if (!chainTriggeredThisStep && !b.chainTarget) {
+								if (updateProjectileChainAim(b)) {
+									chainTriggeredThisStep = true;
+									triggerChainRedirectEffects(b, currentTime);
 								}
 							}
 						}
@@ -881,11 +1138,25 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 			}
 		}
 
+		if (b.removedByProjectileCap) {
+			removeBullet = true;
+			detonateOnRemoval = false;
+			splitOnRemoval = false;
+		}
+
 		if (removeBullet) {
 			if (detonateOnRemoval) {
-				detonateBullet(b, isPlayerBullets, currentTime);
+				detonateBullet(b, currentTime);
 			}
-			bulletArray.splice(i, 1);
+			if (splitOnRemoval) {
+				fireSplitChildren(
+					b,
+					terminalWallAngle ?? getProjectileDirectionAngle(b),
+					currentTime,
+				);
+			}
+			releaseProjectile(b);
+			projectiles.splice(i, 1);
 			continue;
 		}
 
@@ -917,18 +1188,33 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 					b.throwLegStartedAt = currentTime;
 					b.throwTravelledBlocks = 0;
 					b.throwComplete = false;
-					triggerSuccessfulBounceExplosion(
-						b,
-						isPlayerBullets,
-						currentTime,
-					);
+					triggerSuccessfulBounceEffects(b, currentTime);
 				} else {
 					b.throwComplete = true;
 
 					if (b.detonatesOnImpact) {
 						recordTrailCheckpoint();
-						detonateBullet(b, isPlayerBullets, currentTime);
-						bulletArray.splice(i, 1);
+						detonateBullet(b, currentTime);
+						if (b.splitsOnImpact) {
+							fireSplitChildren(
+								b,
+								getProjectileDirectionAngle(b),
+								currentTime,
+							);
+						}
+						releaseProjectile(b);
+						projectiles.splice(i, 1);
+						continue;
+					}
+					if (b.splitsOnImpact) {
+						recordTrailCheckpoint();
+						fireSplitChildren(
+							b,
+							getProjectileDirectionAngle(b),
+							currentTime,
+						);
+						releaseProjectile(b);
+						projectiles.splice(i, 1);
 						continue;
 					}
 				}
@@ -939,7 +1225,8 @@ export function processBullets(bulletArray, isPlayerBullets, currentTime, dt) {
 
 		if (currentTime - b.createdAt > b.lifetimeMs) {
 			recordTrailCheckpoint();
-			bulletArray.splice(i, 1);
+			releaseProjectile(b);
+			projectiles.splice(i, 1);
 			continue;
 		}
 

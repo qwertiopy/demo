@@ -4,6 +4,7 @@ import { Config } from "./config.js";
 import { GameState, markEnvironmentChanged } from "./state.js";
 import { markWallIndexDirty } from "./spatial/wall-index.js";
 import { seededRandom } from "./utils.js";
+import { releaseProjectile } from "./combat/projectile-cap.js";
 
 // Maps structure-grid spawn flags to explicit enemy types; flag 2 remains a random enemy spawn.
 export const STRUCTURE_ENEMY_FLAGS = Object.freeze({
@@ -12,6 +13,8 @@ export const STRUCTURE_ENEMY_FLAGS = Object.freeze({
 	4: "j-bot",
 	5: "h-bot",
 });
+
+export const PROCEDURAL_PLAYER_SPAWN_RIGHT_BOUNDARY_X = 2;
 
 // Adds a rectangular wall to the active wall list
 /*  i feel like storing walls in an array can be inefficient because we're checking collisions many times per frame, which means we're also iterating over every wall
@@ -101,6 +104,58 @@ export function getStructureTemplateSize(template) {
 	return width > 0 && height > 0 ? { width, height } : null;
 }
 
+export function getMaximumStructureWidth(
+	structureLibrary = Config.STRUCTURE_LIBRARY,
+) {
+	if (!Array.isArray(structureLibrary)) return 0;
+
+	return structureLibrary.reduce((maximumWidth, template) => {
+		const size = getStructureTemplateSize(template);
+		return Math.max(maximumWidth, size?.width || 0);
+	}, 0);
+}
+
+// Structure origins must be strictly beyond this boundary. Reserving the
+// widest template as additional clearance keeps every generated structure away
+// from the complete randomized player-spawn region.
+export function getMinimumStructureOriginXExclusive(
+	structureLibrary = Config.STRUCTURE_LIBRARY,
+) {
+	return (
+		PROCEDURAL_PLAYER_SPAWN_RIGHT_BOUNDARY_X +
+		getMaximumStructureWidth(structureLibrary)
+	);
+}
+
+// Player coordinates are top-left hitbox coordinates. The one-block inset
+// avoids the corridor boundary walls, while subtracting playerSize keeps the
+// complete hitbox inside x < 2 and above the corridor floor.
+export function getProceduralPlayerSpawn(
+	runtimeSettings,
+	playerSizeBlocks,
+	random = seededRandom,
+) {
+	const playerSize = Math.max(0, Number(playerSizeBlocks) || 0);
+	const minimumX = 1;
+	const maximumX = PROCEDURAL_PLAYER_SPAWN_RIGHT_BOUNDARY_X - playerSize;
+	const minimumY = runtimeSettings.corridorCeilingYBlocks + 1;
+	const maximumY =
+		runtimeSettings.corridorCeilingYBlocks +
+		runtimeSettings.corridorWidthBlocks -
+		playerSize;
+
+	if (maximumX < minimumX || maximumY < minimumY) {
+		throw new Error(
+			"The player hitbox does not fit inside the procedural spawn region.",
+		);
+	}
+
+	return {
+		x: minimumX + random() * (maximumX - minimumX),
+		y: minimumY + random() * (maximumY - minimumY),
+	};
+}
+
 function getStructureBounds(structure) {
 	const left = Number(structure?.origin?.x);
 	const top = Number(structure?.origin?.y);
@@ -185,7 +240,7 @@ export function updateProceduralGeneration(playerX) {
 		spawnWall(blockX, ceilingY, 1, 1, "slategray");
 		spawnWall(blockX, floorY, 1, 1, "slategray");
 
-		if (blockX < 1) continue;
+		if (blockX <= GameState.minimumStructureOriginXExclusive) continue;
 
 		GameState.currentSeed =
 			((GameState.levelSeed ^ (blockX * 2654435761)) >>> 0) % 233280;
@@ -273,16 +328,19 @@ export function cleanupProceduralGeneration(playerX) {
 	);
 
 	// Remove projectiles only once their entire circular hitbox is outside the
-	// active horizontal render window. Apply this to both player and enemy bullets.
+	// active horizontal render window. Compact the unified store in place so its
+	// identity remains stable for every simulation subsystem.
 	const bulletIsInsideRenderWindow = (b) => {
 		const radius = Number(b.radius) || 0;
 		return b.x + radius >= safeStartX && b.x - radius <= safeEndX;
 	};
 
-	GameState.bullets = GameState.bullets.filter(bulletIsInsideRenderWindow);
-	GameState.enemyBullets = GameState.enemyBullets.filter(
-		bulletIsInsideRenderWindow,
-	);
+	for (let index = GameState.projectiles.length - 1; index >= 0; index--) {
+		const projectile = GameState.projectiles[index];
+		if (bulletIsInsideRenderWindow(projectile)) continue;
+		releaseProjectile(projectile);
+		GameState.projectiles.splice(index, 1);
+	}
 
 	const retainedEnemySpawns = GameState.enemySpawns.filter((s) => s.x >= startX);
 	if (retainedEnemySpawns.length !== GameState.enemySpawns.length) {

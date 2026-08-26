@@ -2,6 +2,53 @@
 // A mode can optionally transform the launch level, choose its config policy,
 // and configure runtime state.
 
+// seededRandom() reduces every procedural seed into this state space on its
+// first step. Generate within the same range so each displayed seed identifies
+// one distinct procedural sequence.
+const PROCEDURAL_SEED_MODULUS = 233280;
+
+function randomIntegerBelow(limit) {
+	const normalizedLimit = Math.max(1, Math.floor(Number(limit) || 1));
+	const crypto = globalThis.crypto;
+
+	if (crypto?.getRandomValues) {
+		const sample = new Uint32Array(1);
+		const sampleRange = 0x100000000;
+		const rejectionLimit =
+			Math.floor(sampleRange / normalizedLimit) * normalizedLimit;
+
+		do {
+			crypto.getRandomValues(sample);
+		} while (sample[0] >= rejectionLimit);
+
+		return sample[0] % normalizedLimit;
+	}
+
+	return Math.floor(Math.random() * normalizedLimit);
+}
+
+// Chooses a procedural seed different from the preceding run. Excluding the
+// old seed avoids the rare but confusing case where "new run" repeats it.
+export function createProceduralRunSeed(previousSeed = null) {
+	const numericPreviousSeed = Number(previousSeed);
+	const hasPreviousSeed =
+		previousSeed !== null &&
+		previousSeed !== undefined &&
+		Number.isFinite(numericPreviousSeed);
+	const normalizedPreviousSeed = hasPreviousSeed
+		? ((Math.trunc(numericPreviousSeed) % PROCEDURAL_SEED_MODULUS) +
+				PROCEDURAL_SEED_MODULUS) %
+			PROCEDURAL_SEED_MODULUS
+		: null;
+	const availableSeedCount = hasPreviousSeed
+		? PROCEDURAL_SEED_MODULUS - 1
+		: PROCEDURAL_SEED_MODULUS;
+	let seed = randomIntegerBelow(availableSeedCount);
+
+	if (hasPreviousSeed && seed >= normalizedPreviousSeed) seed += 1;
+	return seed;
+}
+
 const GAME_MODE_DEFINITIONS = [
 	{
 		id: "sandbox",
@@ -10,6 +57,7 @@ const GAME_MODE_DEFINITIONS = [
 		available: true,
 		allowsEditedConfig: true,
 		allowsEditedLevel: true,
+		allowsEditedDefaults: true,
 		prepareLevel(level) {
 			return level;
 		},
@@ -22,7 +70,11 @@ const GAME_MODE_DEFINITIONS = [
 		available: true,
 		allowsEditedConfig: false,
 		allowsEditedLevel: false,
-		prepareLevel(level) {
+		allowsEditedDefaults: false,
+		prepareLevel(level, { newRun = false, previousSeed = null } = {}) {
+			if (newRun && level.seed !== undefined) {
+				level.seed = createProceduralRunSeed(previousSeed ?? level.seed);
+			}
 			return level;
 		},
 		configureRuntime() {},
@@ -54,10 +106,12 @@ export function resolveGameModeId(search = window.location.search, fallbackId = 
 	return getGameMode(requested).id;
 }
 
-export function prepareLevelForGameMode(modeId, level) {
+export function prepareLevelForGameMode(modeId, level, context = {}) {
 	const mode = getGameMode(modeId);
 	const clonedLevel = JSON.parse(JSON.stringify(level));
-	return mode.prepareLevel ? mode.prepareLevel(clonedLevel) : clonedLevel;
+	return mode.prepareLevel
+		? mode.prepareLevel(clonedLevel, context)
+		: clonedLevel;
 }
 
 export function configureGameModeRuntime(modeId, context) {

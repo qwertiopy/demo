@@ -1,9 +1,17 @@
 // Enemy spawning, shooting, AI movement, and enemy/enemy separation.
 
 import { Config } from "../config.js";
-import { GameState, player } from "../state.js";
+import {
+	GameState,
+	player,
+	allocateEntityId,
+	TEAM_ENEMY,
+} from "../state.js";
 import { handleWallCollisions, seededRandom } from "../utils.js";
 import { hasLineOfSight } from "./collision.js";
+import { getCombatDefault } from "./defaults.js";
+import { clampProjectileCount } from "./projectile-cap.js";
+import { resolveProjectileDefinition } from "./projectile-schema.js";
 import { shoot } from "./projectiles.js";
 import {
 	calculateGapSafeWallAngle,
@@ -19,23 +27,20 @@ import {
 	getVisibleAimInterval,
 	updateAimWallCornerAngles,
 } from "./visibility.js";
-import { shortestAngleDelta } from "./weapon-utils.js";
+import {
+	normalizeVariationLuckUpgrade,
+	shortestAngleDelta,
+} from "./weapon-utils.js";
 
 const WALL_ANGLE_EPSILON = 1e-9;
-const DEFAULT_ENEMY_AIM_CALCULATION_BUDGET_PER_FRAME = 100000;
-let enemyAimCalculationBudgetRemaining =
-	DEFAULT_ENEMY_AIM_CALCULATION_BUDGET_PER_FRAME;
+let enemyAimCalculationBudgetRemaining = 0;
 let enemyAimSchedulerNextEnemy = null;
+const enemyRuntimeStatsByType = new Map();
 
 function resetEnemyAimCalculationBudget() {
 	enemyAimCalculationBudgetRemaining = Math.max(
 		1,
-		Math.floor(
-			Number(
-				Config.RENDERING?.ENEMY_AIM_CALCULATION_BUDGET_PER_FRAME ??
-					DEFAULT_ENEMY_AIM_CALCULATION_BUDGET_PER_FRAME,
-			) || DEFAULT_ENEMY_AIM_CALCULATION_BUDGET_PER_FRAME,
-		),
+		Math.floor(getCombatDefault("ENEMY_AIM_CALCULATION_BUDGET_PER_FRAME")),
 	);
 }
 
@@ -75,6 +80,35 @@ function recordEnemyShot(enemy, playerCenterX, playerCenterY, currentTime) {
 	enemy.lastShot = currentTime;
 }
 
+function createEnemyRuntimeStats(typeName, configuredStats) {
+	const cached = enemyRuntimeStatsByType.get(typeName);
+	if (cached?.configuredStats === configuredStats) return cached.runtimeStats;
+	const weaponOverride = configuredStats.weapons?.[0];
+	if (!weaponOverride) {
+		throw new Error(`ENEMY_TYPES.${typeName}.weapons[0] is required.`);
+	}
+	const weapon = resolveProjectileDefinition(Config.BASE_PROJECTILE, weaponOverride);
+	const runtimeStats = {
+		...configuredStats,
+		weaponDefinition: weaponOverride,
+		weapon,
+		bulletSpeed: weapon.speed,
+		bulletSpeedVariation: weapon.speedVariation,
+		bulletRadiusBlocks: weapon.radiusBlocks,
+		bulletRadiusVariation: weapon.radiusVariation,
+		bulletDamage: weapon.damage,
+		bulletDamageVariation: weapon.damageVariation,
+		bulletCount: weapon.bulletCount,
+		spread: weapon.spread,
+	};
+	runtimeStats.maximumProjectileCount = clampProjectileCount(
+		configuredStats.maximumProjectileCount,
+		`ENEMY_TYPES.${typeName}.maximumProjectileCount`,
+	);
+	enemyRuntimeStatsByType.set(typeName, { configuredStats, runtimeStats });
+	return runtimeStats;
+}
+
 function fireEnemyProjectile(
 	enemy,
 	enemyCenterX,
@@ -87,33 +121,19 @@ function fireEnemyProjectile(
 	aimAngleBounds = null,
 ) {
 	const stats = enemy.typeStats;
-	const baseBulletSpeed = Math.max(0, Number(stats.bulletSpeed) || 0);
+	const weapon = resolveProjectileDefinition(Config.BASE_PROJECTILE, {
+		...stats.weaponDefinition,
+		volley: {
+			...stats.weaponDefinition.volley,
+			spread,
+		},
+	});
 
 	shoot(
 		enemy,
 		enemyCenterX + Math.cos(firingAngle),
 		enemyCenterY + Math.sin(firingAngle),
-		GameState.enemyBullets,
-		{
-			color: stats.bulletColor,
-			speed: baseBulletSpeed,
-			speedVariation: stats.bulletSpeedVariation ?? 0,
-			radiusBlocks: stats.bulletRadiusBlocks,
-			radiusVariation: stats.bulletRadiusVariation ?? 0,
-			damage: stats.bulletDamage,
-			damageVariation: stats.bulletDamageVariation ?? 0,
-			maxBounces: 0,
-			spread,
-			bulletCount: stats.bulletCount ?? 1,
-			explosionRadiusBlocks: stats.bulletExplosionRadiusBlocks ?? 0,
-			detonationTimeMs: stats.bulletDetonationTimeMs ?? 0,
-			explosionDurationMs: stats.bulletExplosionDurationMs ?? 0,
-			explosionDamage: stats.bulletExplosionDamage ?? 0,
-			detonatesOnImpact: stats.bulletDetonatesOnImpact ?? false,
-			penetrationBlocks: stats.bulletPenetrationBlocks ?? 0,
-			bulletCollision: stats.bulletCollision === true,
-			aimAngleBounds,
-		},
+		{ ...weapon, aimAngleBounds },
 	);
 
 	recordEnemyShot(
@@ -817,10 +837,18 @@ export function updateEnemies(currentTime, dt) {
 					];
 
 				const typeName = spawnPoint.type || "g-bot";
-				const stats =
+				const configuredStats =
 					Config.ENEMY_TYPES[typeName] || Config.ENEMY_TYPES["g-bot"];
+				const stats = createEnemyRuntimeStats(typeName, configuredStats);
 
 				GameState.enemies.push({
+					id: allocateEntityId(),
+					team: TEAM_ENEMY,
+					upgrades: {
+						variationLuck: normalizeVariationLuckUpgrade(
+							stats.upgrades?.variationLuck,
+						),
+					},
 					x: spawnPoint.x,
 					y: spawnPoint.y,
 					size: stats.sizeBlocks,
@@ -829,7 +857,8 @@ export function updateEnemies(currentTime, dt) {
 					maxHp: stats.hp,
 					color: stats.color,
 					lastShot: 0,
-					shootCooldown: stats.shootCooldown,
+					shootCooldown: stats.weapon.cooldownMs,
+					maximumProjectileCount: stats.maximumProjectileCount,
 					typeStats: stats,
 					ai: stats.ai,
 					lastSeenX: null,

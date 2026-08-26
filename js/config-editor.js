@@ -1,5 +1,9 @@
 import { CONFIG_STORAGE_KEY, isPlainObject, mergeConfig } from "./config.js";
 import { readJsonObjectFile } from "./json-file.js";
+import {
+	resolveProjectileDefinition,
+	validateBaseProjectile,
+} from "./combat/projectile-schema.js";
 
 let defaultConfig = null;
 let config = null;
@@ -11,18 +15,7 @@ function cloneConfig(value) {
 const VALID_STRUCTURE_FLAGS = new Set([0, 1, 2, 3, 4, 5]);
 
 function normalizeWeaponOptionalStats(weapon) {
-	if (!isPlainObject(weapon)) return weapon;
-	return {
-		...weapon,
-		bulletCount: weapon.bulletCount === undefined ? 1 : weapon.bulletCount,
-		speedVariation:
-			weapon.speedVariation === undefined ? 0 : weapon.speedVariation,
-		radiusVariation:
-			weapon.radiusVariation === undefined ? 0 : weapon.radiusVariation,
-		damageVariation:
-			weapon.damageVariation === undefined ? 0 : weapon.damageVariation,
-		chain: weapon.chain === undefined ? 0 : weapon.chain,
-	};
+	return weapon;
 }
 
 function normalizeWeaponOptionalStatsList(weapons) {
@@ -71,8 +64,12 @@ function validateEnemyPredictionStats(enemyTypes) {
 			throw new Error(`ENEMY_TYPES.${typeName} must be a JSON object.`);
 		}
 
+		if (!Array.isArray(enemy.weapons) || enemy.weapons.length === 0) {
+			throw new Error(`ENEMY_TYPES.${typeName}.weapons[0] is required.`);
+		}
+		resolveProjectileDefinition(config.BASE_PROJECTILE, enemy.weapons[0]);
+
 		for (const field of [
-			"spread",
 			"predictionVariationThreshold",
 			"predictionVariation",
 			"wallVelocityChangeThreshold",
@@ -124,140 +121,11 @@ function validateWeapons(weapons) {
 		throw new Error("WEAPONS must be an array containing exactly 10 weapons.");
 	}
 
-	const numericFields = [
-		"speed",
-		"speedVariation",
-		"radiusBlocks",
-		"radiusVariation",
-		"damage",
-		"damageVariation",
-		"maxBounces",
-		"spread",
-		"lifetimeMs",
-		"explosionRadiusBlocks",
-		"detonationTimeMs",
-		"explosionDurationMs",
-		"explosionDamage",
-		"throwDistanceMultiplier",
-		"throwDeceleration",
-		"laserWarmupMs",
-		"cooldownMs",
-		"penetrationBlocks",
-		"bulletCount",
-		"chain",
-	];
-
 	weapons.forEach((weapon, index) => {
 		if (!isPlainObject(weapon)) {
 			throw new Error(`Weapon ${index + 1} must be a JSON object.`);
 		}
-
-		numericFields.forEach((field) => {
-			if (!Number.isFinite(weapon[field])) {
-				throw new Error(
-					`Weapon ${index + 1}.${field} must be a finite number.`,
-				);
-			}
-		});
-
-		if (weapon.speed < 0) {
-			throw new Error(`Weapon ${index + 1}.speed cannot be negative.`);
-		}
-
-		for (const field of [
-			"speedVariation",
-			"radiusVariation",
-			"damageVariation",
-		]) {
-			if (weapon[field] < 0) {
-				throw new Error(
-					`Weapon ${index + 1}.${field} cannot be negative.`,
-				);
-			}
-		}
-
-		if (weapon.radiusBlocks <= 0) {
-			throw new Error(
-				`Weapon ${index + 1}.radiusBlocks must be greater than 0.`,
-			);
-		}
-
-		if (weapon.maxBounces < 0 || !Number.isInteger(weapon.maxBounces)) {
-			throw new Error(
-				`Weapon ${index + 1}.maxBounces must be a non-negative integer.`,
-			);
-		}
-
-		if (weapon.bulletCount < 1 || !Number.isInteger(weapon.bulletCount)) {
-			throw new Error(
-				`Weapon ${index + 1}.bulletCount must be an integer greater than or equal to 1.`,
-			);
-		}
-
-		if (weapon.chain < 0 || !Number.isInteger(weapon.chain)) {
-			throw new Error(
-				`Weapon ${index + 1}.chain must be a non-negative integer.`,
-			);
-		}
-
-		if (weapon.lifetimeMs < 0) {
-			throw new Error(
-				`Weapon ${index + 1}.lifetimeMs cannot be negative.`,
-			);
-		}
-
-		for (const field of [
-			"spread",
-			"explosionRadiusBlocks",
-			"detonationTimeMs",
-			"explosionDurationMs",
-			"explosionDamage",
-			"throwDistanceMultiplier",
-			"throwDeceleration",
-			"laserWarmupMs",
-			"cooldownMs",
-			"penetrationBlocks",
-		]) {
-			if (weapon[field] < 0) {
-				throw new Error(
-					`Weapon ${index + 1}.${field} cannot be negative.`,
-				);
-			}
-		}
-
-		if (weapon.throwDeceleration <= 0) {
-			throw new Error(
-				`Weapon ${index + 1}.throwDeceleration must be greater than 0.`,
-			);
-		}
-
-		if (typeof weapon.detonatesOnImpact !== "boolean") {
-			throw new Error(
-				`Weapon ${index + 1}.detonatesOnImpact must be true or false.`,
-			);
-		}
-
-		if (typeof weapon.throwable !== "boolean") {
-			throw new Error(
-				`Weapon ${index + 1}.throwable must be true or false.`,
-			);
-		}
-
-		if (typeof weapon.laser !== "boolean") {
-			throw new Error(
-				`Weapon ${index + 1}.laser must be true or false.`,
-			);
-		}
-
-		if (typeof weapon.bulletCollision !== "boolean") {
-			throw new Error(
-				`Weapon ${index + 1}.bulletCollision must be true or false.`,
-			);
-		}
-
-		if (typeof weapon.color !== "string" || weapon.color.length === 0) {
-			throw new Error(`Weapon ${index + 1}.color must be a CSS color string.`);
-		}
+		resolveProjectileDefinition(config.BASE_PROJECTILE, weapon);
 	});
 }
 
@@ -547,21 +415,30 @@ async function init() {
 		}
 
 		defaultConfig = await response.json();
+		validateBaseProjectile(defaultConfig.BASE_PROJECTILE);
 		const savedConfig = readLocalConfig();
 
 		if (savedConfig) {
-			if (
-				savedConfig.CONFIG_SCHEMA_VERSION !==
-				defaultConfig.CONFIG_SCHEMA_VERSION
-			) {
-				config = migrateSavedConfig(savedConfig);
-				saveLocalConfig();
+			try {
+				validateBaseProjectile(savedConfig.BASE_PROJECTILE);
+				if (
+					savedConfig.CONFIG_SCHEMA_VERSION !==
+					defaultConfig.CONFIG_SCHEMA_VERSION
+				) {
+					config = migrateSavedConfig(savedConfig);
+					saveLocalConfig();
+					showStatus("Local config upgraded to the latest schema.");
+				} else {
+					config = mergeConfig(defaultConfig, savedConfig);
+					showStatus("Locally saved configuration loaded.");
+				}
+			} catch (error) {
+				config = cloneConfig(defaultConfig);
 				showStatus(
-					"Local config upgraded to the latest weapon schema while preserving existing settings.",
+					`The local config is invalid under schema v22 (${error.message}). ` +
+					"Factory values are shown; migrate the file with format-config.mjs before importing it.",
+					true,
 				);
-			} else {
-				config = mergeConfig(defaultConfig, savedConfig);
-				showStatus("Locally saved configuration loaded.");
 			}
 		} else {
 			config = cloneConfig(defaultConfig);
@@ -580,9 +457,6 @@ function syncConfigToUI() {
 
 	document.getElementById("cfg_PLAYER_SPEED").value =
 		config.PLAYER_SPEED ?? "";
-
-	document.getElementById("cfg_PLAYER_BULLET_SPEED").value =
-		config.PLAYER_BULLET_SPEED ?? "";
 
 	const rendering = config.RENDERING || {};
 	document.getElementById("cfg_RENDER_CANVAS_WIDTH_PX").value =
@@ -604,8 +478,6 @@ function syncConfigToUI() {
 		rendering.CLEANUP_BUFFER_BLOCKS ?? 0;
 	document.getElementById("cfg_RENDER_LASER_FLASH_DURATION_MS").value =
 		rendering.LASER_FLASH_DURATION_MS ?? 90;
-	document.getElementById("cfg_RENDER_LASER_CALCULATION_BUDGET_PER_FRAME").value =
-		rendering.LASER_CALCULATION_BUDGET_PER_FRAME ?? 100000;
 	document.getElementById("cfg_RENDER_TRAIL_LENGTH_FRAMES").value =
 		rendering.TRAIL_LENGTH_FRAMES ?? 0;
 	document.getElementById("cfg_RENDER_TRAIL_DETAIL").value =
@@ -618,6 +490,7 @@ function syncConfigToUI() {
 
 	const advancedData = {
 		DEBUG: config.DEBUG,
+		BASE_PROJECTILE: config.BASE_PROJECTILE,
 		WEAPONS: config.WEAPONS,
 		ENEMY_TYPES: config.ENEMY_TYPES,
 		STRUCTURE_LIBRARY: config.STRUCTURE_LIBRARY,
@@ -637,9 +510,6 @@ function readConfigFromUI() {
 
 	const playerSpeed = parseFloat(
 		document.getElementById("cfg_PLAYER_SPEED").value,
-	);
-	const bulletSpeed = parseFloat(
-		document.getElementById("cfg_PLAYER_BULLET_SPEED").value,
 	);
 	const canvasWidthPx = parseFloat(
 		document.getElementById("cfg_RENDER_CANVAS_WIDTH_PX").value,
@@ -671,9 +541,6 @@ function readConfigFromUI() {
 	const laserFlashDurationMs = parseFloat(
 		document.getElementById("cfg_RENDER_LASER_FLASH_DURATION_MS").value,
 	);
-	const laserCalculationBudgetPerFrame = parseFloat(
-		document.getElementById("cfg_RENDER_LASER_CALCULATION_BUDGET_PER_FRAME").value,
-	);
 	const trailLengthFrames = parseFloat(
 		document.getElementById("cfg_RENDER_TRAIL_LENGTH_FRAMES").value,
 	);
@@ -689,10 +556,6 @@ function readConfigFromUI() {
 
 	if (!Number.isFinite(playerSpeed)) {
 		throw new Error("Player Speed must be a number in blocks/sec.");
-	}
-
-	if (!Number.isFinite(bulletSpeed)) {
-		throw new Error("Fallback Bullet Speed must be a number in blocks/sec.");
 	}
 
 	if (!Number.isInteger(canvasWidthPx) || canvasWidthPx <= 0) {
@@ -713,13 +576,6 @@ function readConfigFromUI() {
 
 	if (!Number.isInteger(targetFps) || targetFps <= 0) {
 		throw new Error("Target FPS must be a positive integer.");
-	}
-
-	if (
-		!Number.isInteger(laserCalculationBudgetPerFrame) ||
-		laserCalculationBudgetPerFrame <= 0
-	) {
-		throw new Error("Laser Calculation Budget / Frame must be a positive integer.");
 	}
 
 	for (const [label, value] of [
@@ -763,7 +619,6 @@ function readConfigFromUI() {
 	}
 
 	config.PLAYER_SPEED = playerSpeed;
-	config.PLAYER_BULLET_SPEED = bulletSpeed;
 	config.RENDERING = {
 		CANVAS_WIDTH_PX: canvasWidthPx,
 		CANVAS_HEIGHT_PX: canvasHeightPx,
@@ -775,12 +630,16 @@ function readConfigFromUI() {
 		ENVIRONMENT_OVERSCAN_BLOCKS: environmentOverscan,
 		CLEANUP_BUFFER_BLOCKS: cleanupBuffer,
 		LASER_FLASH_DURATION_MS: laserFlashDurationMs,
-		LASER_CALCULATION_BUDGET_PER_FRAME: laserCalculationBudgetPerFrame,
 		TRAIL_LENGTH_FRAMES: trailLengthFrames,
 		TRAIL_DETAIL: trailDetail,
 		TRAIL_QUAD_DETAIL: trailQuadDetail,
 	};
 	config.STRUCTURE_DENSITY_BLOCKS = structureDensity;
+
+	if (advancedData.BASE_PROJECTILE !== undefined) {
+		validateBaseProjectile(advancedData.BASE_PROJECTILE);
+		config.BASE_PROJECTILE = advancedData.BASE_PROJECTILE;
+	}
 
 	if (advancedData.WEAPONS !== undefined) {
 		const normalizedWeapons = normalizeWeaponOptionalStatsList(advancedData.WEAPONS);
@@ -848,6 +707,7 @@ async function importConfigFile() {
 
 	try {
 		const importedConfig = await readJsonObjectFile(file, "config.json");
+		validateBaseProjectile(importedConfig.BASE_PROJECTILE);
 		config = migrateSavedConfig(importedConfig);
 		config.WEAPONS = normalizeWeaponOptionalStatsList(config.WEAPONS);
 		syncConfigToUI();

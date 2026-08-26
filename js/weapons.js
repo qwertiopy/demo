@@ -2,34 +2,7 @@
 
 import { Config } from "./config.js";
 import { GameState } from "./state.js";
-
-const FALLBACK_BULLET_STATS = {
-    speed: 10,
-    speedVariation: 0,
-    radiusBlocks: 0.08,
-    radiusVariation: 0,
-    color: "crimson",
-    damage: 1,
-    damageVariation: 0,
-    maxBounces: 1,
-    spread: 0,
-    lifetimeMs: 60000,
-    explosionRadiusBlocks: 0,
-    detonationTimeMs: 0,
-    explosionDurationMs: 0,
-    explosionDamage: 0,
-    detonatesOnImpact: false,
-    throwable: false,
-    throwDistanceMultiplier: 1,
-    throwDeceleration: 20,
-    laser: false,
-    laserWarmupMs: 0,
-    cooldownMs: 0,
-    penetrationBlocks: 0,
-    bulletCollision: false,
-    bulletCount: 1,
-    chain: 0,
-};
+import { resolveProjectileDefinition } from "./combat/projectile-schema.js";
 
 export function getWeaponCount() {
     return Array.isArray(Config.WEAPONS) ? Config.WEAPONS.length : 0;
@@ -60,12 +33,7 @@ export function getActiveWeaponIndex() {
 export function getActiveWeaponStats() {
     const index = getActiveWeaponIndex();
     const configured = Config.WEAPONS?.[index] || {};
-
-    return {
-        ...FALLBACK_BULLET_STATS,
-        speed: Config.PLAYER_BULLET_SPEED || FALLBACK_BULLET_STATS.speed,
-        ...configured,
-    };
+    return resolveProjectileDefinition(Config.BASE_PROJECTILE, configured);
 }
 
 export function getActiveWeaponLabel() {

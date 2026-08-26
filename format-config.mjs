@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { buildPolyominoStructures } from "./polyomino-structures.mjs";
 
-const MAX_SUPPORTED_SCHEMA_VERSION = 21;
+const MAX_SUPPORTED_SCHEMA_VERSION = 23;
 const DEFAULT_CONFIG_PATH = "config.json";
 const CONFIG_SOURCE_PATH = path.join("js", "config.js");
 
@@ -19,8 +19,6 @@ const RENDERING_DEFAULTS = {
     ENVIRONMENT_OVERSCAN_BLOCKS: 2,
     CLEANUP_BUFFER_BLOCKS: 0,
     LASER_FLASH_DURATION_MS: 90,
-    LASER_CALCULATION_BUDGET_PER_FRAME: 100000,
-    ENEMY_AIM_CALCULATION_BUDGET_PER_FRAME: 100000,
     TRAIL_LENGTH_FRAMES: 0,
     TRAIL_DETAIL: 60,
     TRAIL_QUAD_DETAIL: 30,
@@ -83,7 +81,7 @@ const ENEMY_CURRENT_DEFAULTS = {
 const TOP_LEVEL_ORDER = [
     "CONFIG_SCHEMA_VERSION",
     "PLAYER_SPEED",
-    "PLAYER_BULLET_SPEED",
+    "BASE_PROJECTILE",
     "RENDERING",
     "DEBUG",
     "WEAPONS",
@@ -153,6 +151,47 @@ const ENEMY_ORDER = [
     "bulletDetonatesOnImpact",
     "bulletPenetrationBlocks",
     "bulletCollision",
+];
+
+const PROJECTILE_ORDER = [
+    "speed",
+    "radiusBlocks",
+    "color",
+    "damage",
+    "maxBounces",
+    "lifetimeMs",
+    "cooldownMs",
+    "penetrationBlocks",
+    "bulletCollision",
+    "chain",
+    "variation",
+    "volley",
+    "explosion",
+    "throwable",
+    "laser",
+    "split",
+];
+
+const VARIATION_ORDER = ["enabled", "speed", "radius", "damage", "rng"];
+const VARIATION_RNG_ORDER = ["luck", "maximumLuck"];
+const VARIATION_RNG_DEFAULTS = {
+    luck: 0,
+    maximumLuck: 8,
+};
+
+const ENEMY_V22_ORDER = [
+    "sizeBlocks",
+    "speed",
+    "hp",
+    "color",
+    "ai",
+    "maximumProjectileCount",
+    "weapons",
+    "predictionVariationThreshold",
+    "predictionVariation",
+    "wallVelocityChangeThreshold",
+    "wallGapSafetyFactor",
+    "wallMaxDurationMs",
 ];
 
 function isPlainObject(value) {
@@ -403,6 +442,195 @@ function migrateEnemyType(enemy, targetVersion) {
     return reorderObject(enemy, ENEMY_ORDER);
 }
 
+function flatWeaponToProjectile(weapon, fallbackSpeed = 10) {
+    const speed = Number.isFinite(Number(weapon.speed))
+        ? Number(weapon.speed)
+        : Math.max(0, Number(fallbackSpeed) || 0);
+    return reorderObject({
+        speed,
+        radiusBlocks: Math.max(0, Number(weapon.radiusBlocks) || 0),
+        color: typeof weapon.color === "string" ? weapon.color : "white",
+        damage: Math.max(0, Number(weapon.damage) || 0),
+        maxBounces: Math.max(0, Math.floor(Number(weapon.maxBounces) || 0)),
+        lifetimeMs: Math.max(0, Number(weapon.lifetimeMs) || 0),
+        cooldownMs: Math.max(0, Number(weapon.cooldownMs) || 0),
+        penetrationBlocks: Math.max(0, Number(weapon.penetrationBlocks) || 0),
+        bulletCollision: weapon.bulletCollision === true,
+        chain: Math.max(0, Math.floor(Number(weapon.chain) || 0)),
+        variation: {
+            enabled: [
+                weapon.speedVariation,
+                weapon.radiusVariation,
+                weapon.damageVariation,
+            ].some((value) => Number(value) > 0),
+            speed: Math.max(0, Number(weapon.speedVariation) || 0),
+            radius: Math.max(0, Number(weapon.radiusVariation) || 0),
+            damage: Math.max(0, Number(weapon.damageVariation) || 0),
+            rng: { ...VARIATION_RNG_DEFAULTS },
+        },
+        volley: {
+            enabled:
+                Math.max(1, Math.floor(Number(weapon.bulletCount) || 1)) > 1 ||
+                Math.max(0, Number(weapon.spread) || 0) > 0,
+            count: Math.max(1, Math.floor(Number(weapon.bulletCount) || 1)),
+            spread: Math.max(0, Number(weapon.spread) || 0),
+        },
+        explosion: {
+            enabled:
+                Math.max(0, Number(weapon.explosionRadiusBlocks) || 0) > 0,
+            radiusBlocks: Math.max(0, Number(weapon.explosionRadiusBlocks) || 0),
+            detonationTimeMs: Math.max(0, Number(weapon.detonationTimeMs) || 0),
+            durationMs: Math.max(0, Number(weapon.explosionDurationMs) || 0),
+            damage: Math.max(0, Number(weapon.explosionDamage) || 0),
+            onImpact: weapon.detonatesOnImpact === true,
+        },
+        throwable: {
+            enabled: weapon.throwable === true,
+            distanceMultiplier: Math.max(0, Number(weapon.throwDistanceMultiplier) || 0),
+            deceleration: Math.max(0, Number(weapon.throwDeceleration) || 0),
+        },
+        laser: {
+            enabled: weapon.laser === true,
+            warmupMs: Math.max(0, Number(weapon.laserWarmupMs) || 0),
+        },
+        split: {
+            enabled: false,
+            count: 0,
+            timeMs: 0,
+            onImpact: false,
+            spread: 0,
+            children: [],
+        },
+    }, PROJECTILE_ORDER);
+}
+
+function enemyToV22(enemy, baseProjectile) {
+    const weapon = flatWeaponToProjectile({
+        ...baseProjectile,
+        speed: enemy.bulletSpeed,
+        speedVariation: enemy.bulletSpeedVariation,
+        radiusBlocks: enemy.bulletRadiusBlocks,
+        radiusVariation: enemy.bulletRadiusVariation,
+        color: enemy.bulletColor,
+        damage: enemy.bulletDamage,
+        damageVariation: enemy.bulletDamageVariation,
+        cooldownMs: enemy.shootCooldown,
+        spread: enemy.spread,
+        bulletCount: enemy.bulletCount,
+        explosionRadiusBlocks: enemy.bulletExplosionRadiusBlocks,
+        detonationTimeMs: enemy.bulletDetonationTimeMs,
+        explosionDurationMs: enemy.bulletExplosionDurationMs,
+        explosionDamage: enemy.bulletExplosionDamage,
+        detonatesOnImpact: enemy.bulletDetonatesOnImpact,
+        penetrationBlocks: enemy.bulletPenetrationBlocks,
+        bulletCollision: enemy.bulletCollision,
+    }, baseProjectile.speed);
+
+    return reorderObject({
+        sizeBlocks: enemy.sizeBlocks,
+        speed: enemy.speed,
+        hp: enemy.hp,
+        color: enemy.color,
+        ai: enemy.ai,
+        maximumProjectileCount: 50,
+        weapons: [weapon],
+        predictionVariationThreshold: enemy.predictionVariationThreshold,
+        predictionVariation: enemy.predictionVariation,
+        wallVelocityChangeThreshold: enemy.wallVelocityChangeThreshold,
+        wallGapSafetyFactor: enemy.wallGapSafetyFactor,
+        wallMaxDurationMs: enemy.wallMaxDurationMs,
+    }, ENEMY_V22_ORDER);
+}
+
+function migrateProjectileSchemaV22(config, originalVersion, targetVersion) {
+    if (targetVersion < 22) return;
+
+    if (originalVersion < 22) {
+        const flatWeapons = Array.isArray(config.WEAPONS) ? config.WEAPONS : [];
+        const fallbackSpeed = Math.max(0, Number(config.PLAYER_BULLET_SPEED) || 10);
+        const convertedWeapons = flatWeapons.map((weapon) =>
+            flatWeaponToProjectile(weapon, fallbackSpeed),
+        );
+        config.BASE_PROJECTILE = convertedWeapons[0] || flatWeaponToProjectile({
+            speed: fallbackSpeed,
+            radiusBlocks: 0.08,
+            color: "white",
+            damage: 1,
+            lifetimeMs: 60000,
+            throwDistanceMultiplier: 1,
+            throwDeceleration: 20,
+            bulletCount: 1,
+        }, fallbackSpeed);
+        config.WEAPONS = convertedWeapons;
+
+        if (isPlainObject(config.ENEMY_TYPES)) {
+            for (const [typeName, enemy] of Object.entries(config.ENEMY_TYPES)) {
+                config.ENEMY_TYPES[typeName] = enemyToV22(
+                    enemy,
+                    config.BASE_PROJECTILE,
+                );
+            }
+        }
+    }
+
+    delete config.PLAYER_BULLET_SPEED;
+    delete config.RENDERING?.LASER_CALCULATION_BUDGET_PER_FRAME;
+    delete config.RENDERING?.ENEMY_AIM_CALCULATION_BUDGET_PER_FRAME;
+}
+
+function migrateProjectileVariationRngV23(projectile) {
+    if (!isPlainObject(projectile)) return;
+
+    if (isPlainObject(projectile.variation)) {
+        const rng = isPlainObject(projectile.variation.rng)
+            ? projectile.variation.rng
+            : {};
+        const luck = Math.max(
+            0,
+            Number(rng.luck ?? VARIATION_RNG_DEFAULTS.luck) || 0,
+        );
+        const maximumLuck = Math.max(
+            luck,
+            Number(
+                rng.maximumLuck ?? VARIATION_RNG_DEFAULTS.maximumLuck,
+            ) || 0,
+        );
+
+        projectile.variation.rng = reorderObject(
+            { luck, maximumLuck },
+            VARIATION_RNG_ORDER,
+        );
+        projectile.variation = reorderObject(
+            projectile.variation,
+            VARIATION_ORDER,
+        );
+    }
+
+    const children = projectile.split?.children;
+    if (!Array.isArray(children)) return;
+    for (const child of children) {
+        migrateProjectileVariationRngV23(child?.projectile);
+    }
+}
+
+function migrateProjectileSchemaV23(config, targetVersion) {
+    if (targetVersion < 23) return;
+
+    migrateProjectileVariationRngV23(config.BASE_PROJECTILE);
+    for (const weapon of Array.isArray(config.WEAPONS) ? config.WEAPONS : []) {
+        migrateProjectileVariationRngV23(weapon);
+    }
+    if (isPlainObject(config.ENEMY_TYPES)) {
+        for (const enemy of Object.values(config.ENEMY_TYPES)) {
+            for (const weapon of Array.isArray(enemy?.weapons)
+                ? enemy.weapons
+                : []) {
+                migrateProjectileVariationRngV23(weapon);
+            }
+        }
+    }
+}
+
 function mergeGeneratedPolyominoStructures(structures) {
     const generated = buildPolyominoStructures();
     const generatedTypes = new Set(generated.map((structure) => structure.type));
@@ -436,7 +664,7 @@ function migrateConfig(config, targetVersion) {
     migrateRendering(config, originalVersion, targetVersion);
     migrateDebug(config, targetVersion);
 
-    if (Array.isArray(config.WEAPONS)) {
+    if (originalVersion < 22 && Array.isArray(config.WEAPONS)) {
         config.WEAPONS = config.WEAPONS.map((weapon) =>
             migrateWeapon(
                 weapon,
@@ -447,7 +675,7 @@ function migrateConfig(config, targetVersion) {
         );
     }
 
-    if (isPlainObject(config.ENEMY_TYPES)) {
+    if (originalVersion < 22 && isPlainObject(config.ENEMY_TYPES)) {
         for (const [typeName, enemy] of Object.entries(config.ENEMY_TYPES)) {
             config.ENEMY_TYPES[typeName] = migrateEnemyType(
                 enemy,
@@ -455,6 +683,9 @@ function migrateConfig(config, targetVersion) {
             );
         }
     }
+
+    migrateProjectileSchemaV22(config, originalVersion, targetVersion);
+    migrateProjectileSchemaV23(config, targetVersion);
 
     config.STRUCTURE_LIBRARY = mergeGeneratedPolyominoStructures(
         config.STRUCTURE_LIBRARY,

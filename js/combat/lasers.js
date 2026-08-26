@@ -1,12 +1,21 @@
 // Singular laser beams plus continuous visibility-polygon laser cones.
 
 import { Config } from "../config.js";
-import { GameState } from "../state.js";
+import { GameState, player, TEAM_PLAYER } from "../state.js";
 import {
 	getWallIndexBounds,
 	queryWallsAlongRayDda,
 } from "../spatial/wall-index.js";
 import { detonateBullet } from "./explosions.js";
+import { getCombatDefault } from "./defaults.js";
+import {
+	releaseLogicalProjectiles,
+	reserveLogicalProjectiles,
+} from "./projectile-cap.js";
+import {
+	fireSplitChildren,
+	registerSplitLaserFirer,
+} from "./projectiles.js";
 import { findChainTarget, getAngleToTarget } from "./targeting.js";
 import {
 	getWallCornerCriticalAngles,
@@ -14,9 +23,11 @@ import {
 } from "./visibility.js";
 import {
 	getBulletCount,
+	getEffectiveVariationLuck,
 	getLaserConeHalfAngleFromCount,
 	getRandomSpreadOffset,
 	getVariedStat,
+	normalizeVariationLuckUpgrade,
 } from "./weapon-utils.js";
 
 export { rayRectIntersection } from "./visibility.js";
@@ -25,21 +36,14 @@ export { rayRectIntersection } from "./visibility.js";
 // to the edge of the currently loaded world, while a shared per-frame calculation
 // budget limits worst-case CPU work. One budget unit represents one potentially
 // expensive laser/world or laser/entity geometry check.
-export const DEFAULT_LASER_CALCULATION_BUDGET_PER_FRAME = 100000;
-
-let laserCalculationBudgetRemaining = DEFAULT_LASER_CALCULATION_BUDGET_PER_FRAME;
+let laserCalculationBudgetRemaining = 0;
 let laserLoadedWorldBoundsCached = false;
 let cachedLaserLoadedWorldBounds = null;
 
 export function getLaserCalculationBudgetPerFrame() {
 	return Math.max(
 		1,
-		Math.floor(
-			Number(
-				Config.RENDERING?.LASER_CALCULATION_BUDGET_PER_FRAME ??
-					DEFAULT_LASER_CALCULATION_BUDGET_PER_FRAME,
-			) || DEFAULT_LASER_CALCULATION_BUDGET_PER_FRAME,
-		),
+		Math.floor(getCombatDefault("LASER_CALCULATION_BUDGET_PER_FRAME")),
 	);
 }
 
@@ -256,17 +260,44 @@ export function getLaserWallStopWithPenetrationBudget(
 	};
 }
 
-function createLaserExplosionAt(x, y, stats, currentTime) {
+function createLaserExplosionAt(
+	x,
+	y,
+	stats,
+	ownerId,
+	team,
+	currentTime,
+) {
 	return detonateBullet(
 		{
 			x,
 			y,
+			ownerId,
+			team,
 			color: stats.color ?? "white",
 			explosionRadiusBlocks: stats.explosionRadiusBlocks ?? 0,
 			explosionDurationMs: stats.explosionDurationMs ?? 0,
 			explosionDamage: stats.explosionDamage ?? 0,
 		},
-		true,
+		currentTime,
+	);
+}
+
+function createLaserSplitSource(shot, x, y) {
+	return {
+		...shot.stats,
+		x,
+		y,
+		ownerId: shot.ownerId,
+		team: shot.team,
+		variationLuckUpgrade: shot.variationLuckUpgrade,
+	};
+}
+
+function splitLaserAt(shot, x, y, angle, currentTime) {
+	return fireSplitChildren(
+		createLaserSplitSource(shot, x, y),
+		angle,
 		currentTime,
 	);
 }
@@ -493,11 +524,15 @@ function resolveLaserConeShot(shot, currentTime) {
 	// drawing or damaging through wall geometry we did not finish checking.
 	if (visibility.truncated || visibility.polygon.length < 3) return;
 
-	for (const target of GameState.enemies) {
+	const isPlayerShot = shot.team === TEAM_PLAYER;
+	const targets = isPlayerShot ? GameState.enemies : [player];
+	for (const target of targets) {
 		if (target.hp <= 0) continue;
 		if (!consumeLaserCalculationBudget()) break;
 		if (rectIntersectsPolygon(target, visibility.polygon)) {
-			target.hp -= shot.stats.damage ?? 1;
+			if (isPlayerShot || !GameState.isInvincible) {
+				target.hp -= shot.stats.damage;
+			}
 		}
 	}
 
@@ -538,12 +573,13 @@ function findNearestLaserTargetHit(
 	maxDistance,
 	radius,
 	hitTargets,
+	targets,
 ) {
 	let bestTarget = null;
 	let bestHit = null;
 	let bestDistance = Infinity;
 
-	for (const target of GameState.enemies) {
+	for (const target of targets) {
 		if (target.hp <= 0 || hitTargets.has(target)) continue;
 		if (!consumeLaserCalculationBudget()) {
 			return { target: null, hit: null, truncated: true };
@@ -593,8 +629,13 @@ function resolveChainedLaserBeamShot(shot, currentTime) {
 		Math.floor(Number(shot.chainsRemaining ?? 0) || 0),
 	);
 	const hitTargets = new Set();
+	const isPlayerShot = shot.team === TEAM_PLAYER;
+	const targets = isPlayerShot ? GameState.enemies : [player];
 	const RAY_EPSILON = 1e-6;
-	const MAX_SEGMENTS = 10000;
+	const MAX_SEGMENTS = Math.max(
+		1,
+		Math.floor(getCombatDefault("MAX_CHAINED_LASER_SEGMENTS")),
+	);
 	let segmentCount = 0;
 
 	while (segmentCount++ < MAX_SEGMENTS) {
@@ -614,6 +655,7 @@ function resolveChainedLaserBeamShot(shot, currentTime) {
 			segmentRange,
 			radius,
 			hitTargets,
+			targets,
 		);
 		if (targetHit.truncated) break;
 
@@ -658,25 +700,40 @@ function resolveChainedLaserBeamShot(shot, currentTime) {
 
 		if (reachedTarget) {
 			const hitTarget = targetHit.target;
-			hitTarget.hp -= stats.damage ?? 1;
+			if (isPlayerShot || !GameState.isInvincible) {
+				hitTarget.hp -= stats.damage;
+			}
 			hitTargets.add(hitTarget);
 
 			let nextTarget = null;
 			if (chainsRemaining > 0) {
 				chainsRemaining--;
-				nextTarget = findChainTarget(
+				nextTarget = isPlayerShot ? findChainTarget(
 					endX,
 					endY,
 					shot.chainReferenceAngle ?? Math.atan2(dirY, dirX),
 					hitTargets,
 					"distance",
-				);
+				) : null;
 			}
 
 			if (nextTarget) {
 				const nextAngle = getAngleToTarget(endX, endY, nextTarget);
 				dirX = Math.cos(nextAngle);
 				dirY = Math.sin(nextAngle);
+				if (stats.detonatesOnImpact) {
+					createLaserExplosionAt(
+						endX,
+						endY,
+						stats,
+						shot.ownerId,
+						shot.team,
+						currentTime,
+					);
+				}
+				if (stats.splitsOnImpact) {
+					splitLaserAt(shot, endX, endY, nextAngle, currentTime);
+				}
 			}
 
 			originX = endX + dirX * RAY_EPSILON;
@@ -688,7 +745,14 @@ function resolveChainedLaserBeamShot(shot, currentTime) {
 
 		if (bounces < maxBounces) {
 			if (stats.detonatesOnImpact) {
-				createLaserExplosionAt(endX, endY, stats, currentTime);
+				createLaserExplosionAt(
+					endX,
+					endY,
+					stats,
+					shot.ownerId,
+					shot.team,
+					currentTime,
+				);
 			}
 
 			const dot = dirX * wallStop.normalX + dirY * wallStop.normalY;
@@ -698,6 +762,15 @@ function resolveChainedLaserBeamShot(shot, currentTime) {
 			dirX /= magnitude;
 			dirY /= magnitude;
 			bounces++;
+			if (stats.splitsOnImpact) {
+				splitLaserAt(
+					shot,
+					endX,
+					endY,
+					Math.atan2(dirY, dirX),
+					currentTime,
+				);
+			}
 
 			originX = endX + dirX * RAY_EPSILON;
 			originY = endY + dirY * RAY_EPSILON;
@@ -705,7 +778,23 @@ function resolveChainedLaserBeamShot(shot, currentTime) {
 		}
 
 		if (stats.detonatesOnImpact) {
-			createLaserExplosionAt(endX, endY, stats, currentTime);
+			createLaserExplosionAt(
+				endX,
+				endY,
+				stats,
+				shot.ownerId,
+				shot.team,
+				currentTime,
+			);
+		}
+		if (stats.splitsOnImpact) {
+			splitLaserAt(
+				shot,
+				endX,
+				endY,
+				Math.atan2(wallStop.normalY, wallStop.normalX),
+				currentTime,
+			);
 		}
 		break;
 	}
@@ -726,6 +815,8 @@ function resolveLaserBeamShot(shot, currentTime) {
 	const maxBounces = Math.max(0, Math.floor(Number(stats.maxBounces ?? 0) || 0));
 	let bounces = 0;
 	const hitTargets = new Set();
+	const isPlayerShot = shot.team === TEAM_PLAYER;
+	const targets = isPlayerShot ? GameState.enemies : [player];
 	const RAY_EPSILON = 1e-6;
 
 	while (true) {
@@ -752,7 +843,7 @@ function resolveLaserBeamShot(shot, currentTime) {
 		const beamDistance = wallStop.distance;
 		remainingPenetrationBlocks = wallStop.remainingPenetrationBlocks;
 
-		for (const target of GameState.enemies) {
+		for (const target of targets) {
 			if (target.hp <= 0 || hitTargets.has(target)) continue;
 			if (!consumeLaserCalculationBudget()) break;
 
@@ -766,7 +857,9 @@ function resolveLaserBeamShot(shot, currentTime) {
 			);
 
 			if (hit && hit.entryDistance <= beamDistance + 1e-9) {
-				target.hp -= stats.damage ?? 1;
+				if (isPlayerShot || !GameState.isInvincible) {
+					target.hp -= stats.damage;
+				}
 				hitTargets.add(target);
 			}
 		}
@@ -790,7 +883,14 @@ function resolveLaserBeamShot(shot, currentTime) {
 			// Match projectile bounce semantics: explosive bounces only detonate
 			// when the weapon explicitly opts into impact detonation.
 			if (stats.detonatesOnImpact) {
-				createLaserExplosionAt(endX, endY, stats, currentTime);
+				createLaserExplosionAt(
+					endX,
+					endY,
+					stats,
+					shot.ownerId,
+					shot.team,
+					currentTime,
+				);
 			}
 
 			const dot = dirX * wallStop.normalX + dirY * wallStop.normalY;
@@ -800,6 +900,15 @@ function resolveLaserBeamShot(shot, currentTime) {
 			dirX /= magnitude;
 			dirY /= magnitude;
 			bounces++;
+			if (stats.splitsOnImpact) {
+				splitLaserAt(
+					shot,
+					endX,
+					endY,
+					Math.atan2(dirY, dirX),
+					currentTime,
+				);
+			}
 
 			originX = endX + dirX * RAY_EPSILON;
 			originY = endY + dirY * RAY_EPSILON;
@@ -807,13 +916,29 @@ function resolveLaserBeamShot(shot, currentTime) {
 		}
 
 		if (stats.detonatesOnImpact) {
-			createLaserExplosionAt(endX, endY, stats, currentTime);
+			createLaserExplosionAt(
+				endX,
+				endY,
+				stats,
+				shot.ownerId,
+				shot.team,
+				currentTime,
+			);
+		}
+		if (stats.splitsOnImpact) {
+			splitLaserAt(
+				shot,
+				endX,
+				endY,
+				Math.atan2(wallStop.normalY, wallStop.normalX),
+				currentTime,
+			);
 		}
 		break;
 	}
 }
 
-function resolveLaserShot(shot, currentTime) {
+function resolveLaserShotGeometry(shot, currentTime) {
 	if ((shot.coneHalfAngle ?? 0) > 0) {
 		resolveLaserConeShot(shot, currentTime);
 		return;
@@ -827,6 +952,29 @@ function resolveLaserShot(shot, currentTime) {
 	resolveLaserBeamShot(shot, currentTime);
 }
 
+function resolveLaserShot(shot, currentTime) {
+	const logicalEntries = reserveLogicalProjectiles(
+		shot.ownerId,
+		getBulletCount(shot.stats),
+		shot.maximumProjectileCount,
+	);
+	try {
+		const effectiveCount = logicalEntries.filter((entry) => entry.active).length;
+		if (effectiveCount <= 0) return;
+		const effectiveShot = {
+			...shot,
+			stats: { ...shot.stats, bulletCount: effectiveCount },
+			coneHalfAngle: effectiveCount > 1
+				? getLaserConeHalfAngleFromCount(effectiveCount)
+				: 0,
+			chain: effectiveCount === 1 ? shot.chain : 0,
+		};
+		resolveLaserShotGeometry(effectiveShot, currentTime);
+	} finally {
+		releaseLogicalProjectiles(logicalEntries);
+	}
+}
+
 // Starts a player laser shot. Aim direction is locked at trigger time. Warmup
 // is a delayed state transition, while the beam itself is resolved as hitscan.
 // Cooldown begins at the exact scheduled end of warmup (shot.fireAt), so the
@@ -838,12 +986,31 @@ export function requestLaserShot(
 	stats,
 	weaponIndex,
 	currentTime = performance.now(),
+	options = {},
 ) {
-	const index = Math.max(0, Number(weaponIndex) || 0);
+	const ignoreCooldown = options.ignoreCooldown === true;
+	const index = ignoreCooldown ? null : Math.max(0, Number(weaponIndex) || 0);
+	const ownerId = options.ownerId ?? shooter.id;
+	const team = options.team ?? shooter.team;
+	const maximumProjectileCount = options.maximumProjectileCount ??
+		shooter.maximumProjectileCount;
+	const variationLuckUpgrade = normalizeVariationLuckUpgrade(
+		options.variationLuckUpgrade ?? shooter.upgrades?.variationLuck,
+	);
+	const effectiveVariationLuck = getEffectiveVariationLuck(
+		stats,
+		variationLuckUpgrade,
+	);
+	if (!Number.isSafeInteger(ownerId) || ownerId <= 0) {
+		throw new Error(`Laser ownerId must be a positive integer; received ${ownerId}.`);
+	}
+	if (typeof team !== "string" || team.length === 0) {
+		throw new Error("Laser team must be a non-empty string.");
+	}
 	const cooldownUntil = GameState.weaponCooldownUntilByWeapon[index] || 0;
 
-	if (currentTime < cooldownUntil) return false;
-	if (GameState.laserWarmups.some((shot) => shot.weaponIndex === index)) {
+	if (!ignoreCooldown && currentTime < cooldownUntil) return false;
+	if (!ignoreCooldown && GameState.laserWarmups.some((shot) => shot.weaponIndex === index)) {
 		return false;
 	}
 
@@ -855,22 +1022,28 @@ export function requestLaserShot(
 			stats.radiusBlocks ?? 0.03,
 			stats.radiusVariation ?? 0,
 			0,
+			effectiveVariationLuck,
 		),
 		damage: getVariedStat(
 			stats.damage ?? 1,
 			stats.damageVariation ?? 0,
 			0,
+			effectiveVariationLuck,
 		),
 	};
 	const bulletCount = getBulletCount(variedStats);
-	const baseAngle = Math.atan2(targetY - centerY, targetX - centerX);
+	const baseAngle = Number.isFinite(options.forcedAngle)
+		? options.forcedAngle
+		: Math.atan2(targetY - centerY, targetX - centerX);
 	// Chaining is singular-beam-only. Cone lasers keep their existing cone/spread
 	// behavior even if the weapon config has chain > 0.
 	const chain = bulletCount === 1
 		? Math.max(0, Math.floor(Number(variedStats.chain ?? 0) || 0))
 		: 0;
 	const initialChainTarget = chain > 0
-		? findChainTarget(centerX, centerY, baseAngle)
+		? team === TEAM_PLAYER
+			? findChainTarget(centerX, centerY, baseAngle)
+			: player.hp > 0 ? player : null
 		: null;
 	const centerAngle = initialChainTarget
 		? getAngleToTarget(centerX, centerY, initialChainTarget)
@@ -886,7 +1059,12 @@ export function requestLaserShot(
 		: getLaserLoadedRangeBlocks(centerX, centerY, dirX, dirY);
 	const shot = {
 		shooter,
+		ownerId,
+		team,
+		variationLuckUpgrade,
+		maximumProjectileCount,
 		weaponIndex: index,
+		ignoreCooldown,
 		dirX,
 		dirY,
 		centerAngle,
@@ -902,8 +1080,10 @@ export function requestLaserShot(
 
 	if (warmupMs <= 0) {
 		resolveLaserShot(shot, currentTime);
-		GameState.weaponCooldownUntilByWeapon[index] =
-			currentTime + Math.max(0, Number(variedStats.cooldownMs ?? 0) || 0);
+		if (!ignoreCooldown) {
+			GameState.weaponCooldownUntilByWeapon[index] =
+				currentTime + Math.max(0, Number(variedStats.cooldownMs) || 0);
+		}
 		return true;
 	}
 
@@ -911,17 +1091,53 @@ export function requestLaserShot(
 	return true;
 }
 
+registerSplitLaserFirer(({
+	shooter,
+	ownerId,
+	team,
+	variationLuckUpgrade,
+	angle,
+	stats,
+	currentTime,
+}) =>
+	requestLaserShot(
+		shooter,
+		shooter.x + Math.cos(angle),
+		shooter.y + Math.sin(angle),
+		stats,
+		-1,
+		currentTime,
+		{
+			ownerId,
+			team,
+			variationLuckUpgrade,
+			forcedAngle: angle,
+			ignoreCooldown: true,
+		},
+	),
+);
+
 // Advances pending laser warmups and short-lived rendered beam flashes.
 export function processLasers(currentTime) {
 	for (let i = GameState.laserWarmups.length - 1; i >= 0; i--) {
 		const shot = GameState.laserWarmups[i];
+		if (
+			shot.ownerId !== player.id &&
+			!GameState.enemies.some(
+				(enemy) => enemy.id === shot.ownerId && enemy.hp > 0,
+			)
+		) {
+			GameState.laserWarmups.splice(i, 1);
+			continue;
+		}
 
 		if (currentTime < shot.fireAt) continue;
 
 		resolveLaserShot(shot, currentTime);
-		GameState.weaponCooldownUntilByWeapon[shot.weaponIndex] =
-			shot.fireAt +
-			Math.max(0, Number(shot.stats.cooldownMs ?? 0) || 0);
+		if (!shot.ignoreCooldown) {
+			GameState.weaponCooldownUntilByWeapon[shot.weaponIndex] =
+				shot.fireAt + Math.max(0, Number(shot.stats.cooldownMs) || 0);
+		}
 		GameState.laserWarmups.splice(i, 1);
 	}
 

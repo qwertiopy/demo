@@ -1,9 +1,15 @@
 {
     "seed": 12345,
     "invincibility": false,
-    "playerSpawn": {
-        "x": 1,
-        "y": 1
+    "player": {
+        "spawn": {
+            "x": 1,
+            "y": 1
+        },
+        "maximumProjectileCount": 50,
+        "upgrades": {
+            "variationLuck": 0
+        }
     },
     "enemySpawns": [],
     "enemySpawnRate": 1,

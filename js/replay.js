@@ -421,7 +421,9 @@ export function captureVisualSnapshot(currentTime) {
 				? captureEnemyAimDebugSnapshot(enemy, debug)
 				: null,
 		})),
-		projectiles: [...GameState.bullets, ...GameState.enemyBullets].map(
+		projectiles: GameState.projectiles
+			.filter((projectile) => !projectile.removedByProjectileCap)
+			.map(
 			(projectile) => ({
 				renderId: getRenderId(projectile, "projectile"),
 				x: projectile.x,
@@ -429,7 +431,7 @@ export function captureVisualSnapshot(currentTime) {
 				radius: projectile.radius,
 				color: projectile.color,
 			}),
-		),
+			),
 		projectileTrailEvents: (GameState.projectileTrailEvents || []).map(
 			(event) => ({
 				renderId: getRenderId(event.projectile, "projectile"),

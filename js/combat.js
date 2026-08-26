@@ -1,14 +1,15 @@
-// Backwards-compatible combat public API.
+// Combat public API.
 //
 // The implementation is split by subsystem under js/combat/ so existing imports
 // from "./combat.js" do not need to change.
 
 export {
-	MIN_THROW_DECELERATION,
+	getMinimumThrowDeceleration,
 	getThrowableKinematics,
 	getThrowableTravelDistance,
 	getThrowableBoomerangTravelDistance,
 	getRandomSpreadOffset,
+	normalizeVariationLuckUpgrade,
 } from "./combat/weapon-utils.js";
 
 export {
@@ -26,8 +27,8 @@ export {
 	shoot,
 	resolveProjectileVectorCollisions,
 	getPenetratedCollisionRect,
-	BULLET_MAX_STEP_BLOCKS,
-	processBullets,
+	getBulletMaxStepBlocks,
+	processProjectiles,
 } from "./combat/projectiles.js";
 
 export {
@@ -36,7 +37,6 @@ export {
 } from "./combat/enemies.js";
 
 export {
-	DEFAULT_LASER_CALCULATION_BUDGET_PER_FRAME,
 	getLaserCalculationBudgetPerFrame,
 	getLaserCalculationBudgetRemaining,
 	resetLaserCalculationBudget,

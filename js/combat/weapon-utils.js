@@ -1,5 +1,7 @@
 // Shared weapon-angle and throwable-kinematics helpers.
 
+import { getCombatDefault } from "./defaults.js";
+
 // Throwable projectiles use constant physical deceleration in blocks/sec².
 // Throw distance is chosen from the shooter-to-aim distance; initial speed and
 // flight duration are derived so the projectile reaches that path distance at
@@ -13,12 +15,14 @@
 //
 // Position is evaluated from this closed-form equation. Velocity is never
 // integrated frame by frame.
-export const MIN_THROW_DECELERATION = 0.001;
+export function getMinimumThrowDeceleration() {
+	return getCombatDefault("MIN_THROW_DECELERATION");
+}
 
 export function getThrowableKinematics(distanceBlocks, decelerationBlocksPerSecondSq) {
 	const distance = Math.max(0, Number(distanceBlocks) || 0);
 	const deceleration = Math.max(
-		MIN_THROW_DECELERATION,
+		getMinimumThrowDeceleration(),
 		Number(decelerationBlocksPerSecondSq ?? 20) || 0,
 	);
 
@@ -53,7 +57,7 @@ export function getThrowableTravelDistance(
 ) {
 	const distance = Math.max(0, Number(distanceBlocks) || 0);
 	const deceleration = Math.max(
-		MIN_THROW_DECELERATION,
+		getMinimumThrowDeceleration(),
 		Number(decelerationBlocksPerSecondSq ?? 20) || 0,
 	);
 
@@ -95,7 +99,7 @@ export function getThrowableBoomerangTravelDistance(
 ) {
 	const distance = Math.max(0, Number(distanceBlocks) || 0);
 	const deceleration = Math.max(
-		MIN_THROW_DECELERATION,
+		getMinimumThrowDeceleration(),
 		Number(decelerationBlocksPerSecondSq ?? 20) || 0,
 	);
 
@@ -137,16 +141,46 @@ export function getRandomSpreadOffset(spreadRadians = 0) {
 	return (Math.random() - 0.5) * spread;
 }
 
-// Applies an absolute +/- variation to one configured stat. A variation of 2
-// around a base speed of 10 therefore rolls uniformly from 8 through 12. The
-// minimum clamp prevents randomized projectile properties becoming negative.
-export function getVariedStat(baseValue, variation = 0, minimum = 0) {
+export function normalizeVariationLuckUpgrade(value) {
+	return Math.max(0, Number(value) || 0);
+}
+
+export function getEffectiveVariationLuck(stats, luckUpgrade = 0) {
+	const maximumLuck = Math.max(
+		0,
+		Number(stats?.variationMaximumLuck) || 0,
+	);
+	const configuredLuck = Math.min(
+		maximumLuck,
+		Math.max(0, Number(stats?.variationLuck) || 0),
+	);
+	return Math.min(
+		maximumLuck,
+		configuredLuck + normalizeVariationLuckUpgrade(luckUpgrade),
+	);
+}
+
+// Applies an absolute +/- variation within fixed bounds. Luck biases the roll
+// upward without changing either endpoint: q = U^(1 / (1 + luck)). At luck 0
+// this is uniform; integer luck L is equivalent to taking the highest of L + 1
+// uniform rolls while still consuming exactly one random number.
+export function getVariedStat(
+	baseValue,
+	variation = 0,
+	minimum = 0,
+	luck = 0,
+	random = Math.random,
+) {
 	const base = Number(baseValue) || 0;
 	const amount = Math.max(0, Number(variation) || 0);
 	if (amount === 0) return Math.max(minimum, base);
 
-	const rolled = base + (Math.random() * 2 - 1) * amount;
-	return Math.max(minimum, rolled);
+	const lower = Math.max(minimum, base - amount);
+	const upper = Math.max(lower, base + amount);
+	const uniformRoll = Math.min(1, Math.max(0, Number(random()) || 0));
+	const normalizedLuck = normalizeVariationLuckUpgrade(luck);
+	const quantile = uniformRoll ** (1 / (1 + normalizedLuck));
+	return lower + (upper - lower) * quantile;
 }
 
 export function getBulletCount(stats) {
