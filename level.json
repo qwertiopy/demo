@@ -19,7 +19,7 @@
     "maximumEnemySpawnDistanceBlocks": 35,
     "corridorCeilingYBlocks": 0,
     "corridorWidthBlocks": 10,
-    "structureSpawnChance": 0.5,
+    "structureSpawnChance": 1,
     "structureDensityBlocks": 1,
     "walls": []
 }

@@ -30,7 +30,8 @@ function queueFor(ownerId, maximumProjectileCount) {
 	if (!queue) {
 		queue = {
 			ownerId,
-			entries: [],
+			head: null,
+			tail: null,
 			activeCount: 0,
 			maximumProjectileCount: clampProjectileCount(
 				maximumProjectileCount,
@@ -52,12 +53,28 @@ function evict(entry) {
 	entry.active = false;
 	entry.queue.activeCount--;
 	if (entry.projectile) entry.projectile.removedByProjectileCap = true;
+	unlink(entry);
 }
 
-function trimQueue(queue) {
-	while (queue.entries.length > 0 && !queue.entries[0].active) {
-		queue.entries.shift();
-	}
+function append(queue, entry) {
+	entry.previous = queue.tail;
+	entry.next = null;
+	if (queue.tail) queue.tail.next = entry;
+	else queue.head = entry;
+	queue.tail = entry;
+}
+
+function unlink(entry) {
+	const queue = entry.queue;
+	if (entry.previous) entry.previous.next = entry.next;
+	else queue.head = entry.next;
+	if (entry.next) entry.next.previous = entry.previous;
+	else queue.tail = entry.previous;
+	entry.previous = null;
+	entry.next = null;
+}
+
+function removeEmptyQueue(queue) {
 	if (queue.activeCount <= 0) {
 		queuesByOwnerId.delete(queue.ownerId);
 	}
@@ -69,17 +86,24 @@ export function registerProjectile(
 	maximumProjectileCount = undefined,
 ) {
 	const queue = queueFor(ownerId, maximumProjectileCount);
-	const entry = { ownerId, projectile, active: true, queue };
-	queue.entries.push(entry);
+	const entry = {
+		ownerId,
+		projectile,
+		active: true,
+		queue,
+		previous: null,
+		next: null,
+	};
+	append(queue, entry);
 	queue.activeCount++;
 
 	while (queue.activeCount > queue.maximumProjectileCount) {
-		const oldest = queue.entries.find((candidate) => candidate.active);
+		const oldest = queue.head;
 		if (!oldest) break;
 		evict(oldest);
 	}
 
-	trimQueue(queue);
+	removeEmptyQueue(queue);
 	return entry;
 }
 
@@ -87,7 +111,8 @@ export function releaseProjectileEntry(entry) {
 	if (!entry?.active) return;
 	entry.active = false;
 	entry.queue.activeCount--;
-	trimQueue(entry.queue);
+	unlink(entry);
+	removeEmptyQueue(entry.queue);
 }
 
 export function releaseProjectile(projectile) {

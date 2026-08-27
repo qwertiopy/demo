@@ -505,4 +505,4 @@ export function loadLocalConfig(defaultConfig) {
     }
 }
 
-window.Config = Config;
+if (typeof window !== "undefined") window.Config = Config;

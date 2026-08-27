@@ -51,6 +51,13 @@ import {
 	recordReplaySnapshot,
 	initReplayControls,
 } from "./replay.js";
+import {
+	beginProfileFrame,
+	beginProfileSection,
+	endProfileFrame,
+	endProfileSection,
+	setProfileCounter,
+} from "./performance/profiler.js";
 
 // Runs one simulation step: procedural generation, player movement, enemy AI/movement, camera tracking, and projectile processing.
 export function update(currentTime, dt) {
@@ -63,8 +70,10 @@ export function update(currentTime, dt) {
 		// then add functionality for other stuff like resetting here
 	}
 
+	const proceduralProfile = beginProfileSection();
 	updateProceduralGeneration(player.x);
 	cleanupProceduralGeneration(player.x);
+	endProfileSection("procedural", proceduralProfile);
 
 	let dx = 0;
 	let dy = 0;
@@ -107,21 +116,31 @@ export function update(currentTime, dt) {
 		player.vy = 0;
 	}
 
+	const enemyProfile = beginProfileSection();
 	updateProgressiveEnemySpawnRate(player.x);
 	updateEnemies(currentTime, dt);
 	resolveEnemyVectorCollisions(dt);
+	endProfileSection("enemies", enemyProfile);
 
 	camera.x = player.x - camera.widthBlocks / 2 + player.size / 2;
 	camera.y = player.y - camera.heightBlocks / 2 + player.size / 2;
 
 	// Fire after movement/camera tracking so a held autofire binding recalculates
 	// aim against the current frame's camera position.
+	const autofireProfile = beginProfileSection();
 	processAutofire(currentTime);
+	endProfileSection("autofire", autofireProfile);
 
+	const projectileProfile = beginProfileSection();
 	processProjectiles(currentTime, dt);
 	resolveProjectileVectorCollisions();
+	endProfileSection("projectiles", projectileProfile);
+	const laserProfile = beginProfileSection();
 	processLasers(currentTime);
+	endProfileSection("lasers", laserProfile);
+	const explosionProfile = beginProfileSection();
 	processExplosions(currentTime);
+	endProfileSection("explosions", explosionProfile);
 
 	if (player.x > GameState.MaxDistance) {
 		GameState.MaxDistance = player.x;
@@ -284,6 +303,7 @@ export function gameLoop(currentTime) {
 	if (tickAccumulatorMs + FRAME_PACING_EPSILON_MS < targetFrameMs) {
 		return;
 	}
+	beginProfileFrame(currentTime);
 
 	// If we are only fractionally early because of rAF timestamp precision,
 	// treat this as the target deadline. Otherwise preserve fractional overshoot
@@ -307,15 +327,25 @@ export function gameLoop(currentTime) {
 	);
 
 	if (dt > 0) {
+		const updateProfile = beginProfileSection();
 		update(currentTime, dt);
+		endProfileSection("update-total", updateProfile);
 	}
 
+	setProfileCounter("enemies", GameState.enemies.length);
+	setProfileCounter("projectiles", GameState.projectiles.length);
+	setProfileCounter("walls", GameState.walls.length);
+	const snapshotProfile = beginProfileSection();
 	const snapshot = captureVisualSnapshot(currentTime);
 	pushTrailSnapshot(snapshot);
 	recordReplaySnapshot(snapshot, currentTime);
+	endProfileSection("snapshot-replay", snapshotProfile);
+	const renderProfile = beginProfileSection();
 	draw(snapshot, getLiveTrailEntries(), {
 		quadTrailEntries: getLiveTrailEntries(getTrailQuadDetail(), false),
 	});
+	endProfileSection("render", renderProfile);
+	endProfileFrame();
 }
 
 // Serializes the current Config object into a downloadable custom_config.json browser download.

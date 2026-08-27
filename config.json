@@ -559,7 +559,7 @@
             }
         },
         {
-            "speed": 20,
+            "speed": 10,
             "radiusBlocks": 0.01,
             "color": "crimson",
             "damage": 2.5,
@@ -580,9 +580,9 @@
                 }
             },
             "volley": {
-                "enabled": true,
+                "enabled": false,
                 "count": 1,
-                "spread": 0.05
+                "spread": 0
             },
             "explosion": {
                 "enabled": false,
@@ -663,7 +663,7 @@
             }
         }
     ],
-    "STRUCTURE_DENSITY_BLOCKS": 1,
+    "STRUCTURE_DENSITY_BLOCKS": 0,
     "ENEMY_TYPES": {
         "g-bot": {
             "sizeBlocks": 0.5,

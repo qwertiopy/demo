@@ -1,0 +1,9 @@
+{
+  "name": "a-form-of-combat",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "profile": "node scripts/profile.mjs"
+  }
+}
