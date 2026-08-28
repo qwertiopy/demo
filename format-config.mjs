@@ -172,6 +172,7 @@ const PROJECTILE_ORDER = [
     "split",
 ];
 
+const CHAIN_ORDER = ["enabled", "maxTargets", "maximumRangeBlocks"];
 const VARIATION_ORDER = ["enabled", "speed", "radius", "damage", "rng"];
 const VARIATION_RNG_ORDER = ["luck", "maximumLuck"];
 const VARIATION_RNG_DEFAULTS = {
@@ -456,7 +457,7 @@ function flatWeaponToProjectile(weapon, fallbackSpeed = 10) {
         cooldownMs: Math.max(0, Number(weapon.cooldownMs) || 0),
         penetrationBlocks: Math.max(0, Number(weapon.penetrationBlocks) || 0),
         bulletCollision: weapon.bulletCollision === true,
-        chain: Math.max(0, Math.floor(Number(weapon.chain) || 0)),
+        chain: normalizeChainModifier(weapon.chain),
         variation: {
             enabled: [
                 weapon.speedVariation,
@@ -578,6 +579,50 @@ function migrateProjectileSchemaV22(config, originalVersion, targetVersion) {
     delete config.RENDERING?.ENEMY_AIM_CALCULATION_BUDGET_PER_FRAME;
 }
 
+function normalizeChainModifier(value) {
+    if (!isPlainObject(value)) {
+        const maxTargets = Math.max(0, Math.floor(Number(value) || 0));
+        return {
+            enabled: maxTargets > 0,
+            maxTargets,
+            maximumRangeBlocks: 0,
+        };
+    }
+
+    const maxTargets = Math.max(
+        0,
+        Math.floor(Number(value.maxTargets) || 0),
+    );
+    const maximumRangeBlocks = Math.max(
+        0,
+        Number(value.maximumRangeBlocks) || 0,
+    );
+
+    return reorderObject(
+        {
+            ...value,
+            enabled: value.enabled !== false && maxTargets > 0,
+            maxTargets,
+            maximumRangeBlocks,
+        },
+        CHAIN_ORDER,
+    );
+}
+
+function migrateProjectileChainModifier(projectile) {
+    if (!isPlainObject(projectile)) return;
+
+    if (Object.prototype.hasOwnProperty.call(projectile, "chain")) {
+        projectile.chain = normalizeChainModifier(projectile.chain);
+    }
+
+    const children = projectile.split?.children;
+    if (!Array.isArray(children)) return;
+    for (const child of children) {
+        migrateProjectileChainModifier(child?.projectile);
+    }
+}
+
 function migrateProjectileVariationRngV23(projectile) {
     if (!isPlainObject(projectile)) return;
 
@@ -626,6 +671,24 @@ function migrateProjectileSchemaV23(config, targetVersion) {
                 ? enemy.weapons
                 : []) {
                 migrateProjectileVariationRngV23(weapon);
+            }
+        }
+    }
+}
+
+function migrateProjectileChainModifiers(config, targetVersion) {
+    if (targetVersion < 22) return;
+
+    migrateProjectileChainModifier(config.BASE_PROJECTILE);
+    for (const weapon of Array.isArray(config.WEAPONS) ? config.WEAPONS : []) {
+        migrateProjectileChainModifier(weapon);
+    }
+    if (isPlainObject(config.ENEMY_TYPES)) {
+        for (const enemy of Object.values(config.ENEMY_TYPES)) {
+            for (const weapon of Array.isArray(enemy?.weapons)
+                ? enemy.weapons
+                : []) {
+                migrateProjectileChainModifier(weapon);
             }
         }
     }
@@ -686,6 +749,7 @@ function migrateConfig(config, targetVersion) {
 
     migrateProjectileSchemaV22(config, originalVersion, targetVersion);
     migrateProjectileSchemaV23(config, targetVersion);
+    migrateProjectileChainModifiers(config, targetVersion);
 
     config.STRUCTURE_LIBRARY = mergeGeneratedPolyominoStructures(
         config.STRUCTURE_LIBRARY,

@@ -92,3 +92,26 @@ test("chain acquisition skips a blocked preferred target for a radius-clear alte
 	assert.ok(projectile.vx > 0);
 	assert.ok(projectile.vy > 0);
 });
+
+test("chain maximum range excludes a target exactly at the configured range", () => {
+	const target = makeTarget(2, -0.5); // center is exactly 2.5 blocks away
+	GameState.enemies = [target];
+
+	const projectile = makeChainProjectile({ chainMaximumRangeBlocks: 2.5 });
+	assert.equal(updateProjectileChainAim(projectile), false);
+	assert.equal(projectile.chainTarget, null);
+});
+
+test("chain maximum range accepts a target strictly inside the configured range", () => {
+	const target = makeTarget(1.999, -0.5); // center is 2.499 blocks away
+	GameState.enemies = [target];
+
+	const projectile = makeChainProjectile({
+		vx: 0,
+		vy: 4,
+		chainMaximumRangeBlocks: 2.5,
+	});
+	assert.equal(updateProjectileChainAim(projectile), false);
+	assert.equal(projectile.chainTarget, target);
+});
+

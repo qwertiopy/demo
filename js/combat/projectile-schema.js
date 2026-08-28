@@ -29,6 +29,8 @@ const MODIFIER_FIELDS = {
 	split: ["enabled", "count", "timeMs", "onImpact", "spread", "children"],
 };
 
+const CHAIN_FIELDS = ["enabled", "maxTargets", "maximumRangeBlocks"];
+
 function isPlainObject(value) {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -57,6 +59,31 @@ function requireFinite(path, value, minimum = 0) {
 	}
 }
 
+// Chain is now a nested modifier, but numeric values remain accepted so saved
+// configs and weapon overrides from earlier schemas continue to resolve. A
+// maximumRangeBlocks value of 0 means unlimited range.
+function normalizeChainModifier(value) {
+	if (!isPlainObject(value)) {
+		const maxTargets = Math.max(0, Math.floor(Number(value) || 0));
+		return {
+			enabled: maxTargets > 0,
+			maxTargets,
+			maximumRangeBlocks: 0,
+		};
+	}
+
+	const maxTargets = Math.max(0, Math.floor(Number(value.maxTargets) || 0));
+	const maximumRangeBlocks = Math.max(
+		0,
+		Number(value.maximumRangeBlocks) || 0,
+	);
+	return {
+		enabled: value.enabled !== false && maxTargets > 0,
+		maxTargets,
+		maximumRangeBlocks,
+	};
+}
+
 export function validateBaseProjectile(base, path = "BASE_PROJECTILE") {
 	if (!isPlainObject(base)) throw new Error(`${path} must be a JSON object.`);
 
@@ -77,9 +104,28 @@ export function validateBaseProjectile(base, path = "BASE_PROJECTILE") {
 		}
 	}
 
+	if (isPlainObject(base.chain)) {
+		for (const field of CHAIN_FIELDS) {
+			if (!(field in base.chain)) {
+				throw new Error(`${path}.chain.${field} is required.`);
+			}
+		}
+		if (typeof base.chain.enabled !== "boolean") {
+			throw new Error(`${path}.chain.enabled must be true or false.`);
+		}
+		requireFinite(`${path}.chain.maxTargets`, base.chain.maxTargets);
+		requireFinite(
+			`${path}.chain.maximumRangeBlocks`,
+			base.chain.maximumRangeBlocks,
+		);
+	} else {
+		// Legacy scalar chain values are still valid during migration.
+		requireFinite(`${path}.chain`, base.chain);
+	}
+
 	for (const field of [
 		"speed", "radiusBlocks", "damage", "maxBounces", "lifetimeMs",
-		"cooldownMs", "penetrationBlocks", "chain",
+		"cooldownMs", "penetrationBlocks",
 	]) requireFinite(`${path}.${field}`, base[field]);
 	if (typeof base.color !== "string") throw new Error(`${path}.color must be a string.`);
 	if (typeof base.bulletCollision !== "boolean") {
@@ -123,9 +169,11 @@ export function resolveProjectileDefinition(base, override = {}) {
 	const throwable = nested.throwable.enabled ? nested.throwable : null;
 	const laser = nested.laser.enabled ? nested.laser : null;
 	const split = nested.split.enabled ? nested.split : null;
+	const chain = normalizeChainModifier(nested.chain);
 
 	const resolved = {
 		...nested,
+		chain,
 		speedVariation: variation ? variation.speed : 0,
 		radiusVariation: variation ? variation.radius : 0,
 		damageVariation: variation ? variation.damage : 0,

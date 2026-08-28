@@ -11,7 +11,11 @@
         "cooldownMs": 100,
         "penetrationBlocks": 0,
         "bulletCollision": false,
-        "chain": 0,
+        "chain": {
+            "enabled": false,
+            "maxTargets": 0,
+            "maximumRangeBlocks": 0
+        },
         "variation": {
             "enabled": false,
             "speed": 0,
@@ -96,7 +100,11 @@
             "cooldownMs": 250,
             "penetrationBlocks": 0,
             "bulletCollision": false,
-            "chain": 0,
+            "chain": {
+                "enabled": false,
+                "maxTargets": 0,
+                "maximumRangeBlocks": 0
+            },
             "variation": {
                 "enabled": false,
                 "speed": 0,
@@ -148,7 +156,11 @@
             "cooldownMs": 1000,
             "penetrationBlocks": 0,
             "bulletCollision": false,
-            "chain": 0,
+            "chain": {
+                "enabled": false,
+                "maxTargets": 0,
+                "maximumRangeBlocks": 0
+            },
             "variation": {
                 "enabled": true,
                 "speed": 10,
@@ -200,7 +212,11 @@
             "cooldownMs": 250,
             "penetrationBlocks": 0,
             "bulletCollision": false,
-            "chain": 0,
+            "chain": {
+                "enabled": false,
+                "maxTargets": 0,
+                "maximumRangeBlocks": 0
+            },
             "variation": {
                 "enabled": false,
                 "speed": 0,
@@ -252,7 +268,11 @@
             "cooldownMs": 250,
             "penetrationBlocks": 0,
             "bulletCollision": false,
-            "chain": 0,
+            "chain": {
+                "enabled": false,
+                "maxTargets": 0,
+                "maximumRangeBlocks": 0
+            },
             "variation": {
                 "enabled": false,
                 "speed": 0,
@@ -304,7 +324,11 @@
             "cooldownMs": 250,
             "penetrationBlocks": 0,
             "bulletCollision": false,
-            "chain": 0,
+            "chain": {
+                "enabled": false,
+                "maxTargets": 0,
+                "maximumRangeBlocks": 0
+            },
             "variation": {
                 "enabled": false,
                 "speed": 0,
@@ -356,7 +380,11 @@
             "cooldownMs": 250,
             "penetrationBlocks": 0,
             "bulletCollision": false,
-            "chain": 0,
+            "chain": {
+                "enabled": false,
+                "maxTargets": 0,
+                "maximumRangeBlocks": 0
+            },
             "variation": {
                 "enabled": true,
                 "speed": 15,
@@ -408,7 +436,11 @@
             "cooldownMs": 0,
             "penetrationBlocks": 0,
             "bulletCollision": true,
-            "chain": 0,
+            "chain": {
+                "enabled": false,
+                "maxTargets": 0,
+                "maximumRangeBlocks": 0
+            },
             "variation": {
                 "enabled": false,
                 "speed": 0,
@@ -460,7 +492,11 @@
             "cooldownMs": 250,
             "penetrationBlocks": 0,
             "bulletCollision": false,
-            "chain": 0,
+            "chain": {
+                "enabled": false,
+                "maxTargets": 0,
+                "maximumRangeBlocks": 0
+            },
             "variation": {
                 "enabled": false,
                 "speed": 0,
@@ -512,7 +548,11 @@
                             "cooldownMs": 0,
                             "penetrationBlocks": 0,
                             "bulletCollision": false,
-                            "chain": 0,
+                            "chain": {
+                                "enabled": false,
+                                "maxTargets": 0,
+                                "maximumRangeBlocks": 0
+                            },
                             "variation": {
                                 "enabled": false,
                                 "speed": 0,
@@ -568,7 +608,11 @@
             "cooldownMs": 250,
             "penetrationBlocks": 0,
             "bulletCollision": false,
-            "chain": 2.5,
+            "chain": {
+                "enabled": true,
+                "maxTargets": 10,
+                "maximumRangeBlocks": 2.5
+            },
             "variation": {
                 "enabled": false,
                 "speed": 0,
@@ -620,7 +664,11 @@
             "cooldownMs": 50,
             "penetrationBlocks": 0,
             "bulletCollision": false,
-            "chain": 0,
+            "chain": {
+                "enabled": false,
+                "maxTargets": 0,
+                "maximumRangeBlocks": 0
+            },
             "variation": {
                 "enabled": false,
                 "speed": 0,
@@ -683,7 +731,11 @@
                     "cooldownMs": 100,
                     "penetrationBlocks": 0,
                     "bulletCollision": false,
-                    "chain": 0,
+                    "chain": {
+                        "enabled": false,
+                        "maxTargets": 0,
+                        "maximumRangeBlocks": 0
+                    },
                     "variation": {
                         "enabled": false,
                         "speed": 0,
@@ -750,7 +802,11 @@
                     "cooldownMs": 250,
                     "penetrationBlocks": 0,
                     "bulletCollision": false,
-                    "chain": 0,
+                    "chain": {
+                        "enabled": false,
+                        "maxTargets": 0,
+                        "maximumRangeBlocks": 0
+                    },
                     "variation": {
                         "enabled": false,
                         "speed": 0,
@@ -817,7 +873,11 @@
                     "cooldownMs": 1000,
                     "penetrationBlocks": 0,
                     "bulletCollision": false,
-                    "chain": 0,
+                    "chain": {
+                        "enabled": false,
+                        "maxTargets": 0,
+                        "maximumRangeBlocks": 0
+                    },
                     "variation": {
                         "enabled": false,
                         "speed": 0,

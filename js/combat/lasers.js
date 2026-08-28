@@ -16,7 +16,11 @@ import {
 	fireSplitChildren,
 	registerSplitLaserFirer,
 } from "./projectiles.js";
-import { findChainTarget, getAngleToTarget } from "./targeting.js";
+import {
+	findChainTarget,
+	getAngleToTarget,
+	isTargetWithinChainRange,
+} from "./targeting.js";
 import {
 	getWallCornerCriticalAngles,
 	rayRectIntersection,
@@ -714,6 +718,8 @@ function resolveChainedLaserBeamShot(shot, currentTime) {
 					shot.chainReferenceAngle ?? Math.atan2(dirY, dirX),
 					hitTargets,
 					"distance",
+					null,
+					shot.chainMaximumRangeBlocks,
 				) : null;
 			}
 
@@ -1036,14 +1042,32 @@ export function requestLaserShot(
 		? options.forcedAngle
 		: Math.atan2(targetY - centerY, targetX - centerX);
 	// Chaining is singular-beam-only. Cone lasers keep their existing cone/spread
-	// behavior even if the weapon config has chain > 0.
-	const chain = bulletCount === 1
-		? Math.max(0, Math.floor(Number(variedStats.chain ?? 0) || 0))
+	// behavior even if the chain modifier is enabled.
+	const chain = bulletCount === 1 && variedStats.chain?.enabled === true
+		? Math.max(0, Math.floor(Number(variedStats.chain.maxTargets) || 0))
+		: 0;
+	const chainMaximumRangeBlocks = chain > 0
+		? Math.max(0, Number(variedStats.chain.maximumRangeBlocks) || 0)
 		: 0;
 	const initialChainTarget = chain > 0
 		? team === TEAM_PLAYER
-			? findChainTarget(centerX, centerY, baseAngle)
-			: player.hp > 0 ? player : null
+			? findChainTarget(
+				centerX,
+				centerY,
+				baseAngle,
+				new Set(),
+				"angle",
+				null,
+				chainMaximumRangeBlocks,
+			)
+			: player.hp > 0 && isTargetWithinChainRange(
+				centerX,
+				centerY,
+				player,
+				chainMaximumRangeBlocks,
+			)
+				? player
+				: null
 		: null;
 	const centerAngle = initialChainTarget
 		? getAngleToTarget(centerX, centerY, initialChainTarget)
@@ -1070,6 +1094,7 @@ export function requestLaserShot(
 		centerAngle,
 		coneHalfAngle,
 		chain,
+		chainMaximumRangeBlocks,
 		chainsRemaining: Math.max(0, chain - 1),
 		chainReferenceAngle: baseAngle,
 		telegraphRangeBlocks,

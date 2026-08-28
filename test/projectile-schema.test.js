@@ -53,3 +53,38 @@ test("split child definitions inherit from the global base", () => {
 	assert.equal(child.color, base.color);
 	assert.equal(child.__resolvedProjectile, true);
 });
+
+test("nested chain modifier resolves maxTargets and per-hop range", () => {
+	const resolved = resolveProjectileDefinition(base, {
+		chain: {
+			enabled: true,
+			maxTargets: 3,
+			maximumRangeBlocks: 2.5,
+		},
+	});
+	assert.deepEqual(resolved.chain, {
+		enabled: true,
+		maxTargets: 3,
+		maximumRangeBlocks: 2.5,
+	});
+});
+
+test("legacy numeric chain values remain compatible and floor into maxTargets", () => {
+	const resolved = resolveProjectileDefinition(base, { chain: 2.5 });
+	assert.deepEqual(resolved.chain, {
+		enabled: true,
+		maxTargets: 2,
+		maximumRangeBlocks: 0,
+	});
+});
+
+test("base projectile validation accepts the nested chain modifier schema", () => {
+	const nestedBase = structuredClone(base);
+	nestedBase.chain = {
+		enabled: false,
+		maxTargets: 0,
+		maximumRangeBlocks: 0,
+	};
+	assert.equal(validateBaseProjectile(nestedBase), nestedBase);
+});
+

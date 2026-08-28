@@ -6,7 +6,9 @@ import {
 	calculateInterceptAim,
 	calculateMaximumFleeInterceptDistance,
 	calculateMaximumLeadHalfAngle,
+	findChainTarget,
 } from "../js/combat/targeting.js";
+import { GameState } from "../js/state.js";
 
 const closeTo = (actual, expected, epsilon = 1e-10) => {
 	assert.ok(Math.abs(actual - expected) <= epsilon, `${actual} != ${expected}`);
@@ -41,3 +43,20 @@ test("gap-safe angle remains bounded and collapses for impossible interception",
 	assert.equal(calculateGapSafeWallAngle(10, 4, 4, 0.1, 0.5, 0.9), 0);
 	assert.equal(calculateGapSafeWallAngle(10, 1, 4, 0.1, 0, 0.9), 0);
 });
+
+test("chain target selection treats maximum range as an exclusive per-hop bound", () => {
+	const atLimit = { x: 2, y: -0.5, size: 1, hp: 10 };
+	const insideLimit = { x: 1.999, y: -0.5, size: 1, hp: 10 };
+	GameState.enemies = [atLimit];
+	assert.equal(
+		findChainTarget(0, 0, 0, new Set(), "angle", () => true, 2.5),
+		null,
+	);
+
+	GameState.enemies = [insideLimit];
+	assert.equal(
+		findChainTarget(0, 0, 0, new Set(), "angle", () => true, 2.5),
+		insideLimit,
+	);
+});
+

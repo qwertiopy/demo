@@ -5,7 +5,12 @@ import { GameState, player, TEAM_PLAYER } from "../state.js";
 import { queryWallsAlongSegment, queryWallsInAabb } from "../spatial/wall-index.js";
 import { isColliding } from "../utils.js";
 import { detonateBullet } from "./explosions.js";
-import { findChainTarget, getAngleToTarget, getTargetCenter } from "./targeting.js";
+import {
+	findChainTarget,
+	getAngleToTarget,
+	getTargetCenter,
+	isTargetWithinChainRange,
+} from "./targeting.js";
 import { clampAngleToInterval, rayRoundedRectIntersection } from "./visibility.js";
 import { getCombatDefault } from "./defaults.js";
 import { registerProjectile, releaseProjectile } from "./projectile-cap.js";
@@ -214,6 +219,10 @@ export function updateProjectileChainAim(projectile) {
 
 	const referenceAngle = projectile.chainReferenceAngle ??
 		getProjectileDirectionAngle(projectile);
+	const maximumRangeBlocks = Math.max(
+		0,
+		Number(projectile.chainMaximumRangeBlocks) || 0,
+	);
 	const pathIsRadiusClear = (target) =>
 		isProjectileChainPathRadiusClear(projectile, target);
 	const target = projectile.team === TEAM_PLAYER
@@ -224,9 +233,16 @@ export function updateProjectileChainAim(projectile) {
 			projectile.chainVisitedTargets,
 			isPostHitRedirect ? "distance" : "angle",
 			pathIsRadiusClear,
+			maximumRangeBlocks,
 		)
 		: player.hp > 0 &&
 			!projectile.chainVisitedTargets.has(player) &&
+			isTargetWithinChainRange(
+				projectile.x,
+				projectile.y,
+				player,
+				maximumRangeBlocks,
+			) &&
 			pathIsRadiusClear(player)
 			? player
 			: null;
@@ -305,7 +321,12 @@ export function shoot(shooter, targetX, targetY, stats, options = {}) {
 		)
 		: 0;
 	const createdAt = performance.now();
-	const chain = Math.max(0, Math.floor(Number(stats.chain) || 0));
+	const chain = stats.chain?.enabled === true
+		? Math.max(0, Math.floor(Number(stats.chain.maxTargets) || 0))
+		: 0;
+	const chainMaximumRangeBlocks = chain > 0
+		? Math.max(0, Number(stats.chain.maximumRangeBlocks) || 0)
+		: 0;
 
 	for (const angle of volleyAngles) {
 		// Variation is rolled independently for every projectile and stat. The
@@ -337,8 +358,18 @@ export function shoot(shooter, targetX, targetY, stats, options = {}) {
 					new Set(),
 					"angle",
 					pathIsRadiusClear,
+					chainMaximumRangeBlocks,
 				)
-				: player.hp > 0 && pathIsRadiusClear(player) ? player : null
+				: player.hp > 0 &&
+					isTargetWithinChainRange(
+						centerX,
+						centerY,
+						player,
+						chainMaximumRangeBlocks,
+					) &&
+					pathIsRadiusClear(player)
+					? player
+					: null
 			: null;
 		const chainedLaunchAngle = initialChainTarget
 			? getAngleToTarget(centerX, centerY, initialChainTarget)
@@ -392,6 +423,7 @@ export function shoot(shooter, targetX, targetY, stats, options = {}) {
 			throwBounces: 0,
 			hitTargets: new Set(),
 			chain,
+			chainMaximumRangeBlocks,
 			chainsRemaining: Math.max(0, chain - 1),
 			chainReferenceAngle: baseAngle,
 			chainVisitedTargets: new Set(),

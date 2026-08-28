@@ -173,6 +173,21 @@ export function calculateInterceptAim(
 	};
 }
 
+export function isTargetWithinChainRange(
+	originX,
+	originY,
+	target,
+	maximumRangeBlocks = 0,
+) {
+	if (!target) return false;
+	const maximumRange = Math.max(0, Number(maximumRangeBlocks) || 0);
+	if (maximumRange <= 0) return true;
+	const center = getTargetCenter(target);
+	const dx = center.x - originX;
+	const dy = center.y - originY;
+	return dx * dx + dy * dy < maximumRange * maximumRange;
+}
+
 // Candidates must be alive, not already hit by this chain, and pass either the
 // default centerline line-of-sight test or a caller-supplied path-clearance test.
 // Initial acquisition uses angle-first ordering; every reacquisition
@@ -185,11 +200,14 @@ export function findChainTarget(
 	excludedTargets = new Set(),
 	priority = "angle",
 	isPathClear = null,
+	maximumRangeBlocks = 0,
 ) {
 	let bestTarget = null;
 	let bestAngleDelta = Infinity;
 	let bestDistance = Infinity;
 	const tieEpsilon = 1e-9;
+	const maximumRange = Math.max(0, Number(maximumRangeBlocks) || 0);
+	const maximumRangeSquared = maximumRange * maximumRange;
 
 	for (const target of GameState.enemies) {
 		if (
@@ -201,14 +219,20 @@ export function findChainTarget(
 		}
 
 		const center = getTargetCenter(target);
+		const dx = center.x - originX;
+		const dy = center.y - originY;
+		const distanceSquared = dx * dx + dy * dy;
+		// maximumRangeBlocks is exclusive: a target exactly at the configured
+		// range (or farther away) is not eligible for this chain hop. Zero keeps
+		// the legacy unlimited-range behavior.
+		if (maximumRange > 0 && distanceSquared >= maximumRangeSquared) continue;
+
 		const pathIsClear = typeof isPathClear === "function"
 			? isPathClear(target, center)
 			: hasLineOfSight(originX, originY, center.x, center.y);
 		if (!pathIsClear) continue;
 
-		const dx = center.x - originX;
-		const dy = center.y - originY;
-		const distance = Math.hypot(dx, dy);
+		const distance = Math.sqrt(distanceSquared);
 		const targetAngle = Math.atan2(dy, dx);
 		const angleDelta = Math.abs(
 			shortestAngleDelta(referenceAngle, targetAngle),
