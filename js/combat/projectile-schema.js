@@ -29,6 +29,9 @@ const MODIFIER_FIELDS = {
 	split: ["enabled", "count", "timeMs", "onImpact", "spread", "children"],
 };
 
+const ROOT_FIELD_SET = new Set([...ROOT_FIELDS, ...Object.keys(MODIFIER_FIELDS)]);
+const FORBIDDEN_KEYS = new Set(["__proto__", "prototype", "constructor"]);
+
 function isPlainObject(value) {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -42,6 +45,9 @@ export function mergeProjectileDefinition(base, override = {}) {
 	const result = clone(base);
 
 	for (const [key, value] of Object.entries(override)) {
+		if (FORBIDDEN_KEYS.has(key)) {
+			throw new Error(`Unsafe projectile field ${key} is not allowed.`);
+		}
 		if (isPlainObject(value) && isPlainObject(result[key])) {
 			result[key] = mergeProjectileDefinition(result[key], value);
 		} else {
@@ -49,6 +55,82 @@ export function mergeProjectileDefinition(base, override = {}) {
 		}
 	}
 	return result;
+}
+
+function rejectUnknownKeys(value, allowed, path) {
+	for (const key of Object.keys(value || {})) {
+		if (FORBIDDEN_KEYS.has(key) || !allowed.has(key)) {
+			throw new Error(`${path}.${key} is not a recognised field.`);
+		}
+	}
+}
+
+export function validateProjectileOverride(override, path = "projectile") {
+	if (!isPlainObject(override)) throw new Error(`${path} must be a JSON object.`);
+	rejectUnknownKeys(override, ROOT_FIELD_SET, path);
+
+	for (const [modifier, fields] of Object.entries(MODIFIER_FIELDS)) {
+		if (!(modifier in override)) continue;
+		if (!isPlainObject(override[modifier])) {
+			throw new Error(`${path}.${modifier} must be a JSON object.`);
+		}
+		rejectUnknownKeys(
+			override[modifier],
+			new Set(fields),
+			`${path}.${modifier}`,
+		);
+	}
+
+	if (isPlainObject(override.variation?.rng)) {
+		rejectUnknownKeys(
+			override.variation.rng,
+			new Set(["luck", "maximumLuck"]),
+			`${path}.variation.rng`,
+		);
+	}
+
+	if (override.split?.children !== undefined) {
+		if (!Array.isArray(override.split.children)) {
+			throw new Error(`${path}.split.children must be an array.`);
+		}
+		for (const [index, entry] of override.split.children.entries()) {
+			if (!isPlainObject(entry)) {
+				throw new Error(`${path}.split.children[${index}] must be an object.`);
+			}
+			rejectUnknownKeys(
+				entry,
+				new Set(["weight", "projectile"]),
+				`${path}.split.children[${index}]`,
+			);
+			requireFinite(`${path}.split.children[${index}].weight`, entry.weight ?? 0);
+			validateProjectileOverride(
+				isPlainObject(entry.projectile) ? entry.projectile : {},
+				`${path}.split.children[${index}].projectile`,
+			);
+		}
+	}
+	return override;
+}
+
+function validateResolvedProjectile(resolved, path) {
+	for (const field of [
+		"speed", "radiusBlocks", "damage", "maxBounces", "lifetimeMs",
+		"cooldownMs", "penetrationBlocks", "chain", "speedVariation",
+		"radiusVariation", "damageVariation", "variationLuck",
+		"variationMaximumLuck", "bulletCount", "spread",
+		"explosionRadiusBlocks", "detonationTimeMs", "explosionDurationMs",
+		"explosionDamage", "throwDistanceMultiplier", "throwDeceleration",
+		"laserWarmupMs", "splitCount", "splitTimeMs", "splitSpread",
+	]) {
+		requireFinite(`${path}.${field}`, resolved[field]);
+	}
+	if (!Number.isInteger(resolved.maxBounces) || !Number.isInteger(resolved.chain)) {
+		throw new Error(`${path}.maxBounces and chain must be integers.`);
+	}
+	if (!Number.isInteger(resolved.bulletCount) || !Number.isInteger(resolved.splitCount)) {
+		throw new Error(`${path} volley/split counts must resolve to integers.`);
+	}
+	return resolved;
 }
 
 function requireFinite(path, value, minimum = 0) {
@@ -107,6 +189,7 @@ export function validateBaseProjectile(base, path = "BASE_PROJECTILE") {
 export function resolveProjectileDefinition(base, override = {}) {
 	if (override?.__resolvedProjectile === true) return override;
 	validateBaseProjectile(base);
+	validateProjectileOverride(override);
 	const nested = mergeProjectileDefinition(base, override);
 	const variation = nested.variation.enabled ? nested.variation : null;
 	const variationMaximumLuck = variation
@@ -148,16 +231,42 @@ export function resolveProjectileDefinition(base, override = {}) {
 		splitTimeMs: split ? Math.max(0, Number(split.timeMs)) : 0,
 		splitsOnImpact: split ? split.onImpact === true : false,
 		splitSpread: split ? Math.min(Math.PI * 2, Math.max(0, Number(split.spread))) : 0,
-		splitChildren: split ? split.children : [],
+		splitChildren: split
+			? split.children.map((entry) => ({
+				weight: Number(entry?.weight ?? 0),
+				projectile: resolveProjectileDefinition(
+					base,
+					isPlainObject(entry?.projectile) ? entry.projectile : {},
+				),
+			}))
+			: [],
 	};
 	Object.defineProperty(resolved, "__resolvedProjectile", {
 		value: true,
 		enumerable: false,
 	});
+	validateResolvedProjectile(resolved, "projectile");
 	return resolved;
 }
 
 export function getSplitChildDefinition(base, entry) {
+	if (entry?.projectile?.__resolvedProjectile === true) {
+		return entry.projectile;
+	}
 	const override = isPlainObject(entry?.projectile) ? entry.projectile : {};
 	return resolveProjectileDefinition(base, override);
+}
+
+// Shot-local values such as a legal aiming interval and an enemy's selected
+// spread may vary without recompiling the immutable weapon data tree.
+export function deriveResolvedProjectileDefinition(resolved, overrides = {}) {
+	if (resolved?.__resolvedProjectile !== true) {
+		throw new Error("A resolved projectile definition is required.");
+	}
+	const derived = { ...resolved, ...overrides };
+	Object.defineProperty(derived, "__resolvedProjectile", {
+		value: true,
+		enumerable: false,
+	});
+	return validateResolvedProjectile(derived, "projectile");
 }

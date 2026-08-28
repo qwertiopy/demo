@@ -15,7 +15,9 @@ export {
 export {
 	lineIntersects,
 	hasLineOfSight,
+	hasProjectileRadiusClearance,
 	circleIntersectsRect,
+	circleIntersectsRenderedShape,
 } from "./combat/collision.js";
 
 export {
@@ -39,6 +41,8 @@ export {
 export {
 	getLaserCalculationBudgetPerFrame,
 	getLaserCalculationBudgetRemaining,
+	getLaserCalculationBudgetOverrun,
+	getLaserCalculationBudgetSpent,
 	resetLaserCalculationBudget,
 	rayRectIntersection,
 	getLaserWallStopWithPenetrationBudget,

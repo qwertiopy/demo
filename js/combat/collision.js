@@ -1,6 +1,9 @@
 // General combat geometry and line-of-sight helpers.
 
 import { queryWallsAlongSegment } from "../spatial/wall-index.js";
+import { circleOverlapsRectStrict } from "./geometry.js";
+import { segmentHasRadiusClearanceAgainstRect } from "./geometry.js";
+import { circleOverlapsRenderedShape } from "./shapes.js";
 
 // Tests whether two line segments intersect; used to determine whether a wall edge blocks a shot or enemy vision
 export function lineIntersects(a, b, c, d, p, q, r, s) {
@@ -51,12 +54,30 @@ export function hasLineOfSight(x1, y1, x2, y2) {
 // Returns true when a circle overlaps an axis-aligned rectangle. Explosion
 // hitboxes use this instead of the square projectile collision approximation.
 export function circleIntersectsRect(circleX, circleY, radius, rect) {
-	const width = rect.width ?? rect.size ?? 0;
-	const height = rect.height ?? rect.size ?? 0;
-	const closestX = Math.max(rect.x, Math.min(circleX, rect.x + width));
-	const closestY = Math.max(rect.y, Math.min(circleY, rect.y + height));
-	const dx = circleX - closestX;
-	const dy = circleY - closestY;
+	return circleOverlapsRectStrict(circleX, circleY, radius, rect);
+}
 
-	return dx * dx + dy * dy <= radius * radius;
+export function circleIntersectsRenderedShape(circleX, circleY, radius, actor) {
+	return circleOverlapsRenderedShape(circleX, circleY, radius, actor);
+}
+
+export function hasProjectileRadiusClearance(x1, y1, x2, y2, radius) {
+	const safeRadius = Math.max(0, Number(radius) || 0);
+	const candidateWalls = queryWallsAlongSegment(
+		x1,
+		y1,
+		x2,
+		y2,
+		safeRadius,
+	);
+	return candidateWalls.every((wall) =>
+		segmentHasRadiusClearanceAgainstRect(
+			x1,
+			y1,
+			x2,
+			y2,
+			safeRadius,
+			wall,
+		),
+	);
 }

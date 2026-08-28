@@ -6,11 +6,11 @@ The test suite uses Node's built-in test runner and has no package dependencies.
 npm test
 ```
 
-The tests intentionally characterize current behaviour, including strict LOS
-segment endpoints, inclusive circle tangency, infinite flee-intercept distance,
-half-open structure bounds, wall-array result order, and FIFO projectile caps.
-Changing one of those assertions is a gameplay decision, not a mechanical
-refactor.
+The tests lock the agreed runtime semantics, including a fixed nominal
+simulation step with discarded wall-time backlog, strict non-colliding
+tangency, radius-aware aim clearance, exact rendered actor shapes, direct aim
+for slow projectiles, relationship-based damage, half-open structure bounds,
+wall-array result order, and per-owner FIFO projectile caps.
 
 Run the repeatable microbenchmarks with:
 
@@ -20,7 +20,8 @@ npm run profile
 
 For browser profiling, append `?profile=1` to the game URL. The profiler keeps
 the latest 600 completed frames and records update, procedural generation,
-enemy, projectile, laser, explosion, snapshot/replay, and render durations.
+enemy, projectile, laser, explosion, snapshot/replay, and render durations. It
+also records soft laser-budget overrun and discarded scheduler wall time.
 Inspect it from the developer console:
 
 ```js

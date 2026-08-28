@@ -16,9 +16,13 @@ import { saveActiveReplay } from "./replay-store.js";
 // This is used by trail interpolation and is also serialized into replay files.
 const renderIds = new WeakMap();
 const replayEnvironmentMaps = new WeakMap();
+const replayEnvironmentStateCaches = new WeakMap();
+const replayEnvironmentRevisionIndexes = new WeakMap();
 const replayEntityDefinitionMaps = new WeakMap();
 const replayHydratedFrameMaps = new WeakMap();
 const REPLAY_ENVIRONMENT_KEYFRAME_INTERVAL = 120;
+const REPLAY_HYDRATED_FRAME_CACHE_LIMIT = 180;
+const REPLAY_ENVIRONMENT_CACHE_LIMIT = 16;
 
 // Version 3 frames are positional arrays so field names are not repeated at
 // 60 Hz. Keep this layout synchronized with replay-file.js validation.
@@ -67,6 +71,7 @@ const ReplayRuntime = {
 	recordedEnemyDefinitionIds: new Set(),
 	recordedProjectileDefinitions: [],
 	recordedProjectileDefinitionIds: new Set(),
+	recordedSegments: [],
 	loadedReplay: null,
 	playbackActive: false,
 	playbackPlaying: false,
@@ -83,6 +88,40 @@ const ReplayRuntime = {
 
 function clonePlain(value) {
 	return JSON.parse(JSON.stringify(value));
+}
+
+function lruGet(map, key) {
+	if (!map.has(key)) return null;
+	const value = map.get(key);
+	map.delete(key);
+	map.set(key, value);
+	return value;
+}
+
+function lruSet(map, key, value, limit = REPLAY_HYDRATED_FRAME_CACHE_LIMIT) {
+	if (map.has(key)) map.delete(key);
+	map.set(key, value);
+	while (map.size > limit) map.delete(map.keys().next().value);
+}
+
+export function markReplaySegment(segment = {}) {
+	if (!ReplayRuntime.recording) return false;
+	const absoluteAtMs = Number(segment.atMs);
+	const relativeAtMs = ReplayRuntime.recordingStartedAt === null
+		? 0
+		: Math.max(0, absoluteAtMs - ReplayRuntime.recordingStartedAt);
+	ReplayRuntime.recordedSegments.push({
+		type: String(segment.type || "segment"),
+		atMs: relativeAtMs,
+		frameIndex: ReplayRuntime.recordedFrames.length,
+		previousSeed: Number.isFinite(Number(segment.previousSeed))
+			? Number(segment.previousSeed)
+			: null,
+		nextSeed: Number.isFinite(Number(segment.nextSeed))
+			? Number(segment.nextSeed)
+			: null,
+	});
+	return true;
 }
 
 function replayConfigSnapshot() {
@@ -109,6 +148,7 @@ function encodeEnemy(enemy) {
 			enemy.size,
 			enemy.color,
 			enemy.maxHp,
+			enemy.shape ? clonePlain(enemy.shape) : null,
 		]);
 	}
 	return [id, enemy.x, enemy.y, enemy.hp];
@@ -408,6 +448,7 @@ export function captureVisualSnapshot(currentTime) {
 			color: player.color,
 			hp: player.hp,
 			maxHp: player.maxHp,
+			shape: player.shape ? clonePlain(player.shape) : null,
 		},
 		enemies: GameState.enemies.map((enemy) => ({
 			renderId: getRenderId(enemy, "enemy"),
@@ -417,6 +458,7 @@ export function captureVisualSnapshot(currentTime) {
 			color: enemy.color,
 			hp: enemy.hp,
 			maxHp: enemy.maxHp,
+			shape: enemy.shape ? clonePlain(enemy.shape) : null,
 			aimDebug: captureEnemyAimDebug
 				? captureEnemyAimDebugSnapshot(enemy, debug)
 				: null,
@@ -762,36 +804,85 @@ function applyWallDelta(previousWalls, additions, removals) {
 
 function environmentMapForReplay(replay) {
 	if (Number(replay?.replayVersion) < 2) return null;
+	if (Number(replay.replayVersion) >= 3) return null;
 
 	let environmentMap = replayEnvironmentMaps.get(replay);
 	if (!environmentMap) {
-		if (Number(replay.replayVersion) >= 3) {
-			environmentMap = new Map();
-			let walls = [];
-			for (const environment of replay.environments || []) {
-				if (Array.isArray(environment.k)) {
-					walls = environment.k.map((wall) => [...wall]);
-				} else {
-					walls = applyWallDelta(walls, environment.a, environment.d);
-				}
-				environmentMap.set(Number(environment.r), {
-					revision: Number(environment.r),
-					walls: walls.map(decodeWallTuple),
-					enemySpawns: [],
-				});
-			}
-		} else {
-			environmentMap = new Map(
-				(replay.environments || []).map((environment) => [
-					Number(environment.revision),
-					environment,
-				]),
-			);
-		}
+		environmentMap = new Map(
+			(replay.environments || []).map((environment) => [
+				Number(environment.revision),
+				environment,
+			]),
+		);
 		replayEnvironmentMaps.set(replay, environmentMap);
 	}
-
 	return environmentMap;
+}
+
+function environmentForReplay(replay, revision) {
+	if (Number(replay?.replayVersion) < 2) return null;
+	if (Number(replay.replayVersion) < 3) {
+		return environmentMapForReplay(replay)?.get(Number(revision)) ?? null;
+	}
+
+	let cache = replayEnvironmentStateCaches.get(replay);
+	if (!cache) {
+		cache = new Map();
+		replayEnvironmentStateCaches.set(replay, cache);
+	}
+	const requestedRevision = Number(revision);
+	const cached = lruGet(cache, requestedRevision);
+	if (cached) return cached.environment;
+
+	let revisionIndexes = replayEnvironmentRevisionIndexes.get(replay);
+	if (!revisionIndexes) {
+		revisionIndexes = new Map(
+			(replay.environments || []).map((environment, index) => [
+				Number(environment.r),
+				index,
+			]),
+		);
+		replayEnvironmentRevisionIndexes.set(replay, revisionIndexes);
+	}
+	const requestedIndex = revisionIndexes.get(requestedRevision);
+	if (!Number.isInteger(requestedIndex)) return null;
+
+	let startIndex = requestedIndex;
+	let wallTuples = null;
+	while (startIndex >= 0) {
+		const source = replay.environments[startIndex];
+		const prior = cache.get(Number(source.r));
+		if (prior) {
+			wallTuples = prior.wallTuples.map((wall) => [...wall]);
+			startIndex++;
+			break;
+		}
+		if (Array.isArray(source.k)) {
+			wallTuples = source.k.map((wall) => [...wall]);
+			startIndex++;
+			break;
+		}
+		startIndex--;
+	}
+	wallTuples ??= [];
+	for (let index = startIndex; index <= requestedIndex; index++) {
+		const source = replay.environments[index];
+		if (Array.isArray(source.k)) {
+			wallTuples = source.k.map((wall) => [...wall]);
+		} else {
+			wallTuples = applyWallDelta(wallTuples, source.a, source.d);
+		}
+	}
+	const environment = {
+		revision: requestedRevision,
+		walls: wallTuples.map(decodeWallTuple),
+		enemySpawns: [],
+	};
+	lruSet(cache, requestedRevision, {
+		wallTuples: wallTuples.map((wall) => [...wall]),
+		environment,
+	}, REPLAY_ENVIRONMENT_CACHE_LIMIT);
+	return environment;
 }
 
 function entityDefinitionMapsForReplay(replay) {
@@ -902,6 +993,7 @@ function decodeV3Frame(replay, frame, frameIndex) {
 			color: definition[2],
 			hp: enemy[3],
 			maxHp: definition[3],
+			shape: definition[4] ?? null,
 		};
 	};
 	const decodeProjectile = (projectile) => {
@@ -938,6 +1030,7 @@ function decodeV3Frame(replay, frame, frameIndex) {
 			color: playerStyle[1],
 			hp: playerFrame[2],
 			maxHp: playerStyle[2],
+			shape: playerStyle[3] ?? null,
 		},
 		enemies: (frame[V3_FRAME.ENEMIES] || []).map(decodeEnemy),
 		projectiles: (frame[V3_FRAME.PROJECTILES] || []).map(decodeProjectile),
@@ -958,7 +1051,7 @@ function decodeV3Frame(replay, frame, frameIndex) {
 	};
 }
 
-function hydrateReplayFrame(replay, frame, frameIndex) {
+export function hydrateReplayFrame(replay, frame, frameIndex) {
 	if (!replay || !frame) return null;
 	if (Number(replay.replayVersion) < 2) {
 		return { ...frame, showEditorHelpers: false };
@@ -969,7 +1062,8 @@ function hydrateReplayFrame(replay, frame, frameIndex) {
 			frameMap = new Map();
 			replayHydratedFrameMaps.set(replay, frameMap);
 		}
-		if (frameMap.has(frameIndex)) return frameMap.get(frameIndex);
+		const cachedFrame = lruGet(frameMap, frameIndex);
+		if (cachedFrame) return cachedFrame;
 	}
 
 	if (
@@ -984,7 +1078,8 @@ function hydrateReplayFrame(replay, frame, frameIndex) {
 		Number(replay.replayVersion) >= 3
 			? decodeV3Frame(replay, frame, frameIndex)
 			: frame;
-	const environment = environmentMapForReplay(replay)?.get(
+	const environment = environmentForReplay(
+		replay,
 		replayFrameEnvironmentRevision(replay, frame),
 	);
 	const snapshot = {
@@ -1001,7 +1096,7 @@ function hydrateReplayFrame(replay, frame, frameIndex) {
 	ReplayRuntime.playbackHydratedFrameIndex = frameIndex;
 	ReplayRuntime.playbackHydratedSnapshot = snapshot;
 	if (Number(replay.replayVersion) >= 3) {
-		replayHydratedFrameMaps.get(replay).set(frameIndex, snapshot);
+		lruSet(replayHydratedFrameMaps.get(replay), frameIndex, snapshot);
 	}
 	return snapshot;
 }
@@ -1054,6 +1149,7 @@ export function startReplayRecording() {
 	ReplayRuntime.recordedEnemyDefinitionIds = new Set();
 	ReplayRuntime.recordedProjectileDefinitions = [];
 	ReplayRuntime.recordedProjectileDefinitionIds = new Set();
+	ReplayRuntime.recordedSegments = [];
 	setReplayStatus("Recording replay... 0 frames");
 	syncReplayButtons();
 	return true;
@@ -1077,6 +1173,7 @@ export function recordReplaySnapshot(snapshot, currentTime) {
 			snapshot.player.size,
 			snapshot.player.color,
 			snapshot.player.maxHp,
+			snapshot.player.shape ? clonePlain(snapshot.player.shape) : null,
 		];
 		ReplayRuntime.recordedSources = {
 			config: snapshot.configSource,
@@ -1123,6 +1220,7 @@ export async function stopReplayRecording() {
 		},
 		environments: ReplayRuntime.recordedEnvironments,
 		frames: ReplayRuntime.recordedFrames,
+		segments: ReplayRuntime.recordedSegments,
 	};
 
 	ReplayRuntime.loadedReplay = replay;

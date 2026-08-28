@@ -25,6 +25,7 @@ export const HOTKEY_ACTIONS = [
 ];
 
 const ACTION_IDS = new Set(HOTKEY_ACTIONS.map((action) => action.id));
+let actionsByInput = new Map();
 
 export const Hotkeys = { HOTKEY_SCHEMA_VERSION: 2, bindings: {} };
 
@@ -120,6 +121,7 @@ export async function loadHotkeys() {
 	const loaded = normalizeHotkeyConfig(defaults, saved);
 
 	Object.assign(Hotkeys, clone(loaded));
+	rebuildInputActionLookup();
 
 	if (
 		saved &&
@@ -140,10 +142,20 @@ export function getBindings(actionId) {
 
 export function getActionsForInput(inputCode) {
 	if (typeof inputCode !== "string") return [];
+	return [...(actionsByInput.get(inputCode) || [])];
+}
 
-	return HOTKEY_ACTIONS.filter(({ id }) =>
-		getBindings(id).includes(inputCode),
-	).map(({ id }) => id);
+export function rebuildInputActionLookup() {
+	const lookup = new Map();
+	for (const { id } of HOTKEY_ACTIONS) {
+		for (const inputCode of getBindings(id)) {
+			let actions = lookup.get(inputCode);
+			if (!actions) lookup.set(inputCode, actions = []);
+			actions.push(id);
+		}
+	}
+	actionsByInput = lookup;
+	return lookup;
 }
 
 export function isActionDown(actionId, pressedInputs) {

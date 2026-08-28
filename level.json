@@ -1,4 +1,5 @@
 {
+    "LEVEL_SCHEMA_VERSION": 1,
     "seed": 12345,
     "invincibility": false,
     "player": {
@@ -20,6 +21,6 @@
     "corridorCeilingYBlocks": 0,
     "corridorWidthBlocks": 10,
     "structureSpawnChance": 1,
-    "structureDensityBlocks": 1,
+    "structureDensityBlocks": 5,
     "walls": []
 }

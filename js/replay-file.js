@@ -1,9 +1,15 @@
 // Shared replay-file validation, compression, loading, and download helpers.
 
+import { validateRenderedShapeDefinition } from "./combat/shapes.js";
+
 export const REPLAY_VERSION = 3;
 const SUPPORTED_REPLAY_VERSIONS = new Set([1, 2, REPLAY_VERSION]);
 const GZIP_MAGIC_FIRST = 0x1f;
 const GZIP_MAGIC_SECOND = 0x8b;
+export const MAX_REPLAY_FILE_BYTES = 64 * 1024 * 1024;
+export const MAX_REPLAY_TEXT_BYTES = 256 * 1024 * 1024;
+export const MAX_REPLAY_FRAMES = 1_000_000;
+export const MAX_REPLAY_ENVIRONMENTS = 100_000;
 
 const V3_FRAME = Object.freeze({
 	TIME_MS: 0,
@@ -94,11 +100,20 @@ function validateV3Metadata(data) {
 	if (!Array.isArray(data.playerStyle) || data.playerStyle.length < 3) {
 		throw new Error("Replay is missing its player style definition.");
 	}
+	validateRenderedShapeDefinition(data.playerStyle[3], "replay.playerStyle[3]");
 	if (!data.sources || typeof data.sources !== "object") {
 		throw new Error("Replay is missing source provenance.");
 	}
 	if (!data.entityDefinitions || typeof data.entityDefinitions !== "object") {
 		throw new Error("Replay is missing entity definitions.");
+	}
+	for (const [index, definition] of (
+		data.entityDefinitions.enemies || []
+	).entries()) {
+		validateRenderedShapeDefinition(
+			definition?.[4],
+			`replay.entityDefinitions.enemies[${index}][4]`,
+		);
 	}
 
 	return {
@@ -189,6 +204,26 @@ export function validateReplayData(data) {
 	if (!Array.isArray(data.frames) || data.frames.length === 0) {
 		throw new Error("Replay file contains no frames.");
 	}
+	if (data.frames.length > MAX_REPLAY_FRAMES) {
+		throw new Error(`Replay exceeds the ${MAX_REPLAY_FRAMES} frame limit.`);
+	}
+	if (data.segments !== undefined) {
+		if (!Array.isArray(data.segments)) {
+			throw new Error("Replay segments must be an array.");
+		}
+		for (const [index, segment] of data.segments.entries()) {
+			if (
+				!segment ||
+				typeof segment !== "object" ||
+				!Number.isFinite(Number(segment.atMs)) ||
+				!Number.isInteger(Number(segment.frameIndex)) ||
+				Number(segment.frameIndex) < 0 ||
+				Number(segment.frameIndex) > data.frames.length
+			) {
+				throw new Error(`Replay segment ${index} is invalid.`);
+			}
+		}
+	}
 
 	let validEnvironmentRevisions = null;
 	let definitions = null;
@@ -198,6 +233,9 @@ export function validateReplayData(data) {
 		}
 		if (!Array.isArray(data.environments) || data.environments.length === 0) {
 			throw new Error("Replay contains no environment revisions.");
+		}
+		if (data.environments.length > MAX_REPLAY_ENVIRONMENTS) {
+			throw new Error("Replay contains too many environment revisions.");
 		}
 
 		validEnvironmentRevisions = new Set();
@@ -258,6 +296,9 @@ export function validateReplayData(data) {
 }
 
 async function replayFileText(file) {
+	if (Number(file?.size) > MAX_REPLAY_FILE_BYTES) {
+		throw new Error("Replay file exceeds the 64 MiB import limit.");
+	}
 	const bytes = new Uint8Array(await file.arrayBuffer());
 	const gzipped =
 		bytes.length >= 2 &&
@@ -271,7 +312,11 @@ async function replayFileText(file) {
 	const stream = new Blob([bytes])
 		.stream()
 		.pipeThrough(new DecompressionStream("gzip"));
-	return new Response(stream).text();
+	const text = await new Response(stream).text();
+	if (new TextEncoder().encode(text).byteLength > MAX_REPLAY_TEXT_BYTES) {
+		throw new Error("Decompressed replay exceeds the 256 MiB import limit.");
+	}
+	return text;
 }
 
 export async function readReplayFile(file) {

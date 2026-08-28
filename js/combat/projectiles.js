@@ -1,11 +1,23 @@
 // Projectile spawning, projectile/projectile collision, penetration, wall response, and movement.
 
 import { Config } from "../config.js";
-import { GameState, player, TEAM_PLAYER } from "../state.js";
+import { GameState, getEntityById } from "../state.js";
 import { queryWallsInAabb } from "../spatial/wall-index.js";
-import { isColliding } from "../utils.js";
+import { queryExposedWallCorners } from "../spatial/wall-feature-index.js";
+import { queryActorsInAabb } from "../spatial/entity-index.js";
 import { detonateBullet } from "./explosions.js";
-import { findChainTarget, getAngleToTarget } from "./targeting.js";
+import {
+	circleIntersectsRenderedShape,
+	hasProjectileRadiusClearance,
+} from "./collision.js";
+import { isDamageableTarget } from "./team-relations.js";
+import { applyCombatDamage } from "./damage.js";
+import { runProjectileEffectOrder } from "./effect-order.js";
+import {
+	findChainTarget,
+	getAngleToTarget,
+	getTargetCenter,
+} from "./targeting.js";
 import { clampAngleToInterval } from "./visibility.js";
 import { getCombatDefault } from "./defaults.js";
 import { registerProjectile, releaseProjectile } from "./projectile-cap.js";
@@ -127,7 +139,12 @@ function pushProjectileTrailEvent(projectile, x = projectile.x, y = projectile.y
 }
 
 function redirectProjectileTowardTarget(projectile, target) {
-	const angle = getAngleToTarget(projectile.x, projectile.y, target);
+	const center = getTargetCenter(target);
+	redirectProjectileTowardPoint(projectile, center.x, center.y);
+}
+
+function redirectProjectileTowardPoint(projectile, targetX, targetY) {
+	const angle = Math.atan2(targetY - projectile.y, targetX - projectile.x);
 	const dirX = Math.cos(angle);
 	const dirY = Math.sin(angle);
 
@@ -142,6 +159,88 @@ function redirectProjectileTowardTarget(projectile, target) {
 	projectile.vy = dirY * speed;
 }
 
+function chooseChainWaypoint(projectile, target) {
+	const center = getTargetCenter(target);
+	const padding = Math.max(2, projectile.radius * 2);
+	const corners = queryExposedWallCorners(
+		Math.min(projectile.x, center.x) - padding,
+		Math.min(projectile.y, center.y) - padding,
+		Math.max(projectile.x, center.x) + padding,
+		Math.max(projectile.y, center.y) + padding,
+	);
+	let best = null;
+	let bestCost = Infinity;
+
+	for (const corner of corners) {
+		for (const quadrant of corner.freeQuadrants) {
+			const waypoint = {
+				x: corner.x + quadrant.x * projectile.radius,
+				y: corner.y + quadrant.y * projectile.radius,
+				cornerX: corner.x,
+				cornerY: corner.y,
+			};
+			if (!hasProjectileRadiusClearance(
+				projectile.x,
+				projectile.y,
+				waypoint.x,
+				waypoint.y,
+				projectile.radius,
+			)) continue;
+			if (!hasProjectileRadiusClearance(
+				waypoint.x,
+				waypoint.y,
+				center.x,
+				center.y,
+				projectile.radius,
+			)) continue;
+			const cost = Math.hypot(waypoint.x - projectile.x, waypoint.y - projectile.y) +
+				Math.hypot(center.x - waypoint.x, center.y - waypoint.y);
+			if (cost < bestCost) {
+				best = waypoint;
+				bestCost = cost;
+			}
+		}
+	}
+	return best;
+}
+
+function steerChainProjectile(projectile, target) {
+	const center = getTargetCenter(target);
+	if (hasProjectileRadiusClearance(
+		projectile.x,
+		projectile.y,
+		center.x,
+		center.y,
+		projectile.radius,
+	)) {
+		projectile.chainWaypoint = null;
+		redirectProjectileTowardTarget(projectile, target);
+		return true;
+	}
+
+	let waypoint = projectile.chainWaypoint;
+	const reachedWaypoint = waypoint &&
+		Math.hypot(waypoint.x - projectile.x, waypoint.y - projectile.y) <=
+			Math.max(1e-6, projectile.radius * 0.25);
+	if (
+		!waypoint ||
+		reachedWaypoint ||
+		!hasProjectileRadiusClearance(
+			projectile.x,
+			projectile.y,
+			waypoint.x,
+			waypoint.y,
+			projectile.radius,
+		)
+	) {
+		waypoint = chooseChainWaypoint(projectile, target);
+		projectile.chainWaypoint = waypoint;
+	}
+	if (!waypoint) return false;
+	redirectProjectileTowardPoint(projectile, waypoint.x, waypoint.y);
+	return true;
+}
+
 function isActiveProjectileChainTarget(projectile, target) {
 	if (
 		!target ||
@@ -151,9 +250,10 @@ function isActiveProjectileChainTarget(projectile, target) {
 		return false;
 	}
 
-	return projectile.team === TEAM_PLAYER
-		? GameState.enemies.includes(target)
-		: target === player;
+	return (
+		isDamageableTarget(projectile.team, target) &&
+		getEntityById(target.id) === target
+	);
 }
 
 // Active chain projectiles greedily home along the direct current line to their
@@ -167,7 +267,7 @@ export function updateProjectileChainAim(projectile) {
 
 	projectile.chainVisitedTargets ??= new Set();
 	if (isActiveProjectileChainTarget(projectile, projectile.chainTarget)) {
-		redirectProjectileTowardTarget(projectile, projectile.chainTarget);
+		steerChainProjectile(projectile, projectile.chainTarget);
 		return false;
 	}
 
@@ -179,44 +279,47 @@ export function updateProjectileChainAim(projectile) {
 
 	const referenceAngle = projectile.chainReferenceAngle ??
 		getProjectileDirectionAngle(projectile);
-	const target = projectile.team === TEAM_PLAYER
-		? findChainTarget(
+	const target = findChainTarget(
 			projectile.x,
 			projectile.y,
 			referenceAngle,
 			projectile.chainVisitedTargets,
 			isPostHitRedirect ? "distance" : "angle",
-		)
-		: player.hp > 0 && !projectile.chainVisitedTargets.has(player)
-			? player
-			: null;
+			projectile.radius,
+			projectile.team,
+		);
 
 	if (!target) return false;
 
 	projectile.chainTarget = target;
 	if (isPostHitRedirect) projectile.chainsRemaining--;
-	redirectProjectileTowardTarget(projectile, target);
+	steerChainProjectile(projectile, target);
 	return isPostHitRedirect;
 }
 
+function triggerImpactPayloadEffects(projectile, currentTime) {
+	runProjectileEffectOrder({
+		explosion: projectile.detonatesOnImpact
+			? () => detonateBullet(projectile, currentTime)
+			: null,
+		split: projectile.splitsOnImpact
+			? () => fireSplitChildren(
+				projectile,
+				getProjectileDirectionAngle(projectile),
+				currentTime,
+			)
+			: null,
+	});
+}
+
 function triggerChainRedirectEffects(projectile, currentTime) {
-	if (projectile.detonatesOnImpact) {
-		detonateBullet(projectile, currentTime);
-	}
-	if (projectile.splitsOnImpact) {
-		fireSplitChildren(
-			projectile,
-			getProjectileDirectionAngle(projectile),
-			currentTime,
-		);
-	}
+	triggerImpactPayloadEffects(projectile, currentTime);
 }
 
 // Creates one projectile or a whole configured volley from the shooter's center.
 // Ownership identifies one entity's FIFO queue; team independently controls
 // targeting and damage. Both are copied directly to every split descendant.
 export function shoot(shooter, targetX, targetY, stats, options = {}) {
-	if (GameState.isPlayerDead) return;
 	stats = resolveProjectileDefinition(Config.BASE_PROJECTILE, stats);
 	const ownerId = options.ownerId ?? shooter.id;
 	const team = options.team ?? shooter.team;
@@ -264,12 +367,23 @@ export function shoot(shooter, targetX, targetY, stats, options = {}) {
 			Number(stats.throwDeceleration) || 0,
 		)
 		: 0;
-	const createdAt = performance.now();
+	const createdAt = Number.isFinite(Number(options.currentTime))
+		? Number(options.currentTime)
+		: GameState.simulationTimeMs;
 	const chain = Math.max(0, Math.floor(Number(stats.chain) || 0));
 	const initialChainTarget = chain > 0
-		? team === TEAM_PLAYER
-			? findChainTarget(centerX, centerY, baseAngle)
-			: player.hp > 0 ? player : null
+		? findChainTarget(
+				centerX,
+				centerY,
+				baseAngle,
+				new Set(),
+				"angle",
+				Math.max(
+					0,
+					Number(stats.radiusBlocks) + Number(stats.radiusVariation || 0),
+				),
+				team,
+			)
 		: null;
 	const chainedLaunchAngle = initialChainTarget
 		? getAngleToTarget(centerX, centerY, initialChainTarget)
@@ -516,15 +630,19 @@ function isBouncyProjectile(bullet) {
 }
 
 function triggerSuccessfulBounceEffects(bullet, currentTime) {
-	if (
-		bullet.detonatesOnImpact === true &&
-		(bullet.explosionRadiusBlocks ?? 0) > 0
-	) {
-		detonateBullet(bullet, currentTime);
-	}
-	if (bullet.splitsOnImpact === true) {
-		fireSplitChildren(bullet, getProjectileDirectionAngle(bullet), currentTime);
-	}
+	runProjectileEffectOrder({
+		chain: () => updateProjectileChainAim(bullet),
+		explosion: bullet.detonatesOnImpact === true
+			? () => detonateBullet(bullet, currentTime)
+			: null,
+		split: bullet.splitsOnImpact === true
+			? () => fireSplitChildren(
+				bullet,
+				getProjectileDirectionAngle(bullet),
+				currentTime,
+			)
+			: null,
+	});
 }
 
 function projectileRect(bullet) {
@@ -846,8 +964,6 @@ export function processProjectiles(currentTime, dt) {
 	const projectiles = GameState.projectiles;
 	for (let i = projectiles.length - 1; i >= 0; i--) {
 		const b = projectiles[i];
-		const isPlayerProjectile = b.team === TEAM_PLAYER;
-		const targets = isPlayerProjectile ? GameState.enemies : [player];
 
 		if (b.removedByProjectileCap) {
 			releaseProjectile(b);
@@ -869,23 +985,6 @@ export function processProjectiles(currentTime, dt) {
 			beginTrailEventPath();
 			pushProjectileTrailEvent(b);
 		};
-
-		const explosionTimerExpired = b.detonationTimeMs > 0 &&
-			currentTime - b.createdAt >= b.detonationTimeMs;
-		const splitTimerExpired = b.splitTimeMs > 0 &&
-			currentTime - b.createdAt >= b.splitTimeMs;
-		if (explosionTimerExpired || splitTimerExpired) {
-			recordTrailCheckpoint();
-			if (explosionTimerExpired) {
-				detonateBullet(b, currentTime);
-			}
-			if (splitTimerExpired) {
-				fireSplitChildren(b, getProjectileDirectionAngle(b), currentTime);
-			}
-			releaseProjectile(b);
-			projectiles.splice(i, 1);
-			continue;
-		}
 
 		if (updateProjectileChainAim(b)) {
 			triggerChainRedirectEffects(b, currentTime);
@@ -957,7 +1056,6 @@ export function processProjectiles(currentTime, dt) {
 		let removeBullet = false;
 		let detonateOnRemoval = false;
 		let splitOnRemoval = false;
-		let terminalWallAngle = null;
 
 		for (let step = 0; step < steps; step++) {
 			const intendedStepDistance = b.throwable
@@ -1028,13 +1126,10 @@ export function processProjectiles(currentTime, dt) {
 
 					const canBounce = b.throwable || b.bounces < b.maxBounces;
 					if (!canBounce) {
+						updateProjectileChainAim(b);
 						removeBullet = true;
 						detonateOnRemoval = b.detonatesOnImpact;
 						splitOnRemoval = b.splitsOnImpact;
-						terminalWallAngle = Math.atan2(
-							wallHit.normalY,
-							wallHit.normalX,
-						);
 						break;
 					}
 
@@ -1071,15 +1166,11 @@ export function processProjectiles(currentTime, dt) {
 						break;
 					}
 
-					const remainingFraction = Math.max(0, 1 - wallHit.time);
-					const reflectedRemainder = reflectVector(
-						moveX * remainingFraction,
-						moveY * remainingFraction,
-						wallHit.normalX,
-						wallHit.normalY,
-					);
-					moveX = reflectedRemainder.x;
-					moveY = reflectedRemainder.y;
+					const remainingDistance = Math.hypot(moveX, moveY) *
+						Math.max(0, 1 - wallHit.time);
+					const outgoingAngle = getProjectileDirectionAngle(b);
+					moveX = Math.cos(outgoingAngle) * remainingDistance;
+					moveY = Math.sin(outgoingAngle) * remainingDistance;
 
 					// Move an imperceptible distance onto the clear side of the contact
 					// manifold so floating-point tangency cannot immediately report t=0 on
@@ -1108,15 +1199,32 @@ export function processProjectiles(currentTime, dt) {
 			// marked visited so the projectile can never chain back through an earlier
 			// target.
 			let chainTriggeredThisStep = false;
+			const targets = queryActorsInAabb(
+				b.x - b.radius,
+				b.y - b.radius,
+				b.x + b.radius,
+				b.y + b.radius,
+			).filter((target) => isDamageableTarget(b.team, target));
+
+			for (const previousTarget of b.hitTargets) {
+				if (!circleIntersectsRenderedShape(
+					b.x,
+					b.y,
+					b.radius,
+					previousTarget,
+				)) {
+					b.hitTargets.delete(previousTarget);
+				}
+			}
 
 			for (const t of targets) {
-				const isTargetCollision = isColliding(mockRect, t);
+				const isTargetCollision =
+					isDamageableTarget(b.team, t) &&
+					circleIntersectsRenderedShape(b.x, b.y, b.radius, t);
 
 				if (isTargetCollision) {
 					if (!b.hitTargets.has(t)) {
-						if (isPlayerProjectile || !GameState.isInvincible) {
-							t.hp -= b.damage ?? 1;
-						}
+						applyCombatDamage(b.team, t, b.damage ?? 1);
 						b.hitTargets.add(t);
 
 						if ((b.chain ?? 0) > 0) {
@@ -1132,8 +1240,6 @@ export function processProjectiles(currentTime, dt) {
 							}
 						}
 					}
-				} else {
-					b.hitTargets.delete(t);
 				}
 			}
 		}
@@ -1145,18 +1251,22 @@ export function processProjectiles(currentTime, dt) {
 		}
 
 		if (removeBullet) {
-			if (detonateOnRemoval) {
-				detonateBullet(b, currentTime);
-			}
-			if (splitOnRemoval) {
-				fireSplitChildren(
-					b,
-					terminalWallAngle ?? getProjectileDirectionAngle(b),
-					currentTime,
-				);
-			}
-			releaseProjectile(b);
-			projectiles.splice(i, 1);
+			runProjectileEffectOrder({
+				explosion: detonateOnRemoval
+					? () => detonateBullet(b, currentTime)
+					: null,
+				split: splitOnRemoval
+					? () => fireSplitChildren(
+						b,
+						getProjectileDirectionAngle(b),
+						currentTime,
+					)
+					: null,
+				"terminal-impact": () => {
+					releaseProjectile(b);
+					projectiles.splice(i, 1);
+				},
+			});
 			continue;
 		}
 
@@ -1223,7 +1333,33 @@ export function processProjectiles(currentTime, dt) {
 			}
 		}
 
-		if (currentTime - b.createdAt > b.lifetimeMs) {
+		const explosionTimerExpired = b.detonationTimeMs > 0 &&
+			currentTime - b.createdAt >= b.detonationTimeMs;
+		const splitTimerExpired = b.splitTimeMs > 0 &&
+			currentTime - b.createdAt >= b.splitTimeMs;
+		if (explosionTimerExpired || splitTimerExpired) {
+			recordTrailCheckpoint();
+			runProjectileEffectOrder({
+				explosion: explosionTimerExpired
+					? () => detonateBullet(b, currentTime)
+					: null,
+				split: splitTimerExpired
+					? () => fireSplitChildren(
+						b,
+						getProjectileDirectionAngle(b),
+						currentTime,
+					)
+					: null,
+				"terminal-impact": () => {
+					releaseProjectile(b);
+					projectiles.splice(i, 1);
+				},
+			});
+			continue;
+		}
+
+		// Collision and all due projectile effects resolve before exact expiry.
+		if (currentTime - b.createdAt >= b.lifetimeMs) {
 			recordTrailCheckpoint();
 			releaseProjectile(b);
 			projectiles.splice(i, 1);

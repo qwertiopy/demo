@@ -6,12 +6,14 @@ import {
 	player,
 	camera,
 	markEnvironmentChanged,
+	markGeometryChanged,
 	resetEntityIds,
+	resetEntityRegistry,
 } from "./state.js";
 import { markWallIndexDirty } from "./spatial/wall-index.js";
 import { canvas, debugUI, respawnBtn } from "./dom.js";
 import { readLaunchOptions } from "./launch-options.js";
-import { resolveLevelRuntimeSettings } from "./level.js";
+import { prepareLoadedLevel } from "./level.js";
 import { prepareLevelForGameMode } from "./game-modes.js";
 import {
 	getMinimumStructureOriginXExclusive,
@@ -19,9 +21,13 @@ import {
 } from "./procgen.js";
 import {
 	normalizeVariationLuckUpgrade,
-	requestLaserShot,
-	shoot,
 } from "./combat.js";
+import { executeWeaponFire } from "./combat/weapon-executor.js";
+import { resetWeaponCooldowns } from "./combat/weapon-cooldowns.js";
+import {
+	clearActorIndex,
+	rebuildActorIndex,
+} from "./spatial/entity-index.js";
 import { clampProjectileCount, resetProjectileCaps } from "./combat/projectile-cap.js";
 import {
 	getActionsForInput,
@@ -34,7 +40,11 @@ import {
 	getActiveWeaponStats,
 	selectWeapon,
 } from "./weapons.js";
-import { isReplayPlaybackActive } from "./replay.js";
+import {
+	clearTrailHistory,
+	isReplayPlaybackActive,
+	markReplaySegment,
+} from "./replay.js";
 
 const UI_MODES = ["none", "debug"];
 
@@ -147,67 +157,87 @@ export function updateProgressiveEnemySpawnRate(playerX = player.x) {
 // level or explicit walls/spawns. The main menu supplies the initial definition;
 // respawns reuse the same active definition without depending on game-page DOM.
 export function loadLevel(levelDefinition = null) {
+	let prepared;
+	let nextActiveLevel;
+	let committedValues;
 	try {
-		if (levelDefinition !== null) {
-			activeLevelDefinition = cloneLevelDefinition(levelDefinition);
-		}
-
-		if (activeLevelDefinition === null) {
-			activeLevelDefinition = cloneLevelDefinition(readLaunchOptions().level);
-		}
-
-		const data = cloneLevelDefinition(activeLevelDefinition);
-		const runtimeSettings = resolveLevelRuntimeSettings(data, Config);
-
-		const playerDefinition = data.player || {
-			spawn: data.playerSpawn,
+		nextActiveLevel = cloneLevelDefinition(
+			levelDefinition !== null
+				? levelDefinition
+				: activeLevelDefinition ?? readLaunchOptions().level,
+		);
+		prepared = prepareLoadedLevel(nextActiveLevel, Config);
+		const { data, runtimeSettings, playerDefinition } = prepared;
+		const proceduralLevel = prepared.procedural;
+		committedValues = {
+			playerSpawn: proceduralLevel
+				? getProceduralPlayerSpawn(runtimeSettings, player.size)
+				: playerDefinition.spawn,
+			maximumProjectileCount: clampProjectileCount(
+				playerDefinition.maximumProjectileCount,
+				"level.player.maximumProjectileCount",
+			),
+			variationLuck: normalizeVariationLuckUpgrade(
+				playerDefinition.upgrades?.variationLuck,
+			),
+			configuredSpawnRate: readEnemySpawnRate(
+				data.enemySpawnRate,
+				proceduralLevel ? 0.5 : 0,
+			),
+			minimumStructureOriginXExclusive:
+				getMinimumStructureOriginXExclusive(Config.STRUCTURE_LIBRARY),
 		};
-		const proceduralLevel = data.seed !== undefined;
+	} catch (error) {
+		console.error("Could not validate level definition:", error);
+		alert("Could not load the selected level. Return to the main menu and check Level Setup.");
+		throw error;
+	}
+
+	try {
+		const { data, runtimeSettings } = prepared;
+		const proceduralLevel = prepared.procedural;
+		activeLevelDefinition = cloneLevelDefinition(data);
+		GameState.isProceduralLevel = proceduralLevel;
 		if (proceduralLevel) {
 			GameState.levelSeed = data.seed;
 			GameState.currentSeed = data.seed;
 		}
 
-		const playerSpawn = proceduralLevel
-			? getProceduralPlayerSpawn(runtimeSettings, player.size)
-			: playerDefinition.spawn;
-		if (playerSpawn) {
-			player.x = playerSpawn.x;
-			player.y = playerSpawn.y;
-			player.hp = player.maxHp;
-			player.vx = 0;
-			player.vy = 0;
-		}
-		player.maximumProjectileCount = clampProjectileCount(
-			playerDefinition.maximumProjectileCount,
-			"level.player.maximumProjectileCount",
-		);
-		player.upgrades.variationLuck = normalizeVariationLuckUpgrade(
-			playerDefinition.upgrades?.variationLuck,
-		);
+		const playerSpawn = committedValues.playerSpawn;
+		player.x = playerSpawn.x;
+		player.y = playerSpawn.y;
+		player.hp = player.maxHp;
+		player.active = true;
+		player.vx = 0;
+		player.vy = 0;
+		player.maximumProjectileCount = committedValues.maximumProjectileCount;
+		player.upgrades.variationLuck = committedValues.variationLuck;
 
 		GameState.projectiles.length = 0;
 		GameState.explosions.length = 0;
 		GameState.laserWarmups.length = 0;
 		GameState.laserBeams.length = 0;
-		GameState.weaponCooldownUntilByWeapon.length = 0;
+		resetWeaponCooldowns();
 		resetProjectileCaps();
 		GameState.enemies.length = 0;
+		clearActorIndex();
 		resetEntityIds();
+		resetEntityRegistry();
 		GameState.walls.length = 0;
 		GameState.enemySpawns.length = 0;
 		GameState.generatedColumns.clear();
 		GameState.placedStructures.length = 0;
-		GameState.lastSpawnTime = performance.now();
 		GameState.isPlayerDead = false;
+		GameState.projectileTrailEvents.length = 0;
+		clearTrailHistory();
 
-		const configuredSpawnRate = readEnemySpawnRate(
-			data.enemySpawnRate,
-			proceduralLevel ? 0.5 : 0,
-		);
+		const configuredSpawnRate = committedValues.configuredSpawnRate;
 
 		GameState.enemySpawnBaseRate = configuredSpawnRate;
 		GameState.enemySpawnRate = configuredSpawnRate;
+		GameState.nextEnemySpawnAt = configuredSpawnRate > 0
+			? GameState.simulationTimeMs + 1000 / configuredSpawnRate
+			: Infinity;
 		GameState.enemySpawnProgressOriginX = player.x;
 		GameState.enemySpawnProgressBlocks = 0;
 		GameState.enemySpawnRateProgressionEnabled = proceduralLevel;
@@ -224,7 +254,7 @@ export function loadLevel(levelDefinition = null) {
 		GameState.structureSpawnChance = runtimeSettings.structureSpawnChance;
 		GameState.structureDensityBlocks = runtimeSettings.structureDensityBlocks;
 		GameState.minimumStructureOriginXExclusive =
-			getMinimumStructureOriginXExclusive(Config.STRUCTURE_LIBRARY);
+			committedValues.minimumStructureOriginXExclusive;
 		GameState.isInvincible = runtimeSettings.invincibility;
 
 		if (!proceduralLevel) {
@@ -233,11 +263,14 @@ export function loadLevel(levelDefinition = null) {
 		}
 
 		markWallIndexDirty();
-		markEnvironmentChanged();
+		markGeometryChanged();
+		rebuildActorIndex([player]);
 		window.focus();
+		return true;
 	} catch (error) {
 		console.error("Could not load level definition:", error);
 		alert("Could not load the selected level. Return to the main menu and check Level Setup.");
+		throw error;
 	}
 }
 
@@ -256,6 +289,12 @@ export function respawnGame() {
 			previousSeed: GameState.levelSeed,
 		},
 	);
+	markReplaySegment({
+		type: "respawn",
+		atMs: GameState.simulationTimeMs,
+		previousSeed: GameState.levelSeed,
+		nextSeed: nextLevelDefinition.seed ?? null,
+	});
 	loadLevel(nextLevelDefinition);
 }
 
@@ -301,12 +340,14 @@ function updateAimFromMouseEvent(event) {
 	refreshAimFromMousePosition();
 }
 
-export function fireActiveWeapon(currentTime = performance.now()) {
+export function fireActiveWeapon(currentTime = GameState.simulationTimeMs) {
 	if (isReplayPlaybackActive() || GameState.isPlayerDead || player.hp <= 0) {
 		return false;
 	}
 
-	const now = Number.isFinite(currentTime) ? currentTime : performance.now();
+	const now = Number.isFinite(currentTime)
+		? currentTime
+		: GameState.simulationTimeMs;
 	// Recalculate world aim from the last known screen-space mouse position every
 	// firing attempt. This keeps keyboard/autofire aim correct while the camera
 	// moves even when no mouse event fires.
@@ -314,38 +355,21 @@ export function fireActiveWeapon(currentTime = performance.now()) {
 	const stats = getActiveWeaponStats();
 	const weaponIndex = getActiveWeaponIndex();
 
-	if (stats.laser === true) {
-		return requestLaserShot(
-			player,
-			GameState.aimWorldX,
-			GameState.aimWorldY,
-			stats,
-			weaponIndex,
-			now,
-		);
-	}
-
-	const cooldownUntil = GameState.weaponCooldownUntilByWeapon[weaponIndex] || 0;
-	if (now < cooldownUntil) return false;
-
-	shoot(
-		player,
-		GameState.aimWorldX,
-		GameState.aimWorldY,
+	return executeWeaponFire({
+		shooter: player,
+		targetX: GameState.aimWorldX,
+		targetY: GameState.aimWorldY,
 		stats,
-	);
-
-	GameState.weaponCooldownUntilByWeapon[weaponIndex] =
-		now + Math.max(0, Number(stats.cooldownMs ?? 0) || 0);
-
-	return true;
+		weaponSlot: weaponIndex,
+		currentTime: now,
+	});
 }
 
 // Continuous-fire action. Unlike the one-shot Shoot action, Auto Fire is
 // evaluated every simulation frame while any of its bindings are held. The
 // per-weapon cooldown gate in fireActiveWeapon() determines whether that frame
 // actually produces a shot.
-export function processAutofire(currentTime = performance.now()) {
+export function processAutofire(currentTime = GameState.simulationTimeMs) {
 	if (!isActionDown("autofire", GameState.pressedInputs)) return false;
 	return fireActiveWeapon(currentTime);
 }

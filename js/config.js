@@ -1,4 +1,8 @@
-import { validateBaseProjectile } from "./combat/projectile-schema.js";
+import {
+	resolveProjectileDefinition,
+	validateBaseProjectile,
+} from "./combat/projectile-schema.js";
+import { validateRenderedShapeDefinition } from "./combat/shapes.js";
 
 export const CONFIG_STORAGE_KEY = "demoGameConfig";
 
@@ -58,7 +62,10 @@ export function mergeConfig(base, override) {
 
     const result = { ...base };
 
-    for (const [key, value] of Object.entries(override)) {
+	for (const [key, value] of Object.entries(override)) {
+		if (["__proto__", "prototype", "constructor"].includes(key)) {
+			throw new Error(`Unsafe configuration field ${key} is not allowed.`);
+		}
         if (isPlainObject(value) && isPlainObject(base[key])) {
             result[key] = mergeConfig(base[key], value);
         } else {
@@ -67,6 +74,138 @@ export function mergeConfig(base, override) {
     }
 
     return result;
+}
+
+function rejectUnknownObjectKeys(value, template, path) {
+	if (!isPlainObject(value) || !isPlainObject(template)) return;
+	for (const key of Object.keys(value)) {
+		if (["__proto__", "prototype", "constructor"].includes(key)) {
+			throw new Error(`${path}.${key} is unsafe.`);
+		}
+		if (!(key in template)) {
+			throw new Error(`${path}.${key} is not recognised by this schema.`);
+		}
+	}
+}
+
+function requireFinite(path, value, minimum = -Infinity) {
+	const numeric = Number(value);
+	if (!Number.isFinite(numeric) || numeric < minimum) {
+		throw new Error(`${path} must be a finite number >= ${minimum}.`);
+	}
+	return numeric;
+}
+
+const ENEMY_FIELDS = new Set([
+	"sizeBlocks",
+	"speed",
+	"hp",
+	"color",
+	"shape",
+	"ai",
+	"maximumProjectileCount",
+	"weapons",
+	"upgrades",
+	"predictionVariationThreshold",
+	"predictionVariation",
+	"wallVelocityChangeThreshold",
+	"wallGapSafetyFactor",
+	"wallMaxDurationMs",
+]);
+
+function validateStructureLibrary(structures) {
+	for (const [index, structure] of structures.entries()) {
+		if (!isPlainObject(structure)) {
+			throw new Error(`config.STRUCTURE_LIBRARY[${index}] must be an object.`);
+		}
+		rejectUnknownObjectKeys(
+			structure,
+			{ type: true, widthBlocks: true, heightBlocks: true, color: true, grid: true },
+			`config.STRUCTURE_LIBRARY[${index}]`,
+		);
+		requireFinite(`config.STRUCTURE_LIBRARY[${index}].widthBlocks`, structure.widthBlocks, 1);
+		requireFinite(`config.STRUCTURE_LIBRARY[${index}].heightBlocks`, structure.heightBlocks, 1);
+		if (!Array.isArray(structure.grid) || structure.grid.length === 0) {
+			throw new Error(`config.STRUCTURE_LIBRARY[${index}].grid must be a non-empty array.`);
+		}
+		for (const [rowIndex, row] of structure.grid.entries()) {
+			if (!Array.isArray(row) || row.length === 0) {
+				throw new Error(`config.STRUCTURE_LIBRARY[${index}].grid[${rowIndex}] is invalid.`);
+			}
+			for (const cell of row) requireFinite(
+				`config.STRUCTURE_LIBRARY[${index}].grid[${rowIndex}] cell`,
+				cell,
+				0,
+			);
+		}
+	}
+}
+
+export function validateCompleteConfig(config, template = config) {
+	if (!isPlainObject(config)) throw new Error("Configuration must be one object.");
+	rejectUnknownObjectKeys(config, template, "config");
+	rejectUnknownObjectKeys(config.RENDERING, template.RENDERING, "config.RENDERING");
+	rejectUnknownObjectKeys(config.DEBUG, template.DEBUG, "config.DEBUG");
+	requireFinite("config.PLAYER_SPEED", config.PLAYER_SPEED, 0);
+	if (config.PLAYER_SIZE_BLOCKS !== undefined) {
+		requireFinite("config.PLAYER_SIZE_BLOCKS", config.PLAYER_SIZE_BLOCKS, 0);
+	}
+	for (const [key, value] of Object.entries(config.RENDERING || {})) {
+		requireFinite(`config.RENDERING.${key}`, value, key === "ZOOM" ? 0.01 : 0);
+	}
+	for (const [key, value] of Object.entries(config.DEBUG || {})) {
+		if (key === "MAX_DRAWS_PER_FRAME") {
+			requireFinite(`config.DEBUG.${key}`, value, 0);
+		} else if (typeof value !== "boolean") {
+			throw new Error(`config.DEBUG.${key} must be true or false.`);
+		}
+	}
+	validateBaseProjectile(config.BASE_PROJECTILE);
+
+	if (!Array.isArray(config.WEAPONS)) throw new Error("config.WEAPONS must be an array.");
+	for (const [index, weapon] of config.WEAPONS.entries()) {
+		resolveProjectileDefinition(config.BASE_PROJECTILE, weapon);
+		if (!isPlainObject(weapon)) throw new Error(`config.WEAPONS[${index}] is invalid.`);
+	}
+
+	if (!isPlainObject(config.ENEMY_TYPES)) {
+		throw new Error("config.ENEMY_TYPES must be an object.");
+	}
+	for (const [typeName, enemy] of Object.entries(config.ENEMY_TYPES)) {
+		if (!isPlainObject(enemy) || !Array.isArray(enemy.weapons) || enemy.weapons.length === 0) {
+			throw new Error(`config.ENEMY_TYPES.${typeName}.weapons is required.`);
+		}
+		rejectUnknownObjectKeys(
+			enemy,
+			Object.fromEntries([...ENEMY_FIELDS].map((field) => [field, true])),
+			`config.ENEMY_TYPES.${typeName}`,
+		);
+		for (const field of [
+			"sizeBlocks", "speed", "hp", "maximumProjectileCount",
+			"predictionVariationThreshold", "predictionVariation",
+			"wallVelocityChangeThreshold", "wallGapSafetyFactor",
+			"wallMaxDurationMs",
+		]) {
+			if (enemy[field] !== undefined) {
+				requireFinite(`config.ENEMY_TYPES.${typeName}.${field}`, enemy[field], 0);
+			}
+		}
+		if (typeof enemy.color !== "string" || typeof enemy.ai !== "string") {
+			throw new Error(`config.ENEMY_TYPES.${typeName} color and ai must be strings.`);
+		}
+		for (const weapon of enemy.weapons) {
+			resolveProjectileDefinition(config.BASE_PROJECTILE, weapon);
+		}
+		validateRenderedShapeDefinition(
+			enemy.shape,
+			`config.ENEMY_TYPES.${typeName}.shape`,
+		);
+	}
+	if (!Array.isArray(config.STRUCTURE_LIBRARY)) {
+		throw new Error("config.STRUCTURE_LIBRARY must be an array.");
+	}
+	validateStructureLibrary(config.STRUCTURE_LIBRARY);
+	return config;
 }
 
 function cloneConfig(value) {
@@ -457,7 +596,7 @@ function migrateConfig(defaultConfig, savedConfig) {
 
 export function loadLocalConfig(defaultConfig) {
     try {
-        validateBaseProjectile(defaultConfig.BASE_PROJECTILE);
+		validateCompleteConfig(defaultConfig, defaultConfig);
         const savedJson = localStorage.getItem(CONFIG_STORAGE_KEY);
 
         if (!savedJson) {
@@ -481,7 +620,7 @@ export function loadLocalConfig(defaultConfig) {
                 validateBaseProjectile(savedConfig.BASE_PROJECTILE);
             }
             const migratedConfig = migrateConfig(defaultConfig, savedConfig);
-            validateBaseProjectile(migratedConfig.BASE_PROJECTILE);
+			validateCompleteConfig(migratedConfig, defaultConfig);
 
             localStorage.setItem(
                 CONFIG_STORAGE_KEY,
@@ -493,7 +632,7 @@ export function loadLocalConfig(defaultConfig) {
 
         validateBaseProjectile(savedConfig.BASE_PROJECTILE);
         const merged = mergeConfig(defaultConfig, savedConfig);
-        validateBaseProjectile(merged.BASE_PROJECTILE);
+		validateCompleteConfig(merged, defaultConfig);
         return merged;
     } catch (error) {
         console.warn(

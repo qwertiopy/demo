@@ -4,8 +4,24 @@ import { Config } from "./config.js";
 import { GameState } from "./state.js";
 import { resolveProjectileDefinition } from "./combat/projectile-schema.js";
 
+let compiledBase = null;
+let compiledSource = null;
+let compiledWeapons = [];
+
+function getCompiledWeapons() {
+	if (compiledBase !== Config.BASE_PROJECTILE || compiledSource !== Config.WEAPONS) {
+		compiledBase = Config.BASE_PROJECTILE;
+		compiledSource = Config.WEAPONS;
+		compiledWeapons = Array.isArray(Config.WEAPONS)
+			? Config.WEAPONS.map((weapon) =>
+				resolveProjectileDefinition(Config.BASE_PROJECTILE, weapon),
+			)
+			: [];
+	}
+	return compiledWeapons;
+}
 export function getWeaponCount() {
-    return Array.isArray(Config.WEAPONS) ? Config.WEAPONS.length : 0;
+	return getCompiledWeapons().length;
 }
 
 export function selectWeapon(index) {
@@ -32,8 +48,8 @@ export function getActiveWeaponIndex() {
 
 export function getActiveWeaponStats() {
     const index = getActiveWeaponIndex();
-    const configured = Config.WEAPONS?.[index] || {};
-    return resolveProjectileDefinition(Config.BASE_PROJECTILE, configured);
+	return getCompiledWeapons()[index] ??
+		resolveProjectileDefinition(Config.BASE_PROJECTILE, {});
 }
 
 export function getActiveWeaponLabel() {

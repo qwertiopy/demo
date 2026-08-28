@@ -16,7 +16,7 @@ export const GameState = {
 	explosions: [],
 	laserWarmups: [],
 	laserBeams: [],
-	weaponCooldownUntilByWeapon: [],
+	weaponCooldownUntilByOwner: new Map(),
 	enemies: [],
 	walls: [],
 	enemySpawns: [],
@@ -29,7 +29,7 @@ export const GameState = {
 	enemySpawnRateIncreaseIntervalBlocks: 100,
 	minimumEnemySpawnDistanceBlocks: 25,
 	maximumEnemySpawnDistanceBlocks: 35,
-	lastSpawnTime: 0,
+	nextEnemySpawnAt: Infinity,
 	generatedColumns: new Set(),
 	placedStructures: [],
 	corridorCeilingYBlocks: 0,
@@ -39,6 +39,9 @@ export const GameState = {
 	minimumStructureOriginXExclusive: 2,
 	levelSeed: 12345,
 	currentSeed: 12345,
+	isProceduralLevel: false,
+	simulationTimeMs: 0,
+	simulationTick: 0,
 	uiMode: "none",
 	gameModeId: "sandbox",
 	configSource: "session",
@@ -46,6 +49,8 @@ export const GameState = {
 	defaultsSource: "session",
 	showEditorHelpers: false,
 	environmentRevision: 0,
+	geometryRevision: 0,
+	entitiesById: new Map(),
 	isInvincible: false,
 	MaxDistance: -1,
 	isPlayerDead: false,
@@ -77,6 +82,40 @@ export function markEnvironmentChanged() {
 	return GameState.environmentRevision;
 }
 
+export function markGeometryChanged() {
+	GameState.geometryRevision += 1;
+	markEnvironmentChanged();
+	return GameState.geometryRevision;
+}
+
+export function registerEntity(entity) {
+	if (!entity || !Number.isSafeInteger(entity.id) || entity.id <= 0) {
+		throw new Error("Registered entities require a positive integer id.");
+	}
+	entity.active = entity.active !== false;
+	GameState.entitiesById.set(entity.id, entity);
+	return entity;
+}
+
+export function unregisterEntity(entity) {
+	if (!entity) return false;
+	entity.active = false;
+	return GameState.entitiesById.delete(entity.id);
+}
+
+export function getEntityById(id) {
+	return GameState.entitiesById.get(id) ?? null;
+}
+
+export function getRegisteredEntities() {
+	return [...GameState.entitiesById.values()];
+}
+
+export function resetEntityRegistry() {
+	GameState.entitiesById.clear();
+	registerEntity(player);
+}
+
 // Mutable player entity containing position, movement properties, appearance, and health.
 export const player = {
 	id: PLAYER_ENTITY_ID,
@@ -95,6 +134,8 @@ export const player = {
 	vy: 0,
 	maximumProjectileCount: 50,
 };
+
+registerEntity(player);
 
 // Mutable camera state expressed in world blocks; the render system follows the player by updating these coordinates.
 export const camera = { x: 0, y: 0, widthBlocks: 30, heightBlocks: 16.875 };

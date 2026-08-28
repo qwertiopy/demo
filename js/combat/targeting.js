@@ -1,13 +1,26 @@
 // Shared target acquisition helpers for chained projectiles and singular lasers.
 
-import { GameState } from "../state.js";
-import { hasLineOfSight } from "./collision.js";
+import {
+	getRegisteredEntities,
+	TEAM_PLAYER,
+} from "../state.js";
+import {
+	hasLineOfSight,
+	hasProjectileRadiusClearance,
+} from "./collision.js";
 import { shortestAngleDelta } from "./weapon-utils.js";
+import { isDamageableTarget } from "./team-relations.js";
 
 const AIM_EPSILON = 1e-10;
 
 function clampUnit(value) {
 	return Math.max(-1, Math.min(1, value));
+}
+
+export function shouldUseDirectPointAim(targetMaximumSpeed, projectileSpeed) {
+	const targetSpeed = Math.max(0, Number(targetMaximumSpeed) || 0);
+	const bulletSpeed = Math.max(0, Number(projectileSpeed) || 0);
+	return bulletSpeed <= targetSpeed + AIM_EPSILON;
 }
 
 // Maximum constant-velocity intercept offset either side of direct line of
@@ -183,16 +196,18 @@ export function findChainTarget(
 	referenceAngle,
 	excludedTargets = new Set(),
 	priority = "angle",
+	clearanceRadius = 0,
+	sourceTeam = TEAM_PLAYER,
 ) {
 	let bestTarget = null;
 	let bestAngleDelta = Infinity;
 	let bestDistance = Infinity;
 	const tieEpsilon = 1e-9;
 
-	for (const target of GameState.enemies) {
+	for (const target of getRegisteredEntities()) {
 		if (
 			!target ||
-			(Number(target.hp) || 0) <= 0 ||
+			!isDamageableTarget(sourceTeam, target) ||
 			excludedTargets.has(target)
 		) {
 			continue;
@@ -200,6 +215,18 @@ export function findChainTarget(
 
 		const center = getTargetCenter(target);
 		if (!hasLineOfSight(originX, originY, center.x, center.y)) continue;
+		if (
+			Number(clearanceRadius) > 0 &&
+			!hasProjectileRadiusClearance(
+				originX,
+				originY,
+				center.x,
+				center.y,
+				clearanceRadius,
+			)
+		) {
+			continue;
+		}
 
 		const dx = center.x - originX;
 		const dy = center.y - originY;

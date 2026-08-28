@@ -1,13 +1,28 @@
 // Singular laser beams plus continuous visibility-polygon laser cones.
 
 import { Config } from "../config.js";
-import { GameState, player, TEAM_PLAYER } from "../state.js";
+import {
+	GameState,
+	getEntityById,
+	getRegisteredEntities,
+} from "../state.js";
 import {
 	getWallIndexBounds,
 	queryWallsAlongRayDda,
 } from "../spatial/wall-index.js";
 import { detonateBullet } from "./explosions.js";
 import { getCombatDefault } from "./defaults.js";
+import { SoftOperationBudget } from "./operation-budget.js";
+import {
+	getWeaponCooldownUntil,
+	setWeaponCooldownUntil,
+} from "./weapon-cooldowns.js";
+import { isDamageableTarget } from "./team-relations.js";
+import { applyCombatDamage } from "./damage.js";
+import {
+	rayIntersectsRenderedShape,
+	renderedShapeIntersectsPolygon,
+} from "./shapes.js";
 import {
 	releaseLogicalProjectiles,
 	reserveLogicalProjectiles,
@@ -36,7 +51,7 @@ export { rayRectIntersection } from "./visibility.js";
 // to the edge of the currently loaded world, while a shared per-frame calculation
 // budget limits worst-case CPU work. One budget unit represents one potentially
 // expensive laser/world or laser/entity geometry check.
-let laserCalculationBudgetRemaining = 0;
+const laserCalculationBudget = new SoftOperationBudget();
 let laserLoadedWorldBoundsCached = false;
 let cachedLaserLoadedWorldBounds = null;
 
@@ -48,20 +63,24 @@ export function getLaserCalculationBudgetPerFrame() {
 }
 
 export function resetLaserCalculationBudget() {
-	laserCalculationBudgetRemaining = getLaserCalculationBudgetPerFrame();
+	laserCalculationBudget.reset(getLaserCalculationBudgetPerFrame());
 	laserLoadedWorldBoundsCached = false;
 	cachedLaserLoadedWorldBounds = null;
 }
 
 export function getLaserCalculationBudgetRemaining() {
-	return laserCalculationBudgetRemaining;
+	return laserCalculationBudget.remaining;
 }
 
+export function getLaserCalculationBudgetOverrun() {
+	return laserCalculationBudget.overrun;
+}
+
+export function getLaserCalculationBudgetSpent() {
+	return laserCalculationBudget.spent;
+}
 function consumeLaserCalculationBudget(units = 1) {
-	const cost = Math.max(1, Math.floor(Number(units) || 1));
-	if (laserCalculationBudgetRemaining < cost) return false;
-	laserCalculationBudgetRemaining -= cost;
-	return true;
+	return laserCalculationBudget.consume(units);
 }
 
 function getLaserLoadedWorldBounds() {
@@ -394,122 +413,6 @@ function buildLaserConeVisibilityPolygon(originX, originY, centerAngle, halfAngl
 	};
 }
 
-function pointInPolygon(pointX, pointY, polygon) {
-	let inside = false;
-
-	for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-		const a = polygon[i];
-		const b = polygon[j];
-		const crossesY = (a.y > pointY) !== (b.y > pointY);
-		if (!crossesY) continue;
-
-		const edgeX =
-			((b.x - a.x) * (pointY - a.y)) / (b.y - a.y) + a.x;
-		if (pointX < edgeX) inside = !inside;
-	}
-
-	return inside;
-}
-
-function pointInRect(point, rect) {
-	const width = rect.width ?? rect.size ?? 0;
-	const height = rect.height ?? rect.size ?? 0;
-	return (
-		point.x >= rect.x &&
-		point.x <= rect.x + width &&
-		point.y >= rect.y &&
-		point.y <= rect.y + height
-	);
-}
-
-function orientation(a, b, c) {
-	return (b.x - a.x) * (c.y - a.y) -
-		(b.y - a.y) * (c.x - a.x);
-}
-
-function pointOnSegment(a, b, point) {
-	const EPSILON = 1e-9;
-	return (
-		Math.abs(orientation(a, b, point)) <= EPSILON &&
-		point.x >= Math.min(a.x, b.x) - EPSILON &&
-		point.x <= Math.max(a.x, b.x) + EPSILON &&
-		point.y >= Math.min(a.y, b.y) - EPSILON &&
-		point.y <= Math.max(a.y, b.y) + EPSILON
-	);
-}
-
-function segmentsIntersectInclusive(a, b, c, d) {
-	const EPSILON = 1e-9;
-	const o1 = orientation(a, b, c);
-	const o2 = orientation(a, b, d);
-	const o3 = orientation(c, d, a);
-	const o4 = orientation(c, d, b);
-
-	if (
-		((o1 > EPSILON && o2 < -EPSILON) ||
-			(o1 < -EPSILON && o2 > EPSILON)) &&
-		((o3 > EPSILON && o4 < -EPSILON) ||
-			(o3 < -EPSILON && o4 > EPSILON))
-	) {
-		return true;
-	}
-
-	return (
-		pointOnSegment(a, b, c) ||
-		pointOnSegment(a, b, d) ||
-		pointOnSegment(c, d, a) ||
-		pointOnSegment(c, d, b)
-	);
-}
-
-function rectIntersectsPolygon(rect, polygon) {
-	if (!Array.isArray(polygon) || polygon.length < 3) return false;
-
-	const width = rect.width ?? rect.size ?? 0;
-	const height = rect.height ?? rect.size ?? 0;
-	const rectPoints = [
-		{ x: rect.x, y: rect.y },
-		{ x: rect.x + width, y: rect.y },
-		{ x: rect.x + width, y: rect.y + height },
-		{ x: rect.x, y: rect.y + height },
-	];
-
-	if (rectPoints.some((point) => pointInPolygon(point.x, point.y, polygon))) {
-		return true;
-	}
-
-	if (polygon.some((point) => pointInRect(point, rect))) {
-		return true;
-	}
-
-	const rectEdges = [
-		[rectPoints[0], rectPoints[1]],
-		[rectPoints[1], rectPoints[2]],
-		[rectPoints[2], rectPoints[3]],
-		[rectPoints[3], rectPoints[0]],
-	];
-
-	for (let i = 0; i < polygon.length; i++) {
-		const polygonEdgeStart = polygon[i];
-		const polygonEdgeEnd = polygon[(i + 1) % polygon.length];
-
-		for (const [rectEdgeStart, rectEdgeEnd] of rectEdges) {
-			if (
-				segmentsIntersectInclusive(
-					polygonEdgeStart,
-					polygonEdgeEnd,
-					rectEdgeStart,
-					rectEdgeEnd,
-				)
-			) {
-				return true;
-			}
-		}
-	}
-
-	return false;
-}
-
 function resolveLaserConeShot(shot, currentTime) {
 	const originX = shot.shooter.x + shot.shooter.size / 2;
 	const originY = shot.shooter.y + shot.shooter.size / 2;
@@ -520,19 +423,18 @@ function resolveLaserConeShot(shot, currentTime) {
 		shot.coneHalfAngle,
 	);
 
-	// If the shared frame budget is exhausted, fail conservatively rather than
-	// drawing or damaging through wall geometry we did not finish checking.
+	// A started cone is atomic. The soft budget callback always completes; the
+	// truncated guard remains part of the geometry API for non-atomic callers.
 	if (visibility.truncated || visibility.polygon.length < 3) return;
 
-	const isPlayerShot = shot.team === TEAM_PLAYER;
-	const targets = isPlayerShot ? GameState.enemies : [player];
+	const targets = getRegisteredEntities().filter(
+		(target) => isDamageableTarget(shot.team, target),
+	);
 	for (const target of targets) {
-		if (target.hp <= 0) continue;
+		if (!isDamageableTarget(shot.team, target)) continue;
 		if (!consumeLaserCalculationBudget()) break;
-		if (rectIntersectsPolygon(target, visibility.polygon)) {
-			if (isPlayerShot || !GameState.isInvincible) {
-				target.hp -= shot.stats.damage;
-			}
+		if (renderedShapeIntersectsPolygon(target, visibility.polygon)) {
+			applyCombatDamage(shot.team, target, shot.stats.damage);
 		}
 	}
 
@@ -585,13 +487,14 @@ function findNearestLaserTargetHit(
 			return { target: null, hit: null, truncated: true };
 		}
 
-		const hit = rayRectIntersection(
+		const hit = rayIntersectsRenderedShape(
 			originX,
 			originY,
 			dirX,
 			dirY,
 			target,
 			radius,
+			maxDistance,
 		);
 		if (!hit || hit.entryDistance > maxDistance + 1e-9) continue;
 
@@ -629,8 +532,9 @@ function resolveChainedLaserBeamShot(shot, currentTime) {
 		Math.floor(Number(shot.chainsRemaining ?? 0) || 0),
 	);
 	const hitTargets = new Set();
-	const isPlayerShot = shot.team === TEAM_PLAYER;
-	const targets = isPlayerShot ? GameState.enemies : [player];
+	const targets = getRegisteredEntities().filter(
+		(target) => isDamageableTarget(shot.team, target),
+	);
 	const RAY_EPSILON = 1e-6;
 	const MAX_SEGMENTS = Math.max(
 		1,
@@ -700,21 +604,21 @@ function resolveChainedLaserBeamShot(shot, currentTime) {
 
 		if (reachedTarget) {
 			const hitTarget = targetHit.target;
-			if (isPlayerShot || !GameState.isInvincible) {
-				hitTarget.hp -= stats.damage;
-			}
+			applyCombatDamage(shot.team, hitTarget, stats.damage);
 			hitTargets.add(hitTarget);
 
 			let nextTarget = null;
 			if (chainsRemaining > 0) {
 				chainsRemaining--;
-				nextTarget = isPlayerShot ? findChainTarget(
-					endX,
-					endY,
-					shot.chainReferenceAngle ?? Math.atan2(dirY, dirX),
-					hitTargets,
-					"distance",
-				) : null;
+				nextTarget = findChainTarget(
+						endX,
+						endY,
+						shot.chainReferenceAngle ?? Math.atan2(dirY, dirX),
+						hitTargets,
+						"distance",
+						radius,
+						shot.team,
+					);
 			}
 
 			if (nextTarget) {
@@ -815,8 +719,9 @@ function resolveLaserBeamShot(shot, currentTime) {
 	const maxBounces = Math.max(0, Math.floor(Number(stats.maxBounces ?? 0) || 0));
 	let bounces = 0;
 	const hitTargets = new Set();
-	const isPlayerShot = shot.team === TEAM_PLAYER;
-	const targets = isPlayerShot ? GameState.enemies : [player];
+	const targets = getRegisteredEntities().filter(
+		(target) => isDamageableTarget(shot.team, target),
+	);
 	const RAY_EPSILON = 1e-6;
 
 	while (true) {
@@ -844,22 +749,21 @@ function resolveLaserBeamShot(shot, currentTime) {
 		remainingPenetrationBlocks = wallStop.remainingPenetrationBlocks;
 
 		for (const target of targets) {
-			if (target.hp <= 0 || hitTargets.has(target)) continue;
+			if (!isDamageableTarget(shot.team, target) || hitTargets.has(target)) continue;
 			if (!consumeLaserCalculationBudget()) break;
 
-			const hit = rayRectIntersection(
+			const hit = rayIntersectsRenderedShape(
 				originX,
 				originY,
 				dirX,
 				dirY,
 				target,
 				radius,
+				beamDistance,
 			);
 
 			if (hit && hit.entryDistance <= beamDistance + 1e-9) {
-				if (isPlayerShot || !GameState.isInvincible) {
-					target.hp -= stats.damage;
-				}
+				applyCombatDamage(shot.team, target, stats.damage);
 				hitTargets.add(target);
 			}
 		}
@@ -975,7 +879,7 @@ function resolveLaserShot(shot, currentTime) {
 	}
 }
 
-// Starts a player laser shot. Aim direction is locked at trigger time. Warmup
+// Starts a laser shot for any registered owner. Aim direction is locked at trigger time. Warmup
 // is a delayed state transition, while the beam itself is resolved as hitscan.
 // Cooldown begins at the exact scheduled end of warmup (shot.fireAt), so the
 // short rendered firing flash overlaps cooldown instead of extending it.
@@ -985,7 +889,7 @@ export function requestLaserShot(
 	targetY,
 	stats,
 	weaponIndex,
-	currentTime = performance.now(),
+	currentTime = GameState.simulationTimeMs,
 	options = {},
 ) {
 	const ignoreCooldown = options.ignoreCooldown === true;
@@ -1007,10 +911,12 @@ export function requestLaserShot(
 	if (typeof team !== "string" || team.length === 0) {
 		throw new Error("Laser team must be a non-empty string.");
 	}
-	const cooldownUntil = GameState.weaponCooldownUntilByWeapon[index] || 0;
+	const cooldownUntil = getWeaponCooldownUntil(ownerId, index);
 
 	if (!ignoreCooldown && currentTime < cooldownUntil) return false;
-	if (!ignoreCooldown && GameState.laserWarmups.some((shot) => shot.weaponIndex === index)) {
+	if (!ignoreCooldown && GameState.laserWarmups.some(
+		(shot) => shot.ownerId === ownerId && shot.weaponIndex === index,
+	)) {
 		return false;
 	}
 
@@ -1041,9 +947,15 @@ export function requestLaserShot(
 		? Math.max(0, Math.floor(Number(variedStats.chain ?? 0) || 0))
 		: 0;
 	const initialChainTarget = chain > 0
-		? team === TEAM_PLAYER
-			? findChainTarget(centerX, centerY, baseAngle)
-			: player.hp > 0 ? player : null
+		? findChainTarget(
+				centerX,
+				centerY,
+				baseAngle,
+				new Set(),
+				"angle",
+				variedStats.radiusBlocks,
+				team,
+			)
 		: null;
 	const centerAngle = initialChainTarget
 		? getAngleToTarget(centerX, centerY, initialChainTarget)
@@ -1081,8 +993,11 @@ export function requestLaserShot(
 	if (warmupMs <= 0) {
 		resolveLaserShot(shot, currentTime);
 		if (!ignoreCooldown) {
-			GameState.weaponCooldownUntilByWeapon[index] =
-				currentTime + Math.max(0, Number(variedStats.cooldownMs) || 0);
+			setWeaponCooldownUntil(
+				ownerId,
+				index,
+				currentTime + Math.max(0, Number(variedStats.cooldownMs) || 0),
+			);
 		}
 		return true;
 	}
@@ -1121,12 +1036,8 @@ registerSplitLaserFirer(({
 export function processLasers(currentTime) {
 	for (let i = GameState.laserWarmups.length - 1; i >= 0; i--) {
 		const shot = GameState.laserWarmups[i];
-		if (
-			shot.ownerId !== player.id &&
-			!GameState.enemies.some(
-				(enemy) => enemy.id === shot.ownerId && enemy.hp > 0,
-			)
-		) {
+		const owner = getEntityById(shot.ownerId);
+		if (!owner || owner.active === false || owner.hp <= 0) {
 			GameState.laserWarmups.splice(i, 1);
 			continue;
 		}
@@ -1135,8 +1046,11 @@ export function processLasers(currentTime) {
 
 		resolveLaserShot(shot, currentTime);
 		if (!shot.ignoreCooldown) {
-			GameState.weaponCooldownUntilByWeapon[shot.weaponIndex] =
-				shot.fireAt + Math.max(0, Number(shot.stats.cooldownMs) || 0);
+			setWeaponCooldownUntil(
+				shot.ownerId,
+				shot.weaponIndex,
+				shot.fireAt + Math.max(0, Number(shot.stats.cooldownMs) || 0),
+			);
 		}
 		GameState.laserWarmups.splice(i, 1);
 	}

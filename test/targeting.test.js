@@ -6,6 +6,7 @@ import {
 	calculateInterceptAim,
 	calculateMaximumFleeInterceptDistance,
 	calculateMaximumLeadHalfAngle,
+	shouldUseDirectPointAim,
 } from "../js/combat/targeting.js";
 
 const closeTo = (actual, expected, epsilon = 1e-10) => {
@@ -23,6 +24,12 @@ test("maximum flee distance remains infinite without a guaranteed intercept", ()
 	assert.equal(calculateMaximumFleeInterceptDistance(10, 2, 2), Infinity);
 	assert.equal(calculateMaximumFleeInterceptDistance(10, 3, 2), Infinity);
 	assert.equal(calculateMaximumFleeInterceptDistance(10, 1, 2), 20);
+});
+
+test("slow and equal-speed projectiles use direct point aiming", () => {
+	assert.equal(shouldUseDirectPointAim(5, 4), true);
+	assert.equal(shouldUseDirectPointAim(5, 5), true);
+	assert.equal(shouldUseDirectPointAim(5, 5.001), false);
 });
 
 test("constant-velocity intercept selects the earliest positive solution", () => {

@@ -1,4 +1,9 @@
-import { CONFIG_STORAGE_KEY, isPlainObject, mergeConfig } from "./config.js";
+import {
+	CONFIG_STORAGE_KEY,
+	isPlainObject,
+	mergeConfig,
+	validateCompleteConfig,
+} from "./config.js";
 import { readJsonObjectFile } from "./json-file.js";
 import {
 	resolveProjectileDefinition,
@@ -710,6 +715,7 @@ async function importConfigFile() {
 		validateBaseProjectile(importedConfig.BASE_PROJECTILE);
 		config = migrateSavedConfig(importedConfig);
 		config.WEAPONS = normalizeWeaponOptionalStatsList(config.WEAPONS);
+		validateCompleteConfig(config, defaultConfig);
 		syncConfigToUI();
 		readConfigFromUI();
 		saveLocalConfig();

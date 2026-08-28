@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 import {
+	deriveResolvedProjectileDefinition,
 	getSplitChildDefinition,
 	mergeProjectileDefinition,
 	resolveProjectileDefinition,
@@ -52,4 +53,28 @@ test("split child definitions inherit from the global base", () => {
 	assert.equal(child.damage, 7);
 	assert.equal(child.color, base.color);
 	assert.equal(child.__resolvedProjectile, true);
+});
+
+test("resolved split children and shot-local options do not recompile source data", () => {
+	const parent = resolveProjectileDefinition(base, {
+		split: {
+			enabled: true,
+			count: 1,
+			timeMs: 1,
+			onImpact: false,
+			spread: 0,
+			children: [{ weight: 1, projectile: { damage: 7 } }],
+		},
+	});
+	const child = getSplitChildDefinition(base, parent.splitChildren[0]);
+	assert.equal(child, parent.splitChildren[0].projectile);
+	assert.equal(child.damage, 7);
+
+	const aimed = deriveResolvedProjectileDefinition(parent, {
+		spread: 0.25,
+		aimAngleBounds: { minAngle: -0.1, maxAngle: 0.1 },
+	});
+	assert.equal(aimed.splitChildren, parent.splitChildren);
+	assert.equal(aimed.spread, 0.25);
+	assert.equal(aimed.__resolvedProjectile, true);
 });

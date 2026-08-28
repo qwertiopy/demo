@@ -1,7 +1,14 @@
 // Entry point: update loop, initialization, config/hotkey loading, and config export.
 
-import { Config, loadLocalConfig } from "./config.js";
-import { loadCombatDefaults } from "./combat/defaults.js";
+import {
+	Config,
+	loadLocalConfig,
+	validateCompleteConfig,
+} from "./config.js";
+import {
+	getCombatDefault,
+	loadCombatDefaults,
+} from "./combat/defaults.js";
 import { validateBaseProjectile } from "./combat/projectile-schema.js";
 import { readLaunchOptions, writeLaunchOptions } from "./launch-options.js";
 import { loadDefaultLevelDefinition } from "./level.js";
@@ -11,7 +18,12 @@ import {
 	prepareLevelForGameMode,
 	resolveGameModeId,
 } from "./game-modes.js";
-import { GameState, player, camera } from "./state.js";
+import {
+	GameState,
+	player,
+	camera,
+	getRegisteredEntities,
+} from "./state.js";
 import { handleWallCollisions } from "./utils.js";
 import {
 	updateProceduralGeneration,
@@ -24,6 +36,8 @@ import {
 	processExplosions,
 	processLasers,
 	resetLaserCalculationBudget,
+	getLaserCalculationBudgetOverrun,
+	getLaserCalculationBudgetSpent,
 	resolveProjectileVectorCollisions,
 } from "./combat.js";
 import {
@@ -58,6 +72,11 @@ import {
 	endProfileSection,
 	setProfileCounter,
 } from "./performance/profiler.js";
+import {
+	SimulationClock,
+	createRenderPacer,
+} from "./runtime/simulation-clock.js";
+import { rebuildActorIndex } from "./spatial/entity-index.js";
 
 // Runs one simulation step: procedural generation, player movement, enemy AI/movement, camera tracking, and projectile processing.
 export function update(currentTime, dt) {
@@ -71,8 +90,10 @@ export function update(currentTime, dt) {
 	}
 
 	const proceduralProfile = beginProfileSection();
-	updateProceduralGeneration(player.x);
-	cleanupProceduralGeneration(player.x);
+	if (GameState.isProceduralLevel) {
+		updateProceduralGeneration(player.x);
+		cleanupProceduralGeneration(player.x);
+	}
 	endProfileSection("procedural", proceduralProfile);
 
 	let dx = 0;
@@ -118,8 +139,10 @@ export function update(currentTime, dt) {
 
 	const enemyProfile = beginProfileSection();
 	updateProgressiveEnemySpawnRate(player.x);
+	rebuildActorIndex(getRegisteredEntities());
 	updateEnemies(currentTime, dt);
 	resolveEnemyVectorCollisions(dt);
+	rebuildActorIndex(getRegisteredEntities());
 	endProfileSection("enemies", enemyProfile);
 
 	camera.x = player.x - camera.widthBlocks / 2 + player.size / 2;
@@ -137,6 +160,8 @@ export function update(currentTime, dt) {
 	endProfileSection("projectiles", projectileProfile);
 	const laserProfile = beginProfileSection();
 	processLasers(currentTime);
+	setProfileCounter("laser-budget-overrun", getLaserCalculationBudgetOverrun());
+	setProfileCounter("laser-budget-spent", getLaserCalculationBudgetSpent());
 	endProfileSection("lasers", laserProfile);
 	const explosionProfile = beginProfileSection();
 	processExplosions(currentTime);
@@ -160,17 +185,18 @@ export function syncCameraViewport() {
 
 	canvas.width = canvasWidthPx;
 	canvas.height = canvasHeightPx;
+	canvas.style.setProperty(
+		"--game-aspect-ratio",
+		String(canvasWidthPx / canvasHeightPx),
+	);
 	camera.widthBlocks = canvasWidthPx / renderedBlockSizePx;
 	camera.heightBlocks = canvasHeightPx / renderedBlockSizePx;
 }
 
-let lastAnimationFrameTime = null;
-let lastTickTime = null;
-let tickAccumulatorMs = 0;
-
-// Small tolerance prevents a nominal 60 Hz rAF interval such as 16.66 ms from
-// accidentally missing a 16.67 ms target deadline and falling to ~30 FPS.
-const FRAME_PACING_EPSILON_MS = 0.5;
+const simulationClock = new SimulationClock({ hz: 60 });
+const renderPacer = createRenderPacer();
+let lastRenderWallTime = null;
+let lastVisualSnapshot = null;
 const PERFORMANCE_UPDATE_INTERVAL_MS = 500;
 
 const PerformanceStats = {
@@ -182,10 +208,6 @@ const PerformanceStats = {
 function setDebugStatVisibility(element, visible) {
 	if (element) element.hidden = !visible;
 }
-
-// Caps unexpected stalls while still allowing deliberately low target FPS
-// values to use their intended timestep rather than entering slow motion.
-export const MAX_DT_SECONDS = 0.05;
 
 export function getTargetFps() {
 	return Math.max(
@@ -286,65 +308,48 @@ function updatePerformanceUi(currentTime, tickDurationMs, targetFps) {
 // the browser/display's rAF rate.
 export function gameLoop(currentTime) {
 	requestAnimationFrame(gameLoop);
-
 	const targetFps = getTargetFps();
-	const targetFrameMs = 1000 / targetFps;
-
-	if (lastAnimationFrameTime === null) {
-		lastAnimationFrameTime = currentTime;
-		// Render immediately on startup rather than waiting one target interval.
-		tickAccumulatorMs = targetFrameMs;
-	} else {
-		const rafElapsedMs = Math.max(0, currentTime - lastAnimationFrameTime);
-		lastAnimationFrameTime = currentTime;
-		tickAccumulatorMs += rafElapsedMs;
-	}
-
-	if (tickAccumulatorMs + FRAME_PACING_EPSILON_MS < targetFrameMs) {
-		return;
-	}
+	const step = simulationClock.consumeWallTime(currentTime);
+	const shouldRender = renderPacer.consume(currentTime, targetFps);
+	if (!step && !shouldRender) return;
 	beginProfileFrame(currentTime);
 
-	// If we are only fractionally early because of rAF timestamp precision,
-	// treat this as the target deadline. Otherwise preserve fractional overshoot
-	// so 60 FPS targets schedule correctly even on 120/144 Hz displays.
-	if (tickAccumulatorMs < targetFrameMs) {
-		tickAccumulatorMs = targetFrameMs;
-	}
-	tickAccumulatorMs %= targetFrameMs;
-
-	const tickDurationMs =
-		lastTickTime === null
-			? targetFrameMs
-			: Math.max(0, currentTime - lastTickTime);
-	lastTickTime = currentTime;
-	updatePerformanceUi(currentTime, tickDurationMs, targetFps);
-
-	const maxDtForTarget = Math.max(MAX_DT_SECONDS, targetFrameMs / 1000);
-	const dt = Math.min(
-		Math.max(tickDurationMs / 1000, 0),
-		maxDtForTarget,
-	);
-
-	if (dt > 0) {
+	if (step) {
+		GameState.simulationTimeMs = step.timeMs;
+		GameState.simulationTick = step.tick;
 		const updateProfile = beginProfileSection();
-		update(currentTime, dt);
+		update(step.timeMs, step.dtSeconds);
 		endProfileSection("update-total", updateProfile);
-	}
 
+		const snapshotProfile = beginProfileSection();
+		lastVisualSnapshot = captureVisualSnapshot(step.timeMs);
+		pushTrailSnapshot(lastVisualSnapshot);
+		recordReplaySnapshot(lastVisualSnapshot, step.timeMs);
+		endProfileSection("snapshot-replay", snapshotProfile);
+	}
 	setProfileCounter("enemies", GameState.enemies.length);
 	setProfileCounter("projectiles", GameState.projectiles.length);
 	setProfileCounter("walls", GameState.walls.length);
-	const snapshotProfile = beginProfileSection();
-	const snapshot = captureVisualSnapshot(currentTime);
-	pushTrailSnapshot(snapshot);
-	recordReplaySnapshot(snapshot, currentTime);
-	endProfileSection("snapshot-replay", snapshotProfile);
-	const renderProfile = beginProfileSection();
-	draw(snapshot, getLiveTrailEntries(), {
-		quadTrailEntries: getLiveTrailEntries(getTrailQuadDetail(), false),
-	});
-	endProfileSection("render", renderProfile);
+	const clockMetrics = simulationClock.getMetrics();
+	setProfileCounter("simulation-tick", clockMetrics.tick);
+	setProfileCounter(
+		"discarded-wall-time-ms",
+		clockMetrics.discardedWallTimeMs,
+	);
+	setProfileCounter("delayed-scheduler-callbacks", clockMetrics.delayedCallbacks);
+	if (shouldRender) {
+		const renderElapsed = lastRenderWallTime === null
+			? 1000 / targetFps
+			: Math.max(0, currentTime - lastRenderWallTime);
+		lastRenderWallTime = currentTime;
+		updatePerformanceUi(currentTime, renderElapsed, targetFps);
+		lastVisualSnapshot ??= captureVisualSnapshot(GameState.simulationTimeMs);
+		const renderProfile = beginProfileSection();
+		draw(lastVisualSnapshot, getLiveTrailEntries(), {
+			quadTrailEntries: getLiveTrailEntries(getTrailQuadDetail(), false),
+		});
+		endProfileSection("render", renderProfile);
+	}
 	endProfileFrame();
 }
 
@@ -376,6 +381,7 @@ export async function initGame() {
 
 		const defaultConfig = await response.json();
 		validateBaseProjectile(defaultConfig.BASE_PROJECTILE);
+		validateCompleteConfig(defaultConfig, defaultConfig);
 
 		const defaultLevel = await loadDefaultLevelDefinition();
 		let launchOptions = readLaunchOptions();
@@ -392,6 +398,7 @@ export async function initGame() {
 		await loadCombatDefaults({
 			allowLocal: gameMode.allowsEditedDefaults,
 		});
+		simulationClock.setRate(getCombatDefault("SIMULATION_HZ"));
 		const loadedData = gameMode.allowsEditedConfig
 			? loadLocalConfig(defaultConfig)
 			: defaultConfig;
@@ -432,6 +439,10 @@ export async function initGame() {
 		initInput();
 		initReplayControls();
 		loadLevel(levelDefinition);
+		simulationClock.reset({ startTimeMs: 0 });
+		GameState.simulationTimeMs = 0;
+		GameState.simulationTick = 0;
+		renderPacer.reset();
 		requestAnimationFrame(gameLoop);
 
 		console.log(

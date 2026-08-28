@@ -6,7 +6,11 @@ import {
 	shortestAngleDelta,
 } from "./weapon-utils.js";
 
-const GEOMETRY_EPSILON = 1e-9;
+import { getCombatDefaultOr } from "./defaults.js";
+
+const GEOMETRY_EPSILON = Object.freeze({
+	[Symbol.toPrimitive]: () => getCombatDefaultOr("GEOMETRY_EPSILON", 1e-9),
+});
 const DEFAULT_ANGLE_PROBE = 1e-5;
 const FULL_TURN = Math.PI * 2;
 

@@ -21,9 +21,11 @@ body {
 
 canvas {
 	background-color: #eee;
-	width: min(100vw, calc(100vh * 16 / 9));
-	height: min(100vh, calc(100vw * 9 / 16));
-	aspect-ratio: 16 / 9;
+	width: min(100vw, calc(100vh * var(--game-aspect-ratio, 1.7777778)));
+	height: auto;
+	max-height: 100vh;
+	aspect-ratio: var(--game-aspect-ratio, 1.7777778);
+	display: block;
 	image-rendering: pixelated;
 	user-select: none;
 	-webkit-user-drag: none;

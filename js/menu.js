@@ -6,7 +6,10 @@ import {
 	resetLaunchOptions,
 	writeLaunchOptions,
 } from "./launch-options.js";
-import { loadDefaultLevelDefinition } from "./level.js";
+import {
+	loadDefaultLevelDefinition,
+	validateLevelDefinition,
+} from "./level.js";
 import { readJsonObjectFile } from "./json-file.js";
 import { downloadReplay, readReplayFile, validateReplayData } from "./replay-file.js";
 import { clearActiveReplay, loadActiveReplay, saveActiveReplay } from "./replay-store.js";
@@ -304,7 +307,9 @@ importLevelFileInput.addEventListener("change", async () => {
 	if (!file) return;
 
 	try {
-		const importedLevel = await readJsonObjectFile(file, "level.json");
+		const importedLevel = validateLevelDefinition(
+			await readJsonObjectFile(file, "level.json"),
+		);
 		launchOptions = writeLaunchOptions({
 			...launchOptions,
 			level: importedLevel,

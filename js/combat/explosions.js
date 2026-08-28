@@ -1,7 +1,10 @@
 // Explosion creation, lifetime, and damage handling.
 
-import { GameState, player, TEAM_PLAYER } from "../state.js";
-import { circleIntersectsRect } from "./collision.js";
+import { GameState } from "../state.js";
+import { circleIntersectsRenderedShape } from "./collision.js";
+import { isDamageableTarget } from "./team-relations.js";
+import { applyCombatDamage } from "./damage.js";
+import { queryActorsInAabb } from "../spatial/entity-index.js";
 
 // Creates a circular explosion at the projectile's current position. A radius
 // of 0 means the projectile is non-explosive and no explosion object is made.
@@ -32,25 +35,27 @@ export function detonateBullet(bullet, currentTime) {
 export function processExplosions(currentTime) {
 	for (let i = GameState.explosions.length - 1; i >= 0; i--) {
 		const explosion = GameState.explosions[i];
-		const isPlayerExplosion = explosion.team === TEAM_PLAYER;
-		const targets = isPlayerExplosion
-			? GameState.enemies
-			: [player];
+		const targets = queryActorsInAabb(
+			explosion.x - explosion.radius,
+			explosion.y - explosion.radius,
+			explosion.x + explosion.radius,
+			explosion.y + explosion.radius,
+		).filter(
+			(target) => isDamageableTarget(explosion.team, target),
+		);
 
 		for (const target of targets) {
-			if (target.hp <= 0 || explosion.hitTargets.has(target)) continue;
+			if (!isDamageableTarget(explosion.team, target) || explosion.hitTargets.has(target)) continue;
 
 			if (
-				circleIntersectsRect(
+				circleIntersectsRenderedShape(
 					explosion.x,
 					explosion.y,
 					explosion.radius,
 					target,
 				)
 			) {
-				if (isPlayerExplosion || !GameState.isInvincible) {
-					target.hp -= explosion.damage;
-				}
+				applyCombatDamage(explosion.team, target, explosion.damage);
 
 				explosion.hitTargets.add(target);
 			}

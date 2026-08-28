@@ -5,19 +5,28 @@ import {
 	GameState,
 	player,
 	allocateEntityId,
+	registerEntity,
+	unregisterEntity,
 	TEAM_ENEMY,
 } from "../state.js";
 import { handleWallCollisions, seededRandom } from "../utils.js";
-import { hasLineOfSight } from "./collision.js";
+import {
+	hasLineOfSight,
+	hasProjectileRadiusClearance,
+} from "./collision.js";
 import { getCombatDefault } from "./defaults.js";
 import { clampProjectileCount } from "./projectile-cap.js";
-import { resolveProjectileDefinition } from "./projectile-schema.js";
-import { shoot } from "./projectiles.js";
+import {
+	deriveResolvedProjectileDefinition,
+	resolveProjectileDefinition,
+} from "./projectile-schema.js";
+import { executeWeaponFire } from "./weapon-executor.js";
 import {
 	calculateGapSafeWallAngle,
 	calculateInterceptAim,
 	calculateMaximumFleeInterceptDistance,
 	calculateMaximumLeadHalfAngle,
+	shouldUseDirectPointAim,
 } from "./targeting.js";
 import {
 	clampAngleToInterval,
@@ -78,6 +87,7 @@ function recordEnemyShot(enemy, playerCenterX, playerCenterY, currentTime) {
 	enemy.playerXAtLastShot = playerCenterX;
 	enemy.playerYAtLastShot = playerCenterY;
 	enemy.lastShot = currentTime;
+	enemy.nextShotAt = currentTime + Math.max(0, Number(enemy.shootCooldown) || 0);
 }
 
 function createEnemyRuntimeStats(typeName, configuredStats) {
@@ -121,20 +131,19 @@ function fireEnemyProjectile(
 	aimAngleBounds = null,
 ) {
 	const stats = enemy.typeStats;
-	const weapon = resolveProjectileDefinition(Config.BASE_PROJECTILE, {
-		...stats.weaponDefinition,
-		volley: {
-			...stats.weaponDefinition.volley,
-			spread,
-		},
+	const weapon = deriveResolvedProjectileDefinition(stats.weapon, {
+		spread: Math.max(0, Number(spread) || 0),
+		aimAngleBounds,
 	});
-
-	shoot(
-		enemy,
-		enemyCenterX + Math.cos(firingAngle),
-		enemyCenterY + Math.sin(firingAngle),
-		{ ...weapon, aimAngleBounds },
-	);
+	executeWeaponFire({
+		shooter: enemy,
+		targetX: enemyCenterX + Math.cos(firingAngle),
+		targetY: enemyCenterY + Math.sin(firingAngle),
+		stats: weapon,
+		weaponSlot: 0,
+		currentTime,
+		ignoreCooldown: true,
+	});
 
 	recordEnemyShot(
 		enemy,
@@ -699,6 +708,30 @@ function scheduleEnemyAimCalculations() {
 			0,
 			Number(enemy.typeStats.bulletSpeed) || 0,
 		);
+		const slowDirectAim = shouldUseDirectPointAim(
+			maximumPlayerSpeed,
+			baseBulletSpeed,
+		);
+		if (slowDirectAim) {
+			resetWallAttack(enemy, true);
+			hasTargetByEnemy.set(enemy, los);
+			if (los) {
+				const radiusClear = hasProjectileRadiusClearance(
+					originX,
+					originY,
+					playerCenterX,
+					playerCenterY,
+					getMaximumEnemyBulletRadius(enemy),
+				);
+				scanResultByEnemy.set(enemy, {
+					walls: [],
+					truncated: false,
+					directOnly: true,
+					canFire: radiusClear,
+				});
+			}
+			continue;
+		}
 		const directAngle = Math.atan2(
 			playerCenterY - originY,
 			playerCenterX - originX,
@@ -813,7 +846,7 @@ export function updateEnemies(currentTime, dt) {
 		// enemyspawnrate = enemy spawns per second
 		const spawnIntervalMs = 1000 / GameState.enemySpawnRate;
 
-		if (currentTime - GameState.lastSpawnTime > spawnIntervalMs) {
+		if (currentTime >= GameState.nextEnemySpawnAt) {
 			// player center
 			// player position is stored in the bottom left corner???
 			// might be worth changing in the player object instead of recomputing every frame hundreds of times
@@ -841,7 +874,7 @@ export function updateEnemies(currentTime, dt) {
 					Config.ENEMY_TYPES[typeName] || Config.ENEMY_TYPES["g-bot"];
 				const stats = createEnemyRuntimeStats(typeName, configuredStats);
 
-				GameState.enemies.push({
+				const spawnedEnemy = registerEntity({
 					id: allocateEntityId(),
 					team: TEAM_ENEMY,
 					upgrades: {
@@ -856,7 +889,9 @@ export function updateEnemies(currentTime, dt) {
 					hp: stats.hp,
 					maxHp: stats.hp,
 					color: stats.color,
+					shape: stats.shape ?? null,
 					lastShot: 0,
+					nextShotAt: currentTime,
 					shootCooldown: stats.weapon.cooldownMs,
 					maximumProjectileCount: stats.maximumProjectileCount,
 					typeStats: stats,
@@ -904,16 +939,22 @@ export function updateEnemies(currentTime, dt) {
 					debugAimOriginY: null,
 					debugUsingCachedCorner: false,
 				});
+				GameState.enemies.push(spawnedEnemy);
 			}
 
-			GameState.lastSpawnTime = currentTime;
+			// A delayed server tick performs at most one attempt. Missed spawn
+			// opportunities are discarded instead of being replayed as a burst.
+			GameState.nextEnemySpawnAt = currentTime + spawnIntervalMs;
 		}
 	}
 	const aimSchedule = scheduleEnemyAimCalculations();
 
 	// enemy processing loop
 	GameState.enemies = GameState.enemies.filter((e) => {
-		if (e.hp <= 0) return false;
+		if (e.hp <= 0 || e.active === false) {
+			unregisterEntity(e);
+			return false;
+		}
 
 		// enemy center
 		const eCenterX = e.x + e.size / 2;
@@ -952,11 +993,16 @@ export function updateEnemies(currentTime, dt) {
 			0,
 			Number(e.typeStats.bulletSpeed) || 0,
 		);
+		const maximumPlayerSpeed = getMaximumPlayerMovementSpeed();
+		const slowDirectAim = shouldUseDirectPointAim(
+			maximumPlayerSpeed,
+			baseBulletSpeed,
+		);
 		const directAngle = Math.atan2(
 			pCenterY - eCenterY,
 			pCenterX - eCenterX,
 		);
-		const intercept = calculateInterceptAim(
+		const intercept = slowDirectAim ? null : calculateInterceptAim(
 			eCenterX,
 			eCenterY,
 			pCenterX,
@@ -965,7 +1011,9 @@ export function updateEnemies(currentTime, dt) {
 			averagePlayerVy,
 			baseBulletSpeed,
 		);
-		const predictedAngle = intercept?.angle ?? directAngle;
+		const predictedAngle = slowDirectAim
+			? directAngle
+			: intercept?.angle ?? directAngle;
 		const spread = Math.max(
 			0,
 			Number(e.typeStats.spread ?? 0) || 0,
@@ -974,12 +1022,11 @@ export function updateEnemies(currentTime, dt) {
 			pCenterX - eCenterX,
 			pCenterY - eCenterY,
 		);
-		const maximumPlayerSpeed = getMaximumPlayerMovementSpeed();
-		const maxLeadHalfAngle = calculateMaximumLeadHalfAngle(
+		const maxLeadHalfAngle = slowDirectAim ? 0 : calculateMaximumLeadHalfAngle(
 			maximumPlayerSpeed,
 			baseBulletSpeed,
 		);
-		const maximumLeadDistance = calculateMaximumFleeInterceptDistance(
+		const maximumLeadDistance = slowDirectAim ? distanceToPlayer : calculateMaximumFleeInterceptDistance(
 			distanceToPlayer,
 			maximumPlayerSpeed,
 			baseBulletSpeed,
@@ -990,7 +1037,7 @@ export function updateEnemies(currentTime, dt) {
 				intercept.y - eCenterY,
 			)
 			: distanceToPlayer;
-		const trackingWallGeometry = e.aimMode === "wall"
+		const trackingWallGeometry = !slowDirectAim && e.aimMode === "wall"
 			? getWallShotGeometry(e, distanceToPlayer)
 			: null;
 		const trackingHalfAngle = trackingWallGeometry
@@ -1014,12 +1061,14 @@ export function updateEnemies(currentTime, dt) {
 			Number.isFinite(e.wallFrontierAngle)
 			? e.wallFrontierAngle
 			: predictedAngle;
-		const trackedMaximumAimInterval = getMaximumAimInterval(
-			eCenterX,
-			eCenterY,
-			directAngle,
-			trackingHalfAngle,
-		);
+		const trackedMaximumAimInterval = slowDirectAim
+			? getSingleAngleInterval(directAngle)
+			: getMaximumAimInterval(
+				eCenterX,
+				eCenterY,
+				directAngle,
+				trackingHalfAngle,
+			);
 		const trackedAimWalls = scheduledAimScan?.walls || [];
 		const trackedAimGeometryComplete = hasAimTarget &&
 			Boolean(scheduledAimScan) &&
@@ -1027,6 +1076,7 @@ export function updateEnemies(currentTime, dt) {
 		e.debugAimWallScanTruncated = hasAimTarget &&
 			!trackedAimGeometryComplete;
 		const trackedAimVisibilityProfile =
+			!slowDirectAim &&
 			trackedAimGeometryComplete &&
 			GameState.showEditorHelpers &&
 			Number(Config.DEBUG?.MAX_DRAWS_PER_FRAME ?? 1000) > 0 &&
@@ -1041,8 +1091,10 @@ export function updateEnemies(currentTime, dt) {
 				trackedAimWalls,
 			)
 			: null;
-		const trackedVisibleInterval = los && trackedAimGeometryComplete
-			? getEnemyVisibleAimInterval(
+		const trackedVisibleInterval = slowDirectAim && los
+			? getSingleAngleInterval(directAngle)
+			: los && trackedAimGeometryComplete
+				? getEnemyVisibleAimInterval(
 				e,
 				eCenterX,
 				eCenterY,
@@ -1052,7 +1104,7 @@ export function updateEnemies(currentTime, dt) {
 				trackingPreferredAngle,
 				trackedAimWalls,
 			)
-			: null;
+				: null;
 
 		// Prediction is deliberately refreshed every frame, not merely when the
 		// cooldown expires. A committed wall tracks it but never reacts to it.
@@ -1110,7 +1162,9 @@ export function updateEnemies(currentTime, dt) {
 			e.lastSeenY = pCenterY;
 		}
 
-		const readyToShoot = currentTime - e.lastShot > e.shootCooldown;
+		const readyToShoot =
+			currentTime >= (e.nextShotAt ?? 0) &&
+			(!slowDirectAim || scheduledAimScan?.canFire === true);
 		let firedBudgetFallback = false;
 
 		// An unfinished or unvisited budget job must not suppress shooting. Prefer

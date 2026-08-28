@@ -2,6 +2,9 @@
 
 export async function readJsonObjectFile(file, label = "JSON file") {
 	if (!file) throw new Error(`No ${label} selected.`);
+	if (Number(file.size) > 16 * 1024 * 1024) {
+		throw new Error(`${label} exceeds the 16 MiB import limit.`);
+	}
 
 	let parsed;
 	try {

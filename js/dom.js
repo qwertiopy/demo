@@ -1,23 +1,25 @@
 // Canvas and UI element references.
 
+const pageDocument = globalThis.document;
+
 // Canvas element used as the game's rendering surface.
-export const canvas = document.getElementById("gameCanvas");
+export const canvas = pageDocument?.getElementById("gameCanvas") ?? null;
 // 2D rendering context used by render.js to draw the game.
-export const ctx = canvas.getContext("2d");
+export const ctx = canvas?.getContext?.("2d") ?? null;
 
-export const debugUI = document.getElementById("debugUI");
+export const debugUI = pageDocument?.getElementById("debugUI") ?? null;
 
-export const performanceFps = document.getElementById("performanceFps");
-export const performanceTargetFps = document.getElementById("performanceTargetFps");
-export const performanceMsPerTick = document.getElementById("performanceMsPerTick");
-export const performanceEntityCount = document.getElementById("performanceEntityCount");
-export const performanceEnemyCount = document.getElementById("performanceEnemyCount");
-export const performanceBulletCount = document.getElementById("performanceBulletCount");
+export const performanceFps = pageDocument?.getElementById("performanceFps") ?? null;
+export const performanceTargetFps = pageDocument?.getElementById("performanceTargetFps") ?? null;
+export const performanceMsPerTick = pageDocument?.getElementById("performanceMsPerTick") ?? null;
+export const performanceEntityCount = pageDocument?.getElementById("performanceEntityCount") ?? null;
+export const performanceEnemyCount = pageDocument?.getElementById("performanceEnemyCount") ?? null;
+export const performanceBulletCount = pageDocument?.getElementById("performanceBulletCount") ?? null;
 
-export const respawnBtn = document.getElementById("respawnBtn");
+export const respawnBtn = pageDocument?.getElementById("respawnBtn") ?? null;
 
-export const replayRecordBtn = document.getElementById("replayRecordBtn");
-export const replayStopRecordingBtn = document.getElementById("replayStopRecordingBtn");
-export const replayPlayPauseBtn = document.getElementById("replayPlayPauseBtn");
-export const replayStopBtn = document.getElementById("replayStopBtn");
-export const replayStatus = document.getElementById("replayStatus");
+export const replayRecordBtn = pageDocument?.getElementById("replayRecordBtn") ?? null;
+export const replayStopRecordingBtn = pageDocument?.getElementById("replayStopRecordingBtn") ?? null;
+export const replayPlayPauseBtn = pageDocument?.getElementById("replayPlayPauseBtn") ?? null;
+export const replayStopBtn = pageDocument?.getElementById("replayStopBtn") ?? null;
+export const replayStatus = pageDocument?.getElementById("replayStatus") ?? null;

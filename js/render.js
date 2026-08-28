@@ -174,7 +174,26 @@ function drawActor(actor, blockSizePx, healthColor, includeUi) {
 	const sizePx = actor.size * blockSizePx;
 
 	ctx.fillStyle = actor.color;
-	ctx.fillRect(px, py, sizePx, sizePx);
+	if (actor.shape?.type === "circle") {
+		const radius = Number(actor.shape.radius ?? actor.size / 2) * blockSizePx;
+		const centerX = px + Number(actor.shape.centerX ?? actor.size / 2) * blockSizePx;
+		const centerY = py + Number(actor.shape.centerY ?? actor.size / 2) * blockSizePx;
+		ctx.beginPath();
+		ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+		ctx.fill();
+	} else if (actor.shape?.type === "polygon" && actor.shape.points?.length >= 3) {
+		ctx.beginPath();
+		actor.shape.points.forEach((point, index) => {
+			const x = px + Number(point.x) * blockSizePx;
+			const y = py + Number(point.y) * blockSizePx;
+			if (index === 0) ctx.moveTo(x, y);
+			else ctx.lineTo(x, y);
+		});
+		ctx.closePath();
+		ctx.fill();
+	} else {
+		ctx.fillRect(px, py, sizePx, sizePx);
+	}
 
 	if (includeUi) {
 		drawHealthBar(px, py - 10, sizePx, actor.hp, actor.maxHp, healthColor);
