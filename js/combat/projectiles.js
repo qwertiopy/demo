@@ -2,11 +2,11 @@
 
 import { Config } from "../config.js";
 import { GameState, player, TEAM_PLAYER } from "../state.js";
-import { queryWallsInAabb } from "../spatial/wall-index.js";
+import { queryWallsAlongSegment, queryWallsInAabb } from "../spatial/wall-index.js";
 import { isColliding } from "../utils.js";
 import { detonateBullet } from "./explosions.js";
-import { findChainTarget, getAngleToTarget } from "./targeting.js";
-import { clampAngleToInterval } from "./visibility.js";
+import { findChainTarget, getAngleToTarget, getTargetCenter } from "./targeting.js";
+import { clampAngleToInterval, rayRoundedRectIntersection } from "./visibility.js";
 import { getCombatDefault } from "./defaults.js";
 import { registerProjectile, releaseProjectile } from "./projectile-cap.js";
 import {
@@ -142,6 +142,39 @@ function redirectProjectileTowardTarget(projectile, target) {
 	projectile.vy = dirY * speed;
 }
 
+function isProjectileChainPathRadiusClear(projectile, target) {
+	if (!target) return false;
+
+	const center = getTargetCenter(target);
+	const moveX = center.x - projectile.x;
+	const moveY = center.y - projectile.y;
+	const distance = Math.hypot(moveX, moveY);
+	if (distance <= 1e-10) return true;
+
+	const radius = Math.max(0, Number(projectile.radius) || 0);
+	const dirX = moveX / distance;
+	const dirY = moveY / distance;
+	const candidateWalls = queryWallsAlongSegment(
+		projectile.x,
+		projectile.y,
+		center.x,
+		center.y,
+		radius,
+	);
+
+	return !candidateWalls.some((wall) => {
+		const hit = rayRoundedRectIntersection(
+			projectile.x,
+			projectile.y,
+			dirX,
+			dirY,
+			wall,
+			radius,
+		);
+		return hit && hit.entryDistance <= distance + 1e-10;
+	});
+}
+
 function isActiveProjectileChainTarget(projectile, target) {
 	if (
 		!target ||
@@ -151,9 +184,11 @@ function isActiveProjectileChainTarget(projectile, target) {
 		return false;
 	}
 
-	return projectile.team === TEAM_PLAYER
+	const isActiveTarget = projectile.team === TEAM_PLAYER
 		? GameState.enemies.includes(target)
 		: target === player;
+
+	return isActiveTarget && isProjectileChainPathRadiusClear(projectile, target);
 }
 
 // Active chain projectiles greedily home along the direct current line to their
@@ -179,6 +214,8 @@ export function updateProjectileChainAim(projectile) {
 
 	const referenceAngle = projectile.chainReferenceAngle ??
 		getProjectileDirectionAngle(projectile);
+	const pathIsRadiusClear = (target) =>
+		isProjectileChainPathRadiusClear(projectile, target);
 	const target = projectile.team === TEAM_PLAYER
 		? findChainTarget(
 			projectile.x,
@@ -186,8 +223,11 @@ export function updateProjectileChainAim(projectile) {
 			referenceAngle,
 			projectile.chainVisitedTargets,
 			isPostHitRedirect ? "distance" : "angle",
+			pathIsRadiusClear,
 		)
-		: player.hp > 0 && !projectile.chainVisitedTargets.has(player)
+		: player.hp > 0 &&
+			!projectile.chainVisitedTargets.has(player) &&
+			pathIsRadiusClear(player)
 			? player
 			: null;
 
@@ -266,20 +306,8 @@ export function shoot(shooter, targetX, targetY, stats, options = {}) {
 		: 0;
 	const createdAt = performance.now();
 	const chain = Math.max(0, Math.floor(Number(stats.chain) || 0));
-	const initialChainTarget = chain > 0
-		? team === TEAM_PLAYER
-			? findChainTarget(centerX, centerY, baseAngle)
-			: player.hp > 0 ? player : null
-		: null;
-	const chainedLaunchAngle = initialChainTarget
-		? getAngleToTarget(centerX, centerY, initialChainTarget)
-		: null;
 
 	for (const angle of volleyAngles) {
-		// chain>0 overrides spread/volley direction when an eligible target exists:
-		// the projectile aims directly at the enemy closest to the mouse angle.
-		const projectileAngle = chainedLaunchAngle ?? angle;
-
 		// Variation is rolled independently for every projectile and stat. The
 		// owner upgrade is snapshotted once per firing action, then combined with
 		// this weapon's configured luck and maximum.
@@ -297,6 +325,28 @@ export function shoot(shooter, targetX, targetY, stats, options = {}) {
 			0,
 			effectiveVariationLuck,
 		);
+		const chainProbe = { x: centerX, y: centerY, radius };
+		const pathIsRadiusClear = (target) =>
+			isProjectileChainPathRadiusClear(chainProbe, target);
+		const initialChainTarget = chain > 0
+			? team === TEAM_PLAYER
+				? findChainTarget(
+					centerX,
+					centerY,
+					baseAngle,
+					new Set(),
+					"angle",
+					pathIsRadiusClear,
+				)
+				: player.hp > 0 && pathIsRadiusClear(player) ? player : null
+			: null;
+		const chainedLaunchAngle = initialChainTarget
+			? getAngleToTarget(centerX, centerY, initialChainTarget)
+			: null;
+		// chain>0 overrides spread/volley direction when an eligible target exists:
+		// the projectile aims directly at the enemy closest to the mouse angle.
+		const projectileAngle = chainedLaunchAngle ?? angle;
+
 		const damage = getVariedStat(
 			stats.damage,
 			stats.damageVariation,

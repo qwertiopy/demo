@@ -559,7 +559,7 @@
             }
         },
         {
-            "speed": 10,
+            "speed": 20,
             "radiusBlocks": 0.1,
             "color": "crimson",
             "damage": 2.5,
@@ -568,7 +568,7 @@
             "cooldownMs": 250,
             "penetrationBlocks": 0,
             "bulletCollision": false,
-            "chain": 10,
+            "chain": 2.5,
             "variation": {
                 "enabled": false,
                 "speed": 0,

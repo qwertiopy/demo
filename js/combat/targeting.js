@@ -173,8 +173,9 @@ export function calculateInterceptAim(
 	};
 }
 
-// Candidates must be alive, not already hit by this chain, and visible from
-// the origin. Initial acquisition uses angle-first ordering; every reacquisition
+// Candidates must be alive, not already hit by this chain, and pass either the
+// default centerline line-of-sight test or a caller-supplied path-clearance test.
+// Initial acquisition uses angle-first ordering; every reacquisition
 // after a hit uses distance-first ordering. The alternate metric breaks ties so
 // selection stays deterministic instead of depending on enemy array order.
 export function findChainTarget(
@@ -183,6 +184,7 @@ export function findChainTarget(
 	referenceAngle,
 	excludedTargets = new Set(),
 	priority = "angle",
+	isPathClear = null,
 ) {
 	let bestTarget = null;
 	let bestAngleDelta = Infinity;
@@ -199,7 +201,10 @@ export function findChainTarget(
 		}
 
 		const center = getTargetCenter(target);
-		if (!hasLineOfSight(originX, originY, center.x, center.y)) continue;
+		const pathIsClear = typeof isPathClear === "function"
+			? isPathClear(target, center)
+			: hasLineOfSight(originX, originY, center.x, center.y);
+		if (!pathIsClear) continue;
 
 		const dx = center.x - originX;
 		const dy = center.y - originY;
