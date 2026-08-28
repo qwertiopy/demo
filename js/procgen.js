@@ -27,14 +27,19 @@ export function spawnWall(
 	widthBlocks,
 	heightBlocks,
 	color = "slategray",
+	structureOriginX = null,
 ) {
-	GameState.walls.push({
+	const wall = {
 		x,
 		y,
 		width: widthBlocks,
 		height: heightBlocks,
 		color,
-	});
+	};
+	if (Number.isFinite(structureOriginX)) {
+		wall.structureOriginX = structureOriginX;
+	}
+	GameState.walls.push(wall);
 	markWallIndexDirty();
 	markEnvironmentChanged();
 }
@@ -60,17 +65,26 @@ export function enemyTypeFromStructureFlag(flag) {
 }
 
 // Creates an enemy spawn point centered inside a one-block structure cell.
-export function spawnEnemyPointFromCell(cellX, cellY, type) {
+export function spawnEnemyPointFromCell(
+	cellX,
+	cellY,
+	type,
+	structureOriginX = null,
+) {
 	const resolvedType = Config.ENEMY_TYPES[type] ? type : "g-bot";
 	const stats = Config.ENEMY_TYPES[resolvedType];
 	const size = stats.sizeBlocks;
-
-	GameState.enemySpawns.push({
+	const spawn = {
 		x: cellX + (1 - size) / 2,
 		y: cellY + (1 - size) / 2,
 		type: resolvedType,
 		size,
-	});
+	};
+	if (Number.isFinite(structureOriginX)) {
+		spawn.structureOriginX = structureOriginX;
+	}
+
+	GameState.enemySpawns.push(spawn);
 	markEnvironmentChanged();
 }
 
@@ -277,13 +291,13 @@ export function updateProceduralGeneration(playerX) {
 				const worldY = structY + r;
 
 				if (cell === 1) {
-					spawnWall(worldX, worldY, 1, 1, template.color);
+					spawnWall(worldX, worldY, 1, 1, template.color, blockX);
 					continue;
 				}
 
 				const enemyType = enemyTypeFromStructureFlag(cell);
 				if (enemyType !== undefined) {
-					spawnEnemyPointFromCell(worldX, worldY, enemyType);
+					spawnEnemyPointFromCell(worldX, worldY, enemyType, blockX);
 				}
 			}
 		}
@@ -305,20 +319,26 @@ export function cleanupProceduralGeneration(playerX) {
 	const safeStartX = startX - cleanupBuffer;
 	const safeEndX = endX + cleanupBuffer;
 
-	const retainedWalls = GameState.walls.filter(
-		(w) => w.x >= safeStartX && w.x <= safeEndX,
+	const retainedStructures = GameState.placedStructures.filter(
+		(s) => s.origin.x >= safeStartX && s.origin.x <= safeEndX,
 	);
+	const retainedStructureOrigins = new Set(
+		retainedStructures.map((structure) => structure.origin.x),
+	);
+
+	const retainedWalls = GameState.walls.filter((wall) => {
+		if (Number.isFinite(wall.structureOriginX)) {
+			return retainedStructureOrigins.has(wall.structureOriginX);
+		}
+		return wall.x >= safeStartX && wall.x <= safeEndX;
+	});
 	if (retainedWalls.length !== GameState.walls.length) {
 		GameState.walls = retainedWalls;
 		markWallIndexDirty();
 		markEnvironmentChanged();
 	}
 
-	GameState.placedStructures = GameState.placedStructures.filter(
-		(s) =>
-			s.origin.x + s.size.width > safeStartX &&
-			s.origin.x <= safeEndX,
-	);
+	GameState.placedStructures = retainedStructures;
 
 	// Despawn enemies once their full hitbox is outside the active render window.
 	// Using the enemy's right edge on the back boundary prevents a partially
@@ -342,7 +362,12 @@ export function cleanupProceduralGeneration(playerX) {
 		GameState.projectiles.splice(index, 1);
 	}
 
-	const retainedEnemySpawns = GameState.enemySpawns.filter((s) => s.x >= startX);
+	const retainedEnemySpawns = GameState.enemySpawns.filter((spawn) => {
+		if (Number.isFinite(spawn.structureOriginX)) {
+			return retainedStructureOrigins.has(spawn.structureOriginX);
+		}
+		return spawn.x >= startX;
+	});
 	if (retainedEnemySpawns.length !== GameState.enemySpawns.length) {
 		GameState.enemySpawns = retainedEnemySpawns;
 		markEnvironmentChanged();

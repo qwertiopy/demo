@@ -2,12 +2,15 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+	cleanupProceduralGeneration,
 	getMaximumStructureWidth,
 	getMinimumStructureOriginXExclusive,
 	getProceduralPlayerSpawn,
 	getStructureTemplateSize,
 	structureBoundsOverlap,
 } from "../js/procgen.js";
+import { Config } from "../js/config.js";
+import { GameState } from "../js/state.js";
 
 test("template size never understates either declared or grid dimensions", () => {
 	assert.deepEqual(
@@ -41,4 +44,92 @@ test("procedural player spawn preserves current random-region endpoints", () => 
 	const settings = { corridorCeilingYBlocks: 0, corridorWidthBlocks: 10 };
 	assert.deepEqual(getProceduralPlayerSpawn(settings, 0.5, () => 0), { x: 1, y: 1 });
 	assert.deepEqual(getProceduralPlayerSpawn(settings, 0.5, () => 1), { x: 1.5, y: 9.5 });
+});
+
+function withProcgenCleanupState(run) {
+	const previous = {
+		walls: GameState.walls,
+		placedStructures: GameState.placedStructures,
+		enemies: GameState.enemies,
+		projectiles: GameState.projectiles,
+		enemySpawns: GameState.enemySpawns,
+		generatedColumns: GameState.generatedColumns,
+		environmentRevision: GameState.environmentRevision,
+	};
+
+	GameState.walls = [];
+	GameState.placedStructures = [];
+	GameState.enemies = [];
+	GameState.projectiles = [];
+	GameState.enemySpawns = [];
+	GameState.generatedColumns = new Set();
+
+	try {
+		run();
+	} finally {
+		Object.assign(GameState, previous);
+	}
+}
+
+test("cleanup retains every structure-owned component while its origin is retained", () => {
+	withProcgenCleanupState(() => {
+		const playerX = 100;
+		const safeEndX =
+			Math.floor(playerX) +
+			Config.RENDERING.DISTANCE_FRONT_BLOCKS +
+			Config.RENDERING.CLEANUP_BUFFER_BLOCKS;
+		const structureOriginX = safeEndX;
+
+		GameState.placedStructures = [
+			{
+				origin: { x: structureOriginX, y: 2 },
+				size: { width: 6, height: 2 },
+				type: "test",
+			},
+		];
+		GameState.walls = [
+			{ x: structureOriginX + 5, y: 2, width: 1, height: 1, structureOriginX },
+		];
+		GameState.enemySpawns = [
+			{ x: structureOriginX + 5.25, y: 2.25, size: 0.5, type: "g-bot", structureOriginX },
+		];
+
+		cleanupProceduralGeneration(playerX);
+
+		assert.equal(GameState.placedStructures.length, 1);
+		assert.equal(GameState.walls.length, 1);
+		assert.equal(GameState.enemySpawns.length, 1);
+	});
+});
+
+test("cleanup unloads every structure-owned component once its origin leaves the window", () => {
+	withProcgenCleanupState(() => {
+		const playerX = 100;
+		const safeStartX =
+			Math.max(
+				0,
+				Math.floor(playerX) - Config.RENDERING.DISTANCE_BACK_BLOCKS,
+			) - Config.RENDERING.CLEANUP_BUFFER_BLOCKS;
+		const structureOriginX = safeStartX - 1;
+
+		GameState.placedStructures = [
+			{
+				origin: { x: structureOriginX, y: 2 },
+				size: { width: 6, height: 2 },
+				type: "test",
+			},
+		];
+		GameState.walls = [
+			{ x: safeStartX + 2, y: 2, width: 1, height: 1, structureOriginX },
+		];
+		GameState.enemySpawns = [
+			{ x: safeStartX + 2.25, y: 2.25, size: 0.5, type: "g-bot", structureOriginX },
+		];
+
+		cleanupProceduralGeneration(playerX);
+
+		assert.equal(GameState.placedStructures.length, 0);
+		assert.equal(GameState.walls.length, 0);
+		assert.equal(GameState.enemySpawns.length, 0);
+	});
 });

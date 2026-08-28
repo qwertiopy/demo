@@ -20,6 +20,6 @@
     "corridorCeilingYBlocks": 0,
     "corridorWidthBlocks": 10,
     "structureSpawnChance": 1,
-    "structureDensityBlocks": 1,
+    "structureDensityBlocks": 5,
     "walls": []
 }
