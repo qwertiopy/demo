@@ -262,9 +262,9 @@
             "speed": 20,
             "radiusBlocks": 0.1,
             "color": "crimson",
-            "damage": 0,
+            "damage": 2.5,
             "maxBounces": 0,
-            "lifetimeMs": 60000,
+            "lifetimeMs": 1500,
             "cooldownMs": 250,
             "penetrationBlocks": 0,
             "bulletCollision": false,
@@ -289,11 +289,11 @@
                 "spread": 0
             },
             "explosion": {
-                "enabled": true,
-                "radiusBlocks": 2.5,
-                "detonationTimeMs": 1500,
-                "durationMs": 250,
-                "damage": 2.5,
+                "enabled": false,
+                "radiusBlocks": 0,
+                "detonationTimeMs": 0,
+                "durationMs": 0,
+                "damage": 0,
                 "onImpact": false
             },
             "throwable": {

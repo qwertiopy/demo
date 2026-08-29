@@ -7,6 +7,8 @@ import {
 	getMinimumStructureOriginXExclusive,
 	getProceduralPlayerSpawn,
 	getStructureTemplateSize,
+	spawnEnemyPointFromCell,
+	spawnWall,
 	structureBoundsOverlap,
 } from "../js/procgen.js";
 import { Config } from "../js/config.js";
@@ -131,5 +133,27 @@ test("cleanup unloads every structure-owned component once its origin leaves the
 		assert.equal(GameState.placedStructures.length, 0);
 		assert.equal(GameState.walls.length, 0);
 		assert.equal(GameState.enemySpawns.length, 0);
+	});
+});
+
+test("structure component creators record ownership without tagging corridor geometry", () => {
+	withProcgenCleanupState(() => {
+		const previousRevision = GameState.environmentRevision;
+		const previousEnemyTypes = Config.ENEMY_TYPES;
+		const structureOriginX = 42;
+		Config.ENEMY_TYPES = { "g-bot": { sizeBlocks: 0.5 } };
+
+		try {
+			spawnWall(42, 3, 1, 1, "slategray", structureOriginX);
+			spawnEnemyPointFromCell(43, 3, "g-bot", structureOriginX);
+			spawnWall(44, 0, 1, 1, "slategray");
+
+			assert.equal(GameState.walls[0].structureOriginX, structureOriginX);
+			assert.equal(GameState.enemySpawns[0].structureOriginX, structureOriginX);
+			assert.equal(Object.hasOwn(GameState.walls[1], "structureOriginX"), false);
+			assert.ok(GameState.environmentRevision > previousRevision);
+		} finally {
+			Config.ENEMY_TYPES = previousEnemyTypes;
+		}
 	});
 });
