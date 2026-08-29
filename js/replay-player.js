@@ -3,6 +3,7 @@
 
 import { Config } from "./config.js";
 import { draw } from "./render.js";
+import { syncRespawnButton } from "./runtime/game-ui.js";
 import {
 	getReplayPlaybackState,
 	getReplaySnapshotForRender,
@@ -82,6 +83,7 @@ function renderCurrentFrame(currentTime = performance.now()) {
 			replayActive: true,
 			quadTrailEntries: getReplayTrailEntries(getTrailQuadDetail(), false),
 		});
+		syncRespawnButton(snapshot, { replayActive: true });
 	}
 	syncControls(currentTime);
 }

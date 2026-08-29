@@ -2,6 +2,7 @@
 
 import { GameState } from "../state.js";
 import { draw } from "../render.js";
+import { syncRespawnButton } from "./game-ui.js";
 import {
 	captureVisualSnapshot,
 	pushTrailSnapshot,
@@ -30,5 +31,6 @@ export function renderGameFrame(currentTime) {
 	draw(snapshot, getLiveTrailEntries(), {
 		quadTrailEntries: getLiveTrailEntries(getTrailQuadDetail(), false),
 	});
+	syncRespawnButton(snapshot);
 	endProfileSection("render", renderProfile);
 }
