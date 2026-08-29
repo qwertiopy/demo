@@ -22,6 +22,10 @@ const ctx = new Proxy(
 				},
 			};
 		},
+		getTransform() {
+			drawCalls.push(["getTransform"]);
+			return { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+		},
 	},
 	{
 		get(target, property) {
@@ -46,6 +50,8 @@ const ctx = new Proxy(
 					"fill",
 					"stroke",
 					"setLineDash",
+					"setTransform",
+					"drawImage",
 				].includes(property)
 			) {
 				return (...args) => drawCalls.push([property, ...args]);
@@ -79,6 +85,16 @@ const genericElement = {
 };
 
 globalThis.document = {
+	createElement(tagName) {
+		if (tagName !== "canvas") return genericElement;
+		return {
+			width: 0,
+			height: 0,
+			getContext() {
+				return ctx;
+			},
+		};
+	},
 	getElementById(id) {
 		if (id === "gameCanvas") return canvas;
 		if (id === "respawnBtn") return respawnBtn;
@@ -223,7 +239,7 @@ test("projectile trail checkpoints render per-leg circles while synthetic path s
 			[96, 32, 8],
 		],
 	);
-	assert.equal(drawCalls.filter((entry) => entry[0] === "fill").length, 2);
+	assert.equal(drawCalls.filter((entry) => entry[0] === "fill").length, 3);
 	assert.equal(drawCalls.filter((entry) => entry[0] === "clip").length, 0);
 });
 
@@ -322,7 +338,7 @@ test("terminal checkpoint is combined with its incoming ribbon in one fill", () 
 });
 
 
-test("both bounce legs paint their own shared checkpoint circles and blend normally", () => {
+test("newer bounce leg overwrites older self-overlap on the scratch layer", () => {
 	resetDrawCalls();
 	const rendering = { BLOCK_SIZE_PX: 32 };
 	const trailEntries = [
@@ -381,7 +397,7 @@ test("both bounce legs paint their own shared checkpoint circles and blend norma
 	const fillIndexes = drawCalls
 		.map((entry, index) => (entry[0] === "fill" ? index : -1))
 		.filter((index) => index >= 0);
-	assert.equal(fillIndexes.length, 2);
+	assert.equal(fillIndexes.length, 3);
 	const arcs = drawCalls.filter((entry) => entry[0] === "arc");
 	assert.deepEqual(
 		arcs.map((entry) => entry.slice(1, 4)),
@@ -391,7 +407,16 @@ test("both bounce legs paint their own shared checkpoint circles and blend norma
 			[64, 64, 8],
 		],
 	);
-	assert.ok(fillIndexes[0] < fillIndexes[1]);
+	const destinationOutIndex = drawCalls.findIndex(
+		(entry) =>
+			entry[0] === "set" &&
+			entry[1] === "globalCompositeOperation" &&
+			entry[2] === "destination-out",
+	);
+	assert.ok(fillIndexes[0] < destinationOutIndex);
+	assert.ok(destinationOutIndex < fillIndexes[1]);
+	assert.ok(fillIndexes[1] < fillIndexes[2]);
+	assert.equal(drawCalls.filter((entry) => entry[0] === "drawImage").length, 1);
 });
 
 test("player trail marks initial position, turns, and stops with square checkpoints", () => {
@@ -423,10 +448,10 @@ test("player trail marks initial position, turns, and stops with square checkpoi
 
 	drawTrailsHybrid([], [], rendering, playerTrailEntries);
 
-	// Rightward and downward movement are two independent legs. The turn square
-	// belongs to both legs and is therefore painted twice; initial/stop squares
-	// are painted once each.
-	assert.equal(drawCalls.filter((entry) => entry[0] === "fill").length, 2);
+	// Rightward and downward movement are two independent legs. The newer leg
+	// erases its overlap from the older leg before painting, so the shared turn
+	// square keeps the newer leg alpha instead of accumulating opacity.
+	assert.equal(drawCalls.filter((entry) => entry[0] === "fill").length, 3);
 	const squareStarts = drawCalls
 		.map((entry, index) => {
 			if (entry[0] !== "moveTo") return null;
@@ -484,9 +509,69 @@ test("player trail marks a stationary-to-moving transition at the exact start po
 	drawTrailsHybrid([], [], rendering, playerTrailEntries);
 
 	// The old initial checkpoint and the later start-moving checkpoint occupy the
-	// same world position but are distinct historical states and may blend.
+	// same world position. They remain distinct path states, but the newer paint
+	// overwrites the older trail contribution on the scratch layer.
 	const squareStartsAtOrigin = drawCalls.filter(
 		(entry) => entry[0] === "moveTo" && entry[1] === 0 && entry[2] === 0,
 	);
 	assert.equal(squareStartsAtOrigin.length, 2);
+});
+
+test("trail scratch compositing overwrites self-overlap before scene compositing", () => {
+	resetDrawCalls();
+	const rendering = { BLOCK_SIZE_PX: 32 };
+	const trailEntries = [
+		{
+			alpha: 0.3,
+			snapshot: {
+				player: null,
+				enemies: [],
+				projectiles: [],
+				projectileTrailEvents: [
+					{ renderId: "self-cross", x: 1, y: 1, radius: 0.25, color: "red" },
+				],
+			},
+		},
+		{
+			alpha: 0.6,
+			snapshot: {
+				player: null,
+				enemies: [],
+				projectiles: [],
+				projectileTrailEvents: [
+					{ renderId: "self-cross", x: 2, y: 1, radius: 0.25, color: "red", checkpoint: true },
+				],
+			},
+		},
+		{
+			alpha: 1,
+			snapshot: {
+				player: null,
+				enemies: [],
+				projectiles: [],
+				projectileTrailEvents: [
+					{ renderId: "self-cross", x: 1, y: 1, radius: 0.25, color: "red", checkpoint: true },
+				],
+			},
+		},
+	];
+
+	drawTrailsHybrid(trailEntries, trailEntries, rendering);
+
+	const destinationOutIndexes = drawCalls
+		.map((entry, index) =>
+			entry[0] === "set" &&
+			entry[1] === "globalCompositeOperation" &&
+			entry[2] === "destination-out"
+				? index
+				: -1,
+		)
+		.filter((index) => index >= 0);
+	assert.ok(destinationOutIndexes.length >= 1);
+
+	const drawImageIndexes = drawCalls
+		.map((entry, index) => (entry[0] === "drawImage" ? index : -1))
+		.filter((index) => index >= 0);
+	assert.equal(drawImageIndexes.length, 1);
+	assert.ok(destinationOutIndexes.at(-1) < drawImageIndexes[0]);
 });
