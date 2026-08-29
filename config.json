@@ -234,7 +234,7 @@
             },
             "explosion": {
                 "enabled": true,
-                "radiusBlocks": 1,
+                "radiusBlocks": 2.5,
                 "detonationTimeMs": 0,
                 "durationMs": 250,
                 "damage": 2.5,
