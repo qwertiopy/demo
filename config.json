@@ -91,8 +91,8 @@
     },
     "WEAPONS": [
         {
-            "speed": 20,
-            "radiusBlocks": 0.05,
+            "speed": 10,
+            "radiusBlocks": 0.1,
             "color": "crimson",
             "damage": 2.5,
             "maxBounces": 1,
@@ -147,13 +147,13 @@
             }
         },
         {
-            "speed": 20,
+            "speed": 10,
             "radiusBlocks": 0.1,
             "color": "crimson",
             "damage": 2.5,
             "maxBounces": 0,
             "lifetimeMs": 60000,
-            "cooldownMs": 1000,
+            "cooldownMs": 250,
             "penetrationBlocks": 0,
             "bulletCollision": false,
             "chain": {
@@ -162,9 +162,9 @@
                 "maximumRangeBlocks": 0
             },
             "variation": {
-                "enabled": true,
-                "speed": 10,
-                "radius": 0.05,
+                "enabled": false,
+                "speed": 0,
+                "radius": 0,
                 "damage": 0,
                 "rng": {
                     "luck": 0,
@@ -173,7 +173,7 @@
             },
             "volley": {
                 "enabled": true,
-                "count": 25,
+                "count": 10,
                 "spread": 0.5
             },
             "explosion": {
@@ -203,10 +203,10 @@
             }
         },
         {
-            "speed": 20,
+            "speed": 10,
             "radiusBlocks": 0.1,
             "color": "crimson",
-            "damage": 0,
+            "damage": 2.5,
             "maxBounces": 0,
             "lifetimeMs": 60000,
             "cooldownMs": 250,
@@ -259,7 +259,7 @@
             }
         },
         {
-            "speed": 20,
+            "speed": 10,
             "radiusBlocks": 0.1,
             "color": "crimson",
             "damage": 2.5,
@@ -315,10 +315,10 @@
             }
         },
         {
-            "speed": 20,
-            "radiusBlocks": 0.01,
+            "speed": 10,
+            "radiusBlocks": 0.1,
             "color": "crimson",
-            "damage": 10,
+            "damage": 2.5,
             "maxBounces": 0,
             "lifetimeMs": 60000,
             "cooldownMs": 250,
@@ -359,7 +359,7 @@
             },
             "laser": {
                 "enabled": true,
-                "warmupMs": 250
+                "warmupMs": 0
             },
             "split": {
                 "enabled": false,
@@ -371,12 +371,12 @@
             }
         },
         {
-            "speed": 20,
+            "speed": 10,
             "radiusBlocks": 0.1,
             "color": "crimson",
-            "damage": 0,
+            "damage": 2.5,
             "maxBounces": 0,
-            "lifetimeMs": 60000,
+            "lifetimeMs": 10000,
             "cooldownMs": 250,
             "penetrationBlocks": 0,
             "bulletCollision": false,
@@ -387,7 +387,7 @@
             },
             "variation": {
                 "enabled": true,
-                "speed": 15,
+                "speed": 10,
                 "radius": 0.05,
                 "damage": 10,
                 "rng": {
@@ -483,10 +483,10 @@
             }
         },
         {
-            "speed": 20,
+            "speed": 10,
             "radiusBlocks": 0.1,
             "color": "crimson",
-            "damage": 0,
+            "damage": 2.5,
             "maxBounces": 0,
             "lifetimeMs": 60000,
             "cooldownMs": 250,
@@ -542,7 +542,7 @@
                             "speed": 10,
                             "radiusBlocks": 0.1,
                             "color": "crimson",
-                            "damage": 0.5,
+                            "damage": 2.5,
                             "maxBounces": 0,
                             "lifetimeMs": 60000,
                             "cooldownMs": 0,
@@ -599,7 +599,7 @@
             }
         },
         {
-            "speed": 20,
+            "speed": 10,
             "radiusBlocks": 0.1,
             "color": "crimson",
             "damage": 2.5,
@@ -655,14 +655,14 @@
             }
         },
         {
-            "speed": 20,
-            "radiusBlocks": 0.05,
+            "speed": 10,
+            "radiusBlocks": 0.1,
             "color": "crimson",
             "damage": 2.5,
             "maxBounces": 0,
             "lifetimeMs": 60000,
-            "cooldownMs": 50,
-            "penetrationBlocks": 0,
+            "cooldownMs": 250,
+            "penetrationBlocks": 2.5,
             "bulletCollision": false,
             "chain": {
                 "enabled": false,
