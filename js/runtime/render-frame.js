@@ -28,8 +28,11 @@ export function renderGameFrame(currentTime) {
 	endProfileSection("snapshot-replay", snapshotProfile);
 
 	const renderProfile = beginProfileSection();
+	const quadTrailDetail = getTrailQuadDetail();
 	draw(snapshot, getLiveTrailEntries(), {
-		quadTrailEntries: getLiveTrailEntries(getTrailQuadDetail(), false),
+		quadTrailEntries: getLiveTrailEntries(quadTrailDetail, false),
+		playerTrailEntries:
+			quadTrailDetail > 0 ? getLiveTrailEntries(60, false) : [],
 	});
 	syncRespawnButton(snapshot);
 	endProfileSection("render", renderProfile);

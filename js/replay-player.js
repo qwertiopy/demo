@@ -79,9 +79,12 @@ function syncControls(currentTime = performance.now()) {
 function renderCurrentFrame(currentTime = performance.now()) {
 	const snapshot = getReplaySnapshotForRender(currentTime);
 	if (snapshot) {
+		const quadTrailDetail = getTrailQuadDetail();
 		draw(snapshot, getReplayTrailEntries(), {
 			replayActive: true,
-			quadTrailEntries: getReplayTrailEntries(getTrailQuadDetail(), false),
+			quadTrailEntries: getReplayTrailEntries(quadTrailDetail, false),
+			playerTrailEntries:
+				quadTrailDetail > 0 ? getReplayTrailEntries(60, false) : [],
 		});
 		syncRespawnButton(snapshot, { replayActive: true });
 	}

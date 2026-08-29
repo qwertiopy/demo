@@ -40,6 +40,8 @@ const ctx = new Proxy(
 					"moveTo",
 					"lineTo",
 					"arc",
+					"rect",
+					"clip",
 					"closePath",
 					"fill",
 					"stroke",
@@ -85,6 +87,7 @@ globalThis.document = {
 };
 
 const render = await import("../js/render.js");
+const { drawTrailsHybrid } = await import("../js/render/trails.js");
 const { syncRespawnButton } = await import("../js/runtime/game-ui.js");
 
 function makeSnapshot({ hp = 10 } = {}) {
@@ -177,4 +180,313 @@ test("respawn button synchronization is explicit and preserves live/replay seman
 
 	syncRespawnButton(makeSnapshot({ hp: 0 }), { replayActive: true });
 	assert.equal(respawnBtn.hidden, true);
+});
+
+
+test("projectile trail checkpoints render per-leg circles while synthetic path starts do not", () => {
+	resetDrawCalls();
+	const snapshot = makeSnapshot();
+	const trailEntries = [
+		{
+			alpha: 0.5,
+			snapshot: {
+				player: null,
+				enemies: [],
+				projectiles: [],
+				projectileTrailEvents: [
+					{ renderId: "p1", x: 1, y: 1, radius: 0.25, color: "red" },
+					{ renderId: "p1", x: 2, y: 1, radius: 0.25, color: "red", checkpoint: true },
+				],
+			},
+		},
+		{
+			alpha: 1,
+			snapshot: {
+				player: null,
+				enemies: [],
+				projectiles: [],
+				projectileTrailEvents: [
+					{ renderId: "p1", x: 3, y: 1, radius: 0.25, color: "red", checkpoint: true },
+				],
+			},
+		},
+	];
+
+	render.draw(snapshot, trailEntries);
+
+	const arcs = drawCalls.filter((entry) => entry[0] === "arc");
+	assert.deepEqual(
+		arcs.map((entry) => entry.slice(1, 4)),
+		[
+			[64, 32, 8],
+			[64, 32, 8],
+			[96, 32, 8],
+		],
+	);
+	assert.equal(drawCalls.filter((entry) => entry[0] === "fill").length, 2);
+	assert.equal(drawCalls.filter((entry) => entry[0] === "clip").length, 0);
+});
+
+
+test("checkpoint circles use ribbon-compatible winding inside compound fills", () => {
+	resetDrawCalls();
+	const rendering = { BLOCK_SIZE_PX: 32 };
+	const trailEntries = [
+		{
+			alpha: 0.5,
+			snapshot: {
+				player: null,
+				enemies: [],
+				projectiles: [],
+				projectileTrailEvents: [
+					{ renderId: "winding", x: 1, y: 1, radius: 0.25, color: "red" },
+				],
+			},
+		},
+		{
+			alpha: 1,
+			snapshot: {
+				player: null,
+				enemies: [],
+				projectiles: [],
+				projectileTrailEvents: [
+					{
+						renderId: "winding",
+						x: 2,
+						y: 1,
+						radius: 0.25,
+						color: "red",
+						checkpoint: true,
+					},
+				],
+			},
+		},
+	];
+
+	drawTrailsHybrid(trailEntries, trailEntries, rendering);
+
+	const arcs = drawCalls.filter((entry) => entry[0] === "arc");
+	assert.equal(arcs.length, 1);
+	assert.equal(arcs[0][4], 0);
+	assert.equal(arcs[0][5], -Math.PI * 2);
+	assert.equal(arcs[0][6], true);
+});
+
+
+test("terminal checkpoint is combined with its incoming ribbon in one fill", () => {
+	resetDrawCalls();
+	const rendering = { BLOCK_SIZE_PX: 32 };
+	const trailEntries = [
+		{
+			alpha: 0.5,
+			snapshot: {
+				player: null,
+				enemies: [],
+				projectiles: [],
+				projectileTrailEvents: [
+					{ renderId: "terminal", x: 1, y: 1, radius: 0.25, color: "red" },
+				],
+			},
+		},
+		{
+			alpha: 1,
+			snapshot: {
+				player: null,
+				enemies: [],
+				projectiles: [],
+				projectileTrailEvents: [
+					{
+						renderId: "terminal",
+						x: 2,
+						y: 1,
+						radius: 0.25,
+						color: "red",
+						checkpoint: true,
+					},
+				],
+			},
+		},
+	];
+
+	drawTrailsHybrid(trailEntries, trailEntries, rendering);
+
+	assert.equal(drawCalls.filter((entry) => entry[0] === "clip").length, 0);
+	assert.equal(drawCalls.filter((entry) => entry[0] === "fill").length, 1);
+
+	const arcIndexes = drawCalls
+		.map((entry, index) => (entry[0] === "arc" ? index : -1))
+		.filter((index) => index >= 0);
+	assert.equal(arcIndexes.length, 1);
+	const fillIndex = drawCalls.findIndex((entry) => entry[0] === "fill");
+	assert.ok(arcIndexes[0] < fillIndex);
+});
+
+
+test("both bounce legs paint their own shared checkpoint circles and blend normally", () => {
+	resetDrawCalls();
+	const rendering = { BLOCK_SIZE_PX: 32 };
+	const trailEntries = [
+		{
+			alpha: 0.4,
+			snapshot: {
+				player: null,
+				enemies: [],
+				projectiles: [],
+				projectileTrailEvents: [
+					{ renderId: "bounce", x: 1, y: 1, radius: 0.25, color: "red" },
+				],
+			},
+		},
+		{
+			alpha: 0.7,
+			snapshot: {
+				player: null,
+				enemies: [],
+				projectiles: [],
+				projectileTrailEvents: [
+					{
+						renderId: "bounce",
+						x: 2,
+						y: 1,
+						radius: 0.25,
+						color: "red",
+						checkpoint: true,
+					},
+				],
+			},
+		},
+		{
+			alpha: 1,
+			snapshot: {
+				player: null,
+				enemies: [],
+				projectiles: [],
+				projectileTrailEvents: [
+					{
+						renderId: "bounce",
+						x: 2,
+						y: 2,
+						radius: 0.25,
+						color: "red",
+						checkpoint: true,
+					},
+				],
+			},
+		},
+	];
+
+	drawTrailsHybrid(trailEntries, trailEntries, rendering);
+
+	assert.equal(drawCalls.filter((entry) => entry[0] === "clip").length, 0);
+	const fillIndexes = drawCalls
+		.map((entry, index) => (entry[0] === "fill" ? index : -1))
+		.filter((index) => index >= 0);
+	assert.equal(fillIndexes.length, 2);
+	const arcs = drawCalls.filter((entry) => entry[0] === "arc");
+	assert.deepEqual(
+		arcs.map((entry) => entry.slice(1, 4)),
+		[
+			[64, 32, 8],
+			[64, 32, 8],
+			[64, 64, 8],
+		],
+	);
+	assert.ok(fillIndexes[0] < fillIndexes[1]);
+});
+
+test("player trail marks initial position, turns, and stops with square checkpoints", () => {
+	resetDrawCalls();
+	const rendering = { BLOCK_SIZE_PX: 32 };
+	const playerTrailEntries = [
+		[0, 0, 0, 0.2],
+		[1, 1, 0, 0.4],
+		[2, 2, 0, 0.6],
+		[3, 2, 1, 0.8],
+		[4, 2, 1, 1],
+	].map(([frameNumber, x, y, alpha]) => ({
+		frameNumber,
+		alpha,
+		snapshot: {
+			player: {
+				renderId: "player",
+				x,
+				y,
+				size: 0.5,
+				color: "blue",
+				hp: 10,
+			},
+			enemies: [],
+			projectiles: [],
+			projectileTrailEvents: [],
+		},
+	}));
+
+	drawTrailsHybrid([], [], rendering, playerTrailEntries);
+
+	// Rightward and downward movement are two independent legs. The turn square
+	// belongs to both legs and is therefore painted twice; initial/stop squares
+	// are painted once each.
+	assert.equal(drawCalls.filter((entry) => entry[0] === "fill").length, 2);
+	const squareStarts = drawCalls
+		.map((entry, index) => {
+			if (entry[0] !== "moveTo") return null;
+			const [x, y] = entry.slice(1, 3);
+			const size = 16;
+			return (
+				drawCalls[index + 1]?.[0] === "lineTo" &&
+				drawCalls[index + 1]?.[1] === x &&
+				drawCalls[index + 1]?.[2] === y + size &&
+				drawCalls[index + 2]?.[0] === "lineTo" &&
+				drawCalls[index + 2]?.[1] === x + size &&
+				drawCalls[index + 2]?.[2] === y + size &&
+				drawCalls[index + 3]?.[0] === "lineTo" &&
+				drawCalls[index + 3]?.[1] === x + size &&
+				drawCalls[index + 3]?.[2] === y &&
+				drawCalls[index + 4]?.[0] === "closePath"
+					? [x, y]
+					: null
+			);
+		})
+		.filter(Boolean);
+	assert.deepEqual(squareStarts, [
+		[0, 0],
+		[64, 0],
+		[64, 0],
+		[64, 32],
+	]);
+});
+
+test("player trail marks a stationary-to-moving transition at the exact start point", () => {
+	resetDrawCalls();
+	const rendering = { BLOCK_SIZE_PX: 32 };
+	const playerTrailEntries = [
+		[0, 0, 0, 0.4],
+		[1, 0, 0, 0.7],
+		[2, 1, 0, 1],
+	].map(([frameNumber, x, y, alpha]) => ({
+		frameNumber,
+		alpha,
+		snapshot: {
+			player: {
+				renderId: "player",
+				x,
+				y,
+				size: 0.5,
+				color: "blue",
+				hp: 10,
+			},
+			enemies: [],
+			projectiles: [],
+			projectileTrailEvents: [],
+		},
+	}));
+
+	drawTrailsHybrid([], [], rendering, playerTrailEntries);
+
+	// The old initial checkpoint and the later start-moving checkpoint occupy the
+	// same world position but are distinct historical states and may blend.
+	const squareStartsAtOrigin = drawCalls.filter(
+		(entry) => entry[0] === "moveTo" && entry[1] === 0 && entry[2] === 0,
+	);
+	assert.equal(squareStartsAtOrigin.length, 2);
 });

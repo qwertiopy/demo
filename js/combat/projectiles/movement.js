@@ -79,7 +79,7 @@ export function processProjectiles(currentTime, dt) {
 
 		const recordTrailCheckpoint = () => {
 			beginTrailEventPath();
-			pushProjectileTrailEvent(b);
+			pushProjectileTrailEvent(b, b.x, b.y, { checkpoint: true });
 		};
 
 		const explosionTimerExpired = b.detonationTimeMs > 0 &&

@@ -174,7 +174,7 @@ function squareSupportVertexSign(normalComponent, tangentComponent, side) {
 	return side > 0 ? 1 : -1;
 }
 
-function actorRibbonSample(actor, alpha, blockSizePx) {
+function actorRibbonSample(actor, alpha, blockSizePx, frameNumber = null) {
 	if (!actor || actor.hp <= 0) return null;
 
 	const sizePx = Math.max(0, Number(actor.size) || 0) * blockSizePx;
@@ -190,8 +190,10 @@ function actorRibbonSample(actor, alpha, blockSizePx) {
 		renderId: actor.renderId,
 		cx,
 		cy,
+		halfSize,
 		color: actor.color,
 		alpha,
+		frameNumber,
 		edgesForTangent: (tangent) => {
 			const normalX = -tangent.y;
 			const normalY = tangent.x;
@@ -227,10 +229,17 @@ function projectileRibbonSample(projectile, alpha, blockSizePx) {
 		renderId: projectile.renderId,
 		cx,
 		cy,
+		radius,
 		color: projectile.color,
 		alpha,
+		checkpoint: projectile.checkpoint === true,
 		halfWidth: () => radius,
 	};
+}
+
+function mergeProjectileRibbonSample(previous, next) {
+	if (!previous?.checkpoint) return next;
+	return next.checkpoint ? next : { ...next, checkpoint: true };
 }
 
 // Build contiguous runs for each renderId. If an object disappears between two
@@ -245,7 +254,7 @@ function collectRibbonRuns(trailEntries, getItems, makeSample) {
 		const seenIds = new Set();
 
 		for (const [renderId, item] of itemsById) {
-			const sample = makeSample(item, entry.alpha);
+			const sample = makeSample(item, entry.alpha, entry);
 			if (!sample) continue;
 			seenIds.add(renderId);
 
@@ -311,7 +320,10 @@ function collectProjectileRibbonRuns(trailEntries, blockSizePx) {
 				previous &&
 				Math.hypot(sample.cx - previous.cx, sample.cy - previous.cy) < 1e-9
 			) {
-				samples[samples.length - 1] = sample;
+				samples[samples.length - 1] = mergeProjectileRibbonSample(
+					previous,
+					sample,
+				);
 			} else {
 				samples.push(sample);
 			}
@@ -335,7 +347,8 @@ function collectProjectileRibbonRuns(trailEntries, blockSizePx) {
 						previous &&
 						Math.hypot(sample.cx - previous.cx, sample.cy - previous.cy) < 1e-9
 					) {
-						active.samples[active.samples.length - 1] = sample;
+						active.samples[active.samples.length - 1] =
+							mergeProjectileRibbonSample(previous, sample);
 					} else {
 						active.samples.push(sample);
 					}
@@ -344,7 +357,10 @@ function collectProjectileRibbonRuns(trailEntries, blockSizePx) {
 				continue;
 			}
 
-			if (active?.samples.length >= 2) {
+			if (
+				active?.samples.length >= 2 ||
+				active?.samples.some((sample) => sample.checkpoint)
+			) {
 				completedRuns.push(active.samples);
 			}
 			activeRuns.set(renderId, {
@@ -356,20 +372,95 @@ function collectProjectileRibbonRuns(trailEntries, blockSizePx) {
 		for (const [renderId, active] of activeRuns) {
 			if (seenIds.has(renderId)) continue;
 			if (active.lastEntryIndex < entryIndex) {
-				if (active.samples.length >= 2) completedRuns.push(active.samples);
+				if (
+					active.samples.length >= 2 ||
+					active.samples.some((sample) => sample.checkpoint)
+				) {
+					completedRuns.push(active.samples);
+				}
 				activeRuns.delete(renderId);
 			}
 		}
 	}
 
 	for (const active of activeRuns.values()) {
-		if (active.samples.length >= 2) completedRuns.push(active.samples);
+		if (
+			active.samples.length >= 2 ||
+			active.samples.some((sample) => sample.checkpoint)
+		) {
+			completedRuns.push(active.samples);
+		}
 	}
 
 	return completedRuns;
 }
 
-function drawGradientQuad(previous, next, oldEdges, newEdges) {
+function appendCheckpointSquarePath(sample) {
+	if (!sample?.checkpoint || sample.halfSize <= 0) return false;
+	const halfSize = sample.halfSize;
+	ctx.moveTo(sample.cx - halfSize, sample.cy - halfSize);
+	ctx.lineTo(sample.cx - halfSize, sample.cy + halfSize);
+	ctx.lineTo(sample.cx + halfSize, sample.cy + halfSize);
+	ctx.lineTo(sample.cx + halfSize, sample.cy - halfSize);
+	ctx.closePath();
+	return true;
+}
+
+function drawCheckpointSquares(samples) {
+	for (const sample of samples) {
+		if (!sample?.checkpoint || sample.halfSize <= 0) continue;
+
+		ctx.save();
+		ctx.globalAlpha = 1;
+		ctx.fillStyle = trailColorAtAlpha(sample.color, sample.alpha);
+		ctx.beginPath();
+		appendCheckpointSquarePath(sample);
+		ctx.fill();
+		ctx.restore();
+	}
+}
+
+function markPlayerMovementCheckpoints(samples) {
+	if (samples.length === 0) return [];
+	const marked = samples.map((sample) => ({ ...sample, checkpoint: false }));
+
+	// Frame zero is the player's initial position. A truncated trail window must
+	// not manufacture a new initial checkpoint at its oldest visible sample.
+	if (Number(marked[0].frameNumber) === 0) marked[0].checkpoint = true;
+
+	for (let index = 1; index < marked.length - 1; index++) {
+		const previous = marked[index - 1];
+		const current = marked[index];
+		const next = marked[index + 1];
+		const incoming = normalizeVector(
+			current.cx - previous.cx,
+			current.cy - previous.cy,
+		);
+		const outgoing = normalizeVector(next.cx - current.cx, next.cy - current.cy);
+
+		const changedStationaryState = Boolean(incoming) !== Boolean(outgoing);
+		const changedDirection =
+			incoming && outgoing && !sameForwardDirection(incoming, outgoing);
+		if (changedStationaryState || changedDirection) current.checkpoint = true;
+	}
+
+	return marked;
+}
+
+function appendCheckpointCirclePath(sample) {
+	if (!sample?.checkpoint || sample.radius <= 0) return false;
+	ctx.moveTo(sample.cx + sample.radius, sample.cy);
+	ctx.arc(sample.cx, sample.cy, sample.radius, 0, -Math.PI * 2, true);
+	return true;
+}
+
+function drawGradientQuad(
+	previous,
+	next,
+	oldEdges,
+	newEdges,
+	includeEndpointCheckpointCircles = false,
+) {
 	ctx.save();
 	ctx.globalAlpha = 1;
 	ctx.fillStyle = sweptGradient(
@@ -382,22 +473,46 @@ function drawGradientQuad(previous, next, oldEdges, newEdges) {
 		previous.alpha,
 		next.alpha,
 	);
+
 	ctx.beginPath();
 	ctx.moveTo(oldEdges.left.x, oldEdges.left.y);
 	ctx.lineTo(newEdges.left.x, newEdges.left.y);
 	ctx.lineTo(newEdges.right.x, newEdges.right.y);
 	ctx.lineTo(oldEdges.right.x, oldEdges.right.y);
 	ctx.closePath();
+	if (includeEndpointCheckpointCircles) {
+		appendCheckpointCirclePath(previous);
+		if (next !== previous) appendCheckpointCirclePath(next);
+	}
 	ctx.fill();
 	ctx.restore();
 }
 
+function drawCheckpointCircles(samples) {
+	for (const sample of samples) {
+		if (!sample?.checkpoint || sample.radius <= 0) continue;
+
+		ctx.save();
+		ctx.globalAlpha = 1;
+		ctx.fillStyle = trailColorAtAlpha(sample.color, sample.alpha);
+		ctx.beginPath();
+		appendCheckpointCirclePath(sample);
+		ctx.fill();
+		ctx.restore();
+	}
+}
+
 // One trajectory is a ribbon made from edge-sharing quads. Every sample's
 // left/right cross-section is calculated once and reused by the quad before it
-// and the quad after it. Adjacent trail pieces therefore share only an edge;
-// there is no endpoint circle/rectangle and no overlapping capsule/hull area.
-function drawRibbonRun(samples) {
-	if (samples.length < 2) return;
+// and the quad after it. For projectile ribbons, each quad can append endpoint
+// checkpoint circles into the same fill, so a leg and its checkpoint share one
+// alpha application while adjacent legs can still blend normally with each
+// other when they pass through the same checkpoint again.
+function drawRibbonRun(samples, { drawProjectileCheckpoints = false } = {}) {
+	if (samples.length < 2) {
+		if (drawProjectileCheckpoints) drawCheckpointCircles(samples);
+		return;
+	}
 	const edges = samples.map((_, index) => ribbonEdges(samples, index));
 
 	for (let index = 0; index < samples.length - 1; index++) {
@@ -410,7 +525,17 @@ function drawRibbonRun(samples) {
 			continue;
 		}
 
-		drawGradientQuad(previous, next, oldEdges, newEdges);
+		drawGradientQuad(
+			previous,
+			next,
+			oldEdges,
+			newEdges,
+			drawProjectileCheckpoints,
+		);
+	}
+
+	if (drawProjectileCheckpoints) {
+		drawCheckpointCircles(samples);
 	}
 }
 
@@ -419,7 +544,7 @@ function drawRibbonRun(samples) {
 // discrete corners, so they are split into separate straight legs and stay on
 // this fast path. Quads are reserved for projectiles whose direction changes
 // on consecutive sampled movements (continuous/per-frame turning).
-function straightProjectileDirection(samples) {
+function straightTrailDirection(samples) {
 	let direction = null;
 
 	for (let index = 0; index < samples.length - 1; index++) {
@@ -441,7 +566,7 @@ function straightProjectileDirection(samples) {
 	return direction;
 }
 
-function sameForwardProjectileDirection(a, b) {
+function sameForwardDirection(a, b) {
 	const cross = a.x * b.y - a.y * b.x;
 	const dot = a.x * b.x + a.y * b.y;
 	return Math.abs(cross) <= 1e-5 && dot > 0.99999;
@@ -465,7 +590,7 @@ function projectileTurnsOnConsecutiveMovements(samples) {
 			continue;
 		}
 
-		const turned = !sameForwardProjectileDirection(previousDirection, direction);
+		const turned = !sameForwardDirection(previousDirection, direction);
 		if (turned && previousMovementTurned) return true;
 
 		previousMovementTurned = turned;
@@ -475,10 +600,11 @@ function projectileTurnsOnConsecutiveMovements(samples) {
 	return false;
 }
 
-// Split a bouncing/boomerang path at each discrete corner. The corner sample is
-// deliberately shared by the two legs so each strip reaches the exact impact
-// or reversal position; there are still no historical projectile circles.
-function splitStraightProjectileLegs(samples) {
+// Split a piecewise-straight path at each discrete corner or explicit
+// checkpoint. The shared checkpoint sample belongs to both adjacent legs, so
+// each leg can paint its own endpoint silhouette with that leg's alpha while
+// the two legs still blend normally with each other.
+function splitStraightTrailLegs(samples) {
 	const legs = [];
 	let leg = [];
 	let legDirection = null;
@@ -491,6 +617,11 @@ function splitStraightProjectileLegs(samples) {
 		if (!direction) {
 			if (leg.length === 0) leg.push(current);
 			leg.push(next);
+			if (next?.checkpoint && index < samples.length - 2) {
+				if (leg.length >= 2) legs.push(leg);
+				leg = [next];
+				legDirection = null;
+			}
 			continue;
 		}
 
@@ -499,24 +630,39 @@ function splitStraightProjectileLegs(samples) {
 			else if (leg.at(-1) !== current) leg.push(current);
 			leg.push(next);
 			legDirection = direction;
+			if (next?.checkpoint && index < samples.length - 2) {
+				if (leg.length >= 2) legs.push(leg);
+				leg = [next];
+				legDirection = null;
+			}
 			continue;
 		}
 
-		if (sameForwardProjectileDirection(legDirection, direction)) {
+		if (sameForwardDirection(legDirection, direction)) {
 			leg.push(next);
+			if (next?.checkpoint && index < samples.length - 2) {
+				if (leg.length >= 2) legs.push(leg);
+				leg = [next];
+				legDirection = null;
+			}
 			continue;
 		}
 
 		if (leg.length >= 2) legs.push(leg);
 		leg = [current, next];
 		legDirection = direction;
+		if (next?.checkpoint && index < samples.length - 2) {
+			if (leg.length >= 2) legs.push(leg);
+			leg = [next];
+			legDirection = null;
+		}
 	}
 
 	if (leg.length >= 2) legs.push(leg);
 	return legs;
 }
 
-function straightProjectileGradient(samples, firstIndex, lastIndex) {
+function straightTrailGradient(samples, firstIndex, lastIndex) {
 	const first = samples[firstIndex];
 	const last = samples[lastIndex];
 	const totalDistance = Math.hypot(last.cx - first.cx, last.cy - first.cy);
@@ -559,8 +705,8 @@ function straightProjectileGradient(samples, firstIndex, lastIndex) {
 	return gradient;
 }
 
-function drawStraightProjectileRun(samples) {
-	if (samples.length < 2 || !straightProjectileDirection(samples)) return false;
+function drawStraightPlayerRun(samples, paintedCheckpoints) {
+	if (samples.length < 2 || !straightTrailDirection(samples)) return false;
 
 	let firstIndex = 0;
 	let lastIndex = samples.length - 1;
@@ -591,17 +737,90 @@ function drawStraightProjectileRun(samples) {
 
 	ctx.save();
 	ctx.globalAlpha = 1;
-	ctx.fillStyle = straightProjectileGradient(
-		samples,
-		firstIndex,
-		lastIndex,
-	);
+	ctx.fillStyle = straightTrailGradient(samples, firstIndex, lastIndex);
 	ctx.beginPath();
 	ctx.moveTo(firstEdges.left.x, firstEdges.left.y);
 	ctx.lineTo(lastEdges.left.x, lastEdges.left.y);
 	ctx.lineTo(lastEdges.right.x, lastEdges.right.y);
 	ctx.lineTo(firstEdges.right.x, firstEdges.right.y);
 	ctx.closePath();
+
+	const first = samples[firstIndex];
+	const last = samples[lastIndex];
+	if (appendCheckpointSquarePath(first)) paintedCheckpoints.add(first);
+	if (last !== first && appendCheckpointSquarePath(last)) paintedCheckpoints.add(last);
+	ctx.fill();
+	ctx.restore();
+	return true;
+}
+
+function drawPiecewiseStraightPlayerRun(samples) {
+	const marked = markPlayerMovementCheckpoints(samples);
+	if (marked.length === 0) return false;
+
+	const legs = splitStraightTrailLegs(marked);
+	const paintedCheckpoints = new Set();
+	let drewAny = false;
+	for (const leg of legs) {
+		if (drawStraightPlayerRun(leg, paintedCheckpoints)) drewAny = true;
+	}
+
+	const unpaintedCheckpoints = marked.filter(
+		(sample) => sample.checkpoint && !paintedCheckpoints.has(sample),
+	);
+	if (unpaintedCheckpoints.length > 0) {
+		drawCheckpointSquares(unpaintedCheckpoints);
+		drewAny = true;
+	}
+	return drewAny;
+}
+
+function drawStraightProjectileRun(samples) {
+	if (samples.length < 2 || !straightTrailDirection(samples)) return false;
+
+	let firstIndex = 0;
+	let lastIndex = samples.length - 1;
+	while (
+		firstIndex < lastIndex &&
+		Math.hypot(
+			samples[firstIndex + 1].cx - samples[firstIndex].cx,
+			samples[firstIndex + 1].cy - samples[firstIndex].cy,
+		) < 1e-9
+	) {
+		firstIndex += 1;
+	}
+	while (
+		lastIndex > firstIndex &&
+		Math.hypot(
+			samples[lastIndex].cx - samples[lastIndex - 1].cx,
+			samples[lastIndex].cy - samples[lastIndex - 1].cy,
+		) < 1e-9
+	) {
+		lastIndex -= 1;
+	}
+	if (lastIndex <= firstIndex) return false;
+
+	const trimmed = samples.slice(firstIndex, lastIndex + 1);
+	const firstEdges = ribbonEdges(trimmed, 0);
+	const lastEdges = ribbonEdges(trimmed, trimmed.length - 1);
+	if (!firstEdges || !lastEdges) return false;
+
+	ctx.save();
+	ctx.globalAlpha = 1;
+	ctx.fillStyle = straightTrailGradient(
+		samples,
+		firstIndex,
+		lastIndex,
+	);
+
+	ctx.beginPath();
+	ctx.moveTo(firstEdges.left.x, firstEdges.left.y);
+	ctx.lineTo(lastEdges.left.x, lastEdges.left.y);
+	ctx.lineTo(lastEdges.right.x, lastEdges.right.y);
+	ctx.lineTo(firstEdges.right.x, firstEdges.right.y);
+	ctx.closePath();
+	appendCheckpointCirclePath(samples[firstIndex]);
+	if (lastIndex !== firstIndex) appendCheckpointCirclePath(samples[lastIndex]);
 	ctx.fill();
 	ctx.restore();
 	return true;
@@ -612,25 +831,24 @@ function drawPiecewiseStraightProjectileRun(samples) {
 		return false;
 	}
 
-	const legs = splitStraightProjectileLegs(samples);
-	if (legs.length === 0) return false;
-
+	const legs = splitStraightTrailLegs(samples);
 	let drewAny = false;
+
 	for (const leg of legs) {
 		if (drawStraightProjectileRun(leg)) drewAny = true;
 	}
-	return drewAny;
+
+	const hasCheckpoint = samples.some(
+		(sample) => sample?.checkpoint && sample.radius > 0,
+	);
+	if (!drewAny && hasCheckpoint) drawCheckpointCircles(samples);
+	return drewAny || hasCheckpoint;
 }
 
 function drawTrailRibbons(trailEntries, rendering, excludedProjectileIds = null) {
 	if (trailEntries.length < 2) return;
 	const blockSizePx = rendering.BLOCK_SIZE_PX;
 
-	const playerRuns = collectRibbonRuns(
-		trailEntries,
-		(snapshot) => (snapshot.player ? [snapshot.player] : []),
-		(actor, alpha) => actorRibbonSample(actor, alpha, blockSizePx),
-	);
 	const enemyRuns = collectRibbonRuns(
 		trailEntries,
 		(snapshot) => snapshot.enemies || [],
@@ -641,24 +859,39 @@ function drawTrailRibbons(trailEntries, rendering, excludedProjectileIds = null)
 		blockSizePx,
 	);
 
-	for (const run of playerRuns) drawRibbonRun(run);
 	for (const run of enemyRuns) drawRibbonRun(run);
 	for (const run of projectileRuns) {
 		if (excludedProjectileIds?.has(run[0]?.renderId)) continue;
-		drawRibbonRun(run);
+		drawRibbonRun(run, { drawProjectileCheckpoints: true });
 	}
 }
 
-// TRAIL_DETAIL feeds all piecewise-straight projectile legs, including normal
-// bullets, wall bounces, and boomerang reversals. TRAIL_QUAD_DETAIL is used for
-// player/enemy ribbons and only for projectiles that continuously turn between
-// consecutive sampled movements.
-export function drawTrailsHybrid(trailEntries, quadTrailEntries, rendering) {
+// TRAIL_DETAIL feeds piecewise-straight projectile legs. Player movement uses
+// full source-frame history but collapses keyboard-driven motion into straight
+// legs with square checkpoints at starts, stops, and turns. TRAIL_QUAD_DETAIL
+// remains for enemy ribbons and projectiles that continuously turn.
+export function drawTrailsHybrid(
+	trailEntries,
+	quadTrailEntries,
+	rendering,
+	playerTrailEntries = trailEntries,
+) {
 	const blockSizePx = rendering.BLOCK_SIZE_PX;
 	const straightProjectileIds = new Set();
+	let projectileRuns = [];
+	let playerRuns = [];
+
+	if (playerTrailEntries.length >= 2) {
+		playerRuns = collectRibbonRuns(
+			playerTrailEntries,
+			(snapshot) => (snapshot.player ? [snapshot.player] : []),
+			(actor, alpha, entry) =>
+				actorRibbonSample(actor, alpha, blockSizePx, entry.frameNumber),
+		);
+	}
 
 	if (trailEntries.length >= 2) {
-		const projectileRuns = collectProjectileRibbonRuns(
+		projectileRuns = collectProjectileRibbonRuns(
 			trailEntries,
 			blockSizePx,
 		);
@@ -670,5 +903,6 @@ export function drawTrailsHybrid(trailEntries, quadTrailEntries, rendering) {
 		}
 	}
 
+	for (const run of playerRuns) drawPiecewiseStraightPlayerRun(run);
 	drawTrailRibbons(quadTrailEntries, rendering, straightProjectileIds);
 }

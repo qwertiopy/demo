@@ -57,6 +57,12 @@ function encodeProjectile(projectile) {
 	return [id, projectile.x, projectile.y];
 }
 
+function encodeProjectileTrailEvent(event) {
+	const encoded = encodeProjectile(event);
+	if (event.checkpoint === true) encoded.push(1);
+	return encoded;
+}
+
 function encodeLaserWarmup(warmup) {
 	const id = recordedRenderId(warmup.renderId);
 	if (warmup.type === "cone") {
@@ -132,7 +138,7 @@ export function encodeReplayFrame(snapshot, timeMs, environmentRevision) {
 		[snapshot.player.x, snapshot.player.y, snapshot.player.hp],
 		(snapshot.enemies || []).map(encodeEnemy),
 		(snapshot.projectiles || []).map(encodeProjectile),
-		(snapshot.projectileTrailEvents || []).map(encodeProjectile),
+		(snapshot.projectileTrailEvents || []).map(encodeProjectileTrailEvent),
 		(snapshot.laserWarmups || []).map(encodeLaserWarmup),
 		(snapshot.laserBeams || []).map(encodeLaserBeam),
 		(snapshot.explosions || []).map(encodeExplosion),
@@ -260,6 +266,10 @@ export function decodeV3Frame(replay, frame, frameIndex) {
 			color: definition[2],
 		};
 	};
+	const decodeProjectileTrailEvent = (event) => ({
+		...decodeProjectile(event),
+		...(event[3] === 1 ? { checkpoint: true } : {}),
+	});
 
 	return {
 		frame: frameIndex,
@@ -289,7 +299,7 @@ export function decodeV3Frame(replay, frame, frameIndex) {
 		projectiles: (frame[V3_FRAME.PROJECTILES] || []).map(decodeProjectile),
 		projectileTrailEvents: (
 			frame[V3_FRAME.PROJECTILE_TRAIL_EVENTS] || []
-		).map(decodeProjectile),
+		).map(decodeProjectileTrailEvent),
 		laserWarmups: (frame[V3_FRAME.LASER_WARMUPS] || []).map(
 			decodeLaserWarmup,
 		),

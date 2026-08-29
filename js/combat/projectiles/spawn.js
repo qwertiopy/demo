@@ -17,6 +17,7 @@ import {
 	getThrowableKinematics,
 } from "../weapon-utils.js";
 import { isProjectileChainPathRadiusClear } from "./chain.js";
+import { pushProjectileTrailEvent } from "./helpers.js";
 
 export function shoot(shooter, targetX, targetY, stats, options = {}) {
 	if (GameState.isPlayerDead) return;
@@ -227,5 +228,12 @@ export function shoot(shooter, targetX, targetY, stats, options = {}) {
 			projectile,
 			maximumProjectileCount,
 		);
+		if (!projectile.removedByProjectileCap) {
+			// Launch is a real trajectory checkpoint, just like a wall impact,
+			// reversal, or terminal point. All in-game physical projectile spawns
+			// happen after the update-level trail-event reset, including split
+			// children, so recording it here preserves the exact creation point.
+			pushProjectileTrailEvent(projectile, centerX, centerY, { checkpoint: true });
+		}
 	}
 }

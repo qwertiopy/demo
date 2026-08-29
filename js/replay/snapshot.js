@@ -248,6 +248,7 @@ export function captureVisualSnapshot(currentTime) {
 				y: event.y,
 				radius: event.radius,
 				color: event.color,
+				...(event.checkpoint === true ? { checkpoint: true } : {}),
 			}),
 		),
 		laserWarmups: GameState.laserWarmups.map((shot) => {

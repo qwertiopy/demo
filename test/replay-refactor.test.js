@@ -23,6 +23,7 @@ globalThis.document = {
 
 const replayFacade = await import("../js/replay.js");
 const replayIndex = await import("../js/replay/index.js");
+const replayCodec = await import("../js/replay/codec.js");
 const { Config } = await import("../js/config.js");
 const { GameState, player, camera } = await import("../js/state.js");
 const { ReplayRuntime } = await import("../js/replay/runtime.js");
@@ -215,4 +216,40 @@ test("compact replay playback remains timestamp-driven and hydrates the recorded
 	assert.equal(second.frame, 1);
 	assert.equal(second.player.x, 2);
 	assert.equal(replayFacade.getReplayPlaybackState(1100).playbackPlaying, false);
+});
+
+
+test("compact replay preserves projectile checkpoint markers without changing legacy trail events", () => {
+	resetReplayRuntime();
+	const snapshot = {
+		camera: { x: 0, y: 0 },
+		activeWeaponIndex: 0,
+		maxDistance: -1,
+		player: { x: 0, y: 0, hp: 10 },
+		enemies: [],
+		projectiles: [],
+		projectileTrailEvents: [
+			{ renderId: "p1", x: 1, y: 2, radius: 0.25, color: "red" },
+			{ renderId: "p1", x: 3, y: 4, radius: 0.25, color: "red", checkpoint: true },
+		],
+		laserWarmups: [],
+		laserBeams: [],
+		explosions: [],
+	};
+
+	const frame = replayCodec.encodeReplayFrame(snapshot, 10, 0);
+	const replay = {
+		replayVersion: 3,
+		viewport: [30, 16.875],
+		playerStyle: [0.5, "blue", 10],
+		sources: {},
+		entityDefinitions: {
+			enemies: [],
+			projectiles: ReplayRuntime.recordedProjectileDefinitions,
+		},
+	};
+	const decoded = replayCodec.decodeV3Frame(replay, frame, 0);
+
+	assert.equal(decoded.projectileTrailEvents[0].checkpoint, undefined);
+	assert.equal(decoded.projectileTrailEvents[1].checkpoint, true);
 });

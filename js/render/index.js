@@ -39,11 +39,17 @@ export function draw(snapshot, trailEntries = [], options = {}) {
 	drawProceduralEnvironment(snapshot, rendering, debug);
 	drawWalls(snapshot, rendering);
 
-	if (trailEntries.length > 0 || options.quadTrailEntries?.length > 0) {
+	const playerTrailEntries = options.playerTrailEntries || trailEntries;
+	if (
+		trailEntries.length > 0 ||
+		options.quadTrailEntries?.length > 0 ||
+		playerTrailEntries.length > 0
+	) {
 		drawTrailsHybrid(
 			trailEntries,
 			options.quadTrailEntries || trailEntries,
 			rendering,
+			playerTrailEntries,
 		);
 	}
 

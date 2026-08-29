@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import test from "node:test";
 
 import { CombatDefaults } from "../js/combat/defaults.js";
+import { resetProjectileCaps } from "../js/combat/projectile-cap.js";
 import * as projectileFacade from "../js/combat/projectiles.js";
 import { updateProjectileChainAim } from "../js/combat/projectiles/chain.js";
 import { processProjectiles } from "../js/combat/projectiles/movement.js";
 import { getPenetratedCollisionRect } from "../js/combat/projectiles/penetration.js";
+import { resolveProjectileDefinition } from "../js/combat/projectile-schema.js";
 import { resolveProjectileVectorCollisions } from "../js/combat/projectiles/projectile-collision.js";
 import { shoot } from "../js/combat/projectiles/spawn.js";
 import {
@@ -17,10 +20,28 @@ import {
 	getBulletMaxStepBlocks,
 } from "../js/combat/projectiles/wall-collision.js";
 import { markWallIndexDirty } from "../js/spatial/wall-index.js";
+import { Config } from "../js/config.js";
 import { GameState, TEAM_PLAYER } from "../js/state.js";
+
+const configFile = JSON.parse(
+	fs.readFileSync(new URL("../config.json", import.meta.url), "utf8"),
+);
+const baseProjectile = configFile.BASE_PROJECTILE;
+
+function resetProjectileSpawnTestState() {
+	resetProjectileCaps();
+	GameState.projectiles = [];
+	GameState.projectileTrailEvents = [];
+	GameState.enemies = [];
+	GameState.walls = [];
+	GameState.isPlayerDead = false;
+	markWallIndexDirty();
+}
 
 function loadProjectileCollisionDefaults() {
 	Object.assign(CombatDefaults, {
+		DEFAULT_MAXIMUM_PROJECTILE_COUNT: 50,
+		MAXIMUM_PROJECTILE_COUNT_SAFEGUARD: 1000,
 		PROJECTILE_MAX_STEP_BLOCKS: 10,
 		MAX_WALL_IMPACTS_PER_SUBSTEP: 8,
 		WALL_TOI_EPSILON: 1e-9,
@@ -126,4 +147,84 @@ test("projectile movement still reflects the unused substep remainder after a wa
 	assert.equal(projectile.vy, 0);
 	assert.ok(Math.abs(projectile.x - 1.5) < 1e-6);
 	assert.equal(GameState.projectileTrailEvents.length, 2);
+	assert.equal(GameState.projectileTrailEvents[0].checkpoint, undefined);
+	assert.equal(GameState.projectileTrailEvents[1].checkpoint, true);
+});
+
+
+test("shoot records the exact projectile launch position as a checkpoint", () => {
+	loadProjectileCollisionDefaults();
+	resetProjectileSpawnTestState();
+
+	const shooter = {
+		id: 101,
+		team: TEAM_PLAYER,
+		x: 4,
+		y: 5,
+		size: 0.5,
+		maximumProjectileCount: 10,
+		upgrades: { variationLuck: 0 },
+	};
+	const stats = resolveProjectileDefinition(baseProjectile, {
+		speed: 4,
+		radiusBlocks: 0.25,
+		lifetimeMs: 5000,
+	});
+
+	shoot(shooter, 10, 5.25, stats);
+
+	assert.equal(GameState.projectiles.length, 1);
+	const [projectile] = GameState.projectiles;
+	const launchX = shooter.x + shooter.size / 2;
+	const launchY = shooter.y + shooter.size / 2;
+	assert.deepEqual(
+		GameState.projectileTrailEvents.map((event) => ({
+			projectile: event.projectile,
+			x: event.x,
+			y: event.y,
+			checkpoint: event.checkpoint,
+		})),
+		[{ projectile, x: launchX, y: launchY, checkpoint: true }],
+	);
+
+	processProjectiles(projectile.createdAt + 100, 0.25);
+	assert.ok(projectile.x > launchX);
+	assert.equal(GameState.projectileTrailEvents.length, 1);
+});
+
+test("physical split children record their split origin as a launch checkpoint", () => {
+	loadProjectileCollisionDefaults();
+	resetProjectileSpawnTestState();
+	const previousBaseProjectile = Config.BASE_PROJECTILE;
+	Config.BASE_PROJECTILE = baseProjectile;
+
+	try {
+		const parent = {
+			x: 7.5,
+			y: 3.25,
+			splitEnabled: true,
+			splitCount: 1,
+			splitSpread: 0,
+			splitChildren: [],
+			ownerId: 102,
+			team: TEAM_PLAYER,
+			variationLuckUpgrade: 0,
+		};
+
+		assert.equal(fireSplitChildren(parent, 0, 0), true);
+		assert.equal(GameState.projectiles.length, 1);
+		const [child] = GameState.projectiles;
+		assert.deepEqual(
+			GameState.projectileTrailEvents.map((event) => ({
+				projectile: event.projectile,
+				x: event.x,
+				y: event.y,
+				checkpoint: event.checkpoint,
+			})),
+			[{ projectile: child, x: parent.x, y: parent.y, checkpoint: true }],
+		);
+	} finally {
+		Config.BASE_PROJECTILE = previousBaseProjectile;
+		resetProjectileCaps();
+	}
 });
