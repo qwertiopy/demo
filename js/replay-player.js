@@ -82,7 +82,7 @@ function renderCurrentFrame(currentTime = performance.now()) {
 		const quadTrailDetail = getTrailQuadDetail();
 		draw(snapshot, getReplayTrailEntries(), {
 			replayActive: true,
-			quadTrailEntries: getReplayTrailEntries(quadTrailDetail, false),
+			quadTrailEntries: getReplayTrailEntries(quadTrailDetail),
 			playerTrailEntries:
 				quadTrailDetail > 0 ? getReplayTrailEntries(60, false) : [],
 		});

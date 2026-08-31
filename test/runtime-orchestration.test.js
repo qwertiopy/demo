@@ -5,6 +5,8 @@ import { readFile } from "node:fs/promises";
 const updateSourceUrl = new URL("../js/runtime/game-update.js", import.meta.url);
 const loopSourceUrl = new URL("../js/runtime/game-loop.js", import.meta.url);
 const mainSourceUrl = new URL("../js/main.js", import.meta.url);
+const renderFrameSourceUrl = new URL("../js/runtime/render-frame.js", import.meta.url);
+const replayPlayerSourceUrl = new URL("../js/replay-player.js", import.meta.url);
 
 function assertAppearsInOrder(source, snippets) {
 	let cursor = -1;
@@ -62,4 +64,29 @@ test("main remains a thin runtime entry point without subsystem orchestration", 
 	assert.doesNotMatch(source, /processProjectiles/);
 	assert.doesNotMatch(source, /processLasers/);
 	assert.doesNotMatch(source, /processExplosions/);
+});
+
+
+test("quad-detail trail sampling preserves projectile event frames in live and replay rendering", async () => {
+	const [renderFrameSource, replayPlayerSource] = await Promise.all([
+		readFile(renderFrameSourceUrl, "utf8"),
+		readFile(replayPlayerSourceUrl, "utf8"),
+	]);
+
+	assert.match(
+		renderFrameSource,
+		/quadTrailEntries:\s*getLiveTrailEntries\(quadTrailDetail\)/,
+	);
+	assert.match(
+		replayPlayerSource,
+		/quadTrailEntries:\s*getReplayTrailEntries\(quadTrailDetail\)/,
+	);
+	assert.doesNotMatch(
+		renderFrameSource,
+		/quadTrailEntries:\s*getLiveTrailEntries\(quadTrailDetail,\s*false\)/,
+	);
+	assert.doesNotMatch(
+		replayPlayerSource,
+		/quadTrailEntries:\s*getReplayTrailEntries\(quadTrailDetail,\s*false\)/,
+	);
 });

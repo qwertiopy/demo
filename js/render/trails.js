@@ -1,8 +1,165 @@
 // Swept/ribbon trail geometry and rendering.
 
-import { ctx } from "../dom.js";
+import { canvas, ctx as mainCtx } from "../dom.js";
+
+let ctx = mainCtx;
+let trailScratchCanvas = null;
+let trailScratchCtx = null;
+let scratchTrailHasPaint = false;
 
 const trailColorCache = new Map();
+
+
+function ensureTrailScratchCanvas(width, height) {
+	if (!trailScratchCanvas) {
+		trailScratchCanvas = document.createElement("canvas");
+		trailScratchCtx = trailScratchCanvas.getContext("2d");
+	}
+
+	const requiredWidth = Math.max(1, Math.ceil(width));
+	const requiredHeight = Math.max(1, Math.ceil(height));
+	if (trailScratchCanvas.width < requiredWidth) {
+		trailScratchCanvas.width = requiredWidth;
+	}
+	if (trailScratchCanvas.height < requiredHeight) {
+		trailScratchCanvas.height = requiredHeight;
+	}
+
+	return { canvas: trailScratchCanvas, ctx: trailScratchCtx };
+}
+
+function transformedPoint(transform, x, y) {
+	return {
+		x: transform.a * x + transform.c * y + transform.e,
+		y: transform.b * x + transform.d * y + transform.f,
+	};
+}
+
+function trailSampleExtent(sample) {
+	return Math.max(
+		0,
+		Number(sample?.radius) || 0,
+		Number(sample?.halfSize) || 0,
+	);
+}
+
+function trailRunScreenBounds(samples, transform) {
+	let minX = Infinity;
+	let minY = Infinity;
+	let maxX = -Infinity;
+	let maxY = -Infinity;
+
+	for (const sample of samples) {
+		const extent = trailSampleExtent(sample);
+		const left = sample.cx - extent;
+		const right = sample.cx + extent;
+		const top = sample.cy - extent;
+		const bottom = sample.cy + extent;
+		for (const [x, y] of [
+			[left, top],
+			[right, top],
+			[right, bottom],
+			[left, bottom],
+		]) {
+			const point = transformedPoint(transform, x, y);
+			minX = Math.min(minX, point.x);
+			minY = Math.min(minY, point.y);
+			maxX = Math.max(maxX, point.x);
+			maxY = Math.max(maxY, point.y);
+		}
+	}
+
+	if (![minX, minY, maxX, maxY].every(Number.isFinite)) return null;
+
+	// One physical pixel keeps antialiased trail edges from being clipped by the
+	// cropped scratch layer. Clamp to the visible canvas so offscreen runs never
+	// allocate a large temporary bitmap.
+	const padding = 1;
+	const x = Math.max(0, Math.floor(minX) - padding);
+	const y = Math.max(0, Math.floor(minY) - padding);
+	const right = Math.min(canvas.width, Math.ceil(maxX) + padding);
+	const bottom = Math.min(canvas.height, Math.ceil(maxY) + padding);
+	if (right <= x || bottom <= y) return null;
+
+	return { x, y, width: right - x, height: bottom - y };
+}
+
+function fillTrailPath() {
+	if (ctx !== trailScratchCtx) {
+		ctx.fill();
+		return;
+	}
+
+	if (scratchTrailHasPaint) {
+		ctx.save();
+		ctx.globalAlpha = 1;
+		ctx.globalCompositeOperation = "destination-out";
+		ctx.fillStyle = "#000";
+		ctx.fill();
+		ctx.restore();
+	}
+
+	// After the old contribution under this exact shape has been erased, the
+	// newest leg is painted once. Interior self-overlaps therefore keep the new
+	// leg's alpha instead of accumulating source-over opacity.
+	ctx.fill();
+	scratchTrailHasPaint = true;
+}
+
+function drawTrailRunLatestWins(samples, drawRun) {
+	if (!samples?.length) return false;
+
+	const transform = mainCtx.getTransform();
+	const bounds = trailRunScreenBounds(samples, transform);
+	if (!bounds) return false;
+
+	const scratch = ensureTrailScratchCanvas(bounds.width, bounds.height);
+	scratch.ctx.save();
+	scratch.ctx.setTransform(1, 0, 0, 1, 0, 0);
+	scratch.ctx.globalAlpha = 1;
+	scratch.ctx.globalCompositeOperation = "source-over";
+	scratch.ctx.clearRect(0, 0, bounds.width, bounds.height);
+	scratch.ctx.restore();
+
+	scratch.ctx.setTransform(
+		transform.a,
+		transform.b,
+		transform.c,
+		transform.d,
+		transform.e - bounds.x,
+		transform.f - bounds.y,
+	);
+	scratchTrailHasPaint = false;
+
+	const previousCtx = ctx;
+	ctx = scratch.ctx;
+	let drew = false;
+	try {
+		drew = Boolean(drawRun());
+	} finally {
+		ctx = previousCtx;
+	}
+
+	if (!drew) return false;
+
+	mainCtx.save();
+	mainCtx.setTransform(1, 0, 0, 1, 0, 0);
+	mainCtx.globalAlpha = 1;
+	mainCtx.globalCompositeOperation = "source-over";
+	mainCtx.drawImage(
+		scratch.canvas,
+		0,
+		0,
+		bounds.width,
+		bounds.height,
+		bounds.x,
+		bounds.y,
+		bounds.width,
+		bounds.height,
+	);
+	mainCtx.restore();
+	return true;
+}
 
 function clamp01(value) {
 	return Math.min(1, Math.max(0, Number(value) || 0));
@@ -415,7 +572,7 @@ function drawCheckpointSquares(samples) {
 		ctx.fillStyle = trailColorAtAlpha(sample.color, sample.alpha);
 		ctx.beginPath();
 		appendCheckpointSquarePath(sample);
-		ctx.fill();
+		fillTrailPath();
 		ctx.restore();
 	}
 }
@@ -484,7 +641,7 @@ function drawGradientQuad(
 		appendCheckpointCirclePath(previous);
 		if (next !== previous) appendCheckpointCirclePath(next);
 	}
-	ctx.fill();
+	fillTrailPath();
 	ctx.restore();
 }
 
@@ -497,7 +654,7 @@ function drawCheckpointCircles(samples) {
 		ctx.fillStyle = trailColorAtAlpha(sample.color, sample.alpha);
 		ctx.beginPath();
 		appendCheckpointCirclePath(sample);
-		ctx.fill();
+		fillTrailPath();
 		ctx.restore();
 	}
 }
@@ -505,14 +662,19 @@ function drawCheckpointCircles(samples) {
 // One trajectory is a ribbon made from edge-sharing quads. Every sample's
 // left/right cross-section is calculated once and reused by the quad before it
 // and the quad after it. For projectile ribbons, each quad can append endpoint
-// checkpoint circles into the same fill, so a leg and its checkpoint share one
-// alpha application while adjacent legs can still blend normally with each
-// other when they pass through the same checkpoint again.
+// checkpoint circles into the same fill. Each run is rendered oldest-to-newest
+// on a scratch layer, where a newer leg replaces the older pixels under its
+// shape instead of accumulating alpha at self-intersections.
 function drawRibbonRun(samples, { drawProjectileCheckpoints = false } = {}) {
+	const hasCheckpoint =
+		drawProjectileCheckpoints &&
+		samples.some((sample) => sample?.checkpoint && sample.radius > 0);
 	if (samples.length < 2) {
-		if (drawProjectileCheckpoints) drawCheckpointCircles(samples);
-		return;
+		if (hasCheckpoint) drawCheckpointCircles(samples);
+		return hasCheckpoint;
 	}
+
+	let drewAny = false;
 	const edges = samples.map((_, index) => ribbonEdges(samples, index));
 
 	for (let index = 0; index < samples.length - 1; index++) {
@@ -532,11 +694,14 @@ function drawRibbonRun(samples, { drawProjectileCheckpoints = false } = {}) {
 			newEdges,
 			drawProjectileCheckpoints,
 		);
+		drewAny = true;
 	}
 
-	if (drawProjectileCheckpoints) {
+	if (hasCheckpoint) {
 		drawCheckpointCircles(samples);
+		drewAny = true;
 	}
+	return drewAny;
 }
 
 // Straight projectile legs can be collapsed into one ribbon strip regardless
@@ -602,8 +767,8 @@ function projectileTurnsOnConsecutiveMovements(samples) {
 
 // Split a piecewise-straight path at each discrete corner or explicit
 // checkpoint. The shared checkpoint sample belongs to both adjacent legs, so
-// each leg can paint its own endpoint silhouette with that leg's alpha while
-// the two legs still blend normally with each other.
+// each leg can paint its own endpoint silhouette. On the per-run scratch layer,
+// the later leg replaces the earlier contribution wherever the two overlap.
 function splitStraightTrailLegs(samples) {
 	const legs = [];
 	let leg = [];
@@ -749,7 +914,7 @@ function drawStraightPlayerRun(samples, paintedCheckpoints) {
 	const last = samples[lastIndex];
 	if (appendCheckpointSquarePath(first)) paintedCheckpoints.add(first);
 	if (last !== first && appendCheckpointSquarePath(last)) paintedCheckpoints.add(last);
-	ctx.fill();
+	fillTrailPath();
 	ctx.restore();
 	return true;
 }
@@ -821,7 +986,7 @@ function drawStraightProjectileRun(samples) {
 	ctx.closePath();
 	appendCheckpointCirclePath(samples[firstIndex]);
 	if (lastIndex !== firstIndex) appendCheckpointCirclePath(samples[lastIndex]);
-	ctx.fill();
+	fillTrailPath();
 	ctx.restore();
 	return true;
 }
@@ -859,10 +1024,14 @@ function drawTrailRibbons(trailEntries, rendering, excludedProjectileIds = null)
 		blockSizePx,
 	);
 
-	for (const run of enemyRuns) drawRibbonRun(run);
+	for (const run of enemyRuns) {
+		drawTrailRunLatestWins(run, () => drawRibbonRun(run));
+	}
 	for (const run of projectileRuns) {
 		if (excludedProjectileIds?.has(run[0]?.renderId)) continue;
-		drawRibbonRun(run, { drawProjectileCheckpoints: true });
+		drawTrailRunLatestWins(run, () =>
+			drawRibbonRun(run, { drawProjectileCheckpoints: true }),
+		);
 	}
 }
 
@@ -897,12 +1066,18 @@ export function drawTrailsHybrid(
 		);
 
 		for (const run of projectileRuns) {
-			if (drawPiecewiseStraightProjectileRun(run)) {
+			if (
+				drawTrailRunLatestWins(run, () =>
+					drawPiecewiseStraightProjectileRun(run),
+				)
+			) {
 				straightProjectileIds.add(run[0].renderId);
 			}
 		}
 	}
 
-	for (const run of playerRuns) drawPiecewiseStraightPlayerRun(run);
+	for (const run of playerRuns) {
+		drawTrailRunLatestWins(run, () => drawPiecewiseStraightPlayerRun(run));
+	}
 	drawTrailRibbons(quadTrailEntries, rendering, straightProjectileIds);
 }
