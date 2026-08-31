@@ -82,6 +82,15 @@ export function processProjectiles(currentTime, dt) {
 			pushProjectileTrailEvent(b, b.x, b.y, { checkpoint: true });
 		};
 
+		const updateChainAimAndRecordTargetChange = () => {
+			const previousChainTarget = b.chainTarget;
+			const triggeredPostHitRedirect = updateProjectileChainAim(b);
+			if (b.chainTarget && b.chainTarget !== previousChainTarget) {
+				recordTrailCheckpoint();
+			}
+			return triggeredPostHitRedirect;
+		};
+
 		const explosionTimerExpired = b.detonationTimeMs > 0 &&
 			currentTime - b.createdAt >= b.detonationTimeMs;
 		const splitTimerExpired = b.splitTimeMs > 0 &&
@@ -99,7 +108,7 @@ export function processProjectiles(currentTime, dt) {
 			continue;
 		}
 
-		if (updateProjectileChainAim(b)) {
+		if (updateChainAimAndRecordTargetChange()) {
 			triggerChainRedirectEffects(b, currentTime);
 			if (b.removedByProjectileCap) {
 				releaseProjectile(b);
@@ -337,7 +346,7 @@ export function processProjectiles(currentTime, dt) {
 							if (b.chainTarget === t) b.chainTarget = null;
 
 							if (!chainTriggeredThisStep && !b.chainTarget) {
-								if (updateProjectileChainAim(b)) {
+								if (updateChainAimAndRecordTargetChange()) {
 									chainTriggeredThisStep = true;
 									triggerChainRedirectEffects(b, currentTime);
 								}

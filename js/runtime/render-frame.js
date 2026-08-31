@@ -30,7 +30,7 @@ export function renderGameFrame(currentTime) {
 	const renderProfile = beginProfileSection();
 	const quadTrailDetail = getTrailQuadDetail();
 	draw(snapshot, getLiveTrailEntries(), {
-		quadTrailEntries: getLiveTrailEntries(quadTrailDetail, false),
+		quadTrailEntries: getLiveTrailEntries(quadTrailDetail),
 		playerTrailEntries:
 			quadTrailDetail > 0 ? getLiveTrailEntries(60, false) : [],
 	});

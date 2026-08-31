@@ -50,6 +50,61 @@ function loadProjectileCollisionDefaults() {
 	});
 }
 
+function makeChainMovementProjectile(overrides = {}) {
+	return {
+		x: 0,
+		y: 0,
+		radius: 0.25,
+		vx: 4,
+		vy: 0,
+		color: "test",
+		damage: 1,
+		bounces: 0,
+		maxBounces: 0,
+		throwBounces: 0,
+		hitTargets: new Set(),
+		chain: 2,
+		chainMaximumRangeBlocks: 0,
+		chainsRemaining: 1,
+		chainReferenceAngle: 0,
+		chainVisitedTargets: new Set(),
+		chainTarget: null,
+		createdAt: 0,
+		lifetimeMs: 5000,
+		explosionRadiusBlocks: 0,
+		detonationTimeMs: 0,
+		explosionDurationMs: 0,
+		explosionDamage: 0,
+		detonatesOnImpact: false,
+		splitEnabled: false,
+		splitCount: 0,
+		splitTimeMs: 0,
+		splitsOnImpact: false,
+		splitSpread: 0,
+		splitChildren: [],
+		ownerId: 1,
+		team: TEAM_PLAYER,
+		variationLuckUpgrade: 0,
+		penetrationBlocks: 0,
+		remainingPenetrationBlocks: 0,
+		finishPenetratedWall: false,
+		throwable: false,
+		throwDirX: 1,
+		throwDirY: 0,
+		throwDistanceBlocks: 0,
+		throwDistanceMultiplier: 1,
+		throwTravelledBlocks: 0,
+		throwLegStartedAt: 0,
+		throwDeceleration: 1,
+		throwInitialSpeed: 0,
+		throwFlightDurationMs: 0,
+		throwComplete: true,
+		dv: 0,
+		bulletCollision: false,
+		...overrides,
+	};
+}
+
 test("projectile facade preserves the established public function exports", () => {
 	assert.equal(projectileFacade.shoot, shoot);
 	assert.equal(projectileFacade.processProjectiles, processProjectiles);
@@ -227,4 +282,137 @@ test("physical split children record their split origin as a launch checkpoint",
 		Config.BASE_PROJECTILE = previousBaseProjectile;
 		resetProjectileCaps();
 	}
+});
+
+
+test("first chain target acquisition records an exact projectile trail checkpoint", () => {
+	loadProjectileCollisionDefaults();
+	resetProjectileSpawnTestState();
+
+	const target = { x: 3.75, y: 2.75, size: 0.5, hp: 10 };
+	GameState.enemies = [target];
+	const projectile = makeChainMovementProjectile();
+	GameState.projectiles = [projectile];
+
+	processProjectiles(100, 0.1);
+
+	assert.equal(projectile.chainTarget, target);
+	assert.ok(projectile.vy > 0);
+	assert.deepEqual(
+		GameState.projectileTrailEvents.map((event) => ({
+			x: event.x,
+			y: event.y,
+			checkpoint: event.checkpoint,
+		})),
+		[
+			{ x: 0, y: 0, checkpoint: undefined },
+			{ x: 0, y: 0, checkpoint: true },
+		],
+	);
+});
+
+test("switching to a new chain target records an exact projectile trail checkpoint", () => {
+	loadProjectileCollisionDefaults();
+	resetProjectileSpawnTestState();
+
+	const staleTarget = { x: 3.75, y: 0, size: 0.5, hp: 0 };
+	const replacementTarget = { x: 3.75, y: 2.75, size: 0.5, hp: 10 };
+	GameState.enemies = [replacementTarget];
+	const projectile = makeChainMovementProjectile({ chainTarget: staleTarget });
+	GameState.projectiles = [projectile];
+
+	processProjectiles(100, 0.1);
+
+	assert.equal(projectile.chainTarget, replacementTarget);
+	assert.deepEqual(
+		GameState.projectileTrailEvents.map((event) => ({
+			x: event.x,
+			y: event.y,
+			checkpoint: event.checkpoint,
+		})),
+		[
+			{ x: 0, y: 0, checkpoint: undefined },
+			{ x: 0, y: 0, checkpoint: true },
+		],
+	);
+});
+
+
+test("post-hit chain redirects record an exact projectile trail checkpoint", () => {
+	loadProjectileCollisionDefaults();
+	resetProjectileSpawnTestState();
+
+	const hitTarget = { x: 0.75, y: -0.25, size: 0.5, hp: 10 };
+	const nextTarget = { x: 0.75, y: 2.75, size: 0.5, hp: 10 };
+	GameState.enemies = [hitTarget, nextTarget];
+
+	const projectile = {
+		x: 0,
+		y: 0,
+		radius: 0.25,
+		vx: 4,
+		vy: 0,
+		color: "test",
+		damage: 1,
+		bounces: 0,
+		maxBounces: 0,
+		throwBounces: 0,
+		hitTargets: new Set(),
+		chain: 2,
+		chainMaximumRangeBlocks: 0,
+		chainsRemaining: 1,
+		chainReferenceAngle: 0,
+		chainVisitedTargets: new Set(),
+		chainTarget: hitTarget,
+		createdAt: 0,
+		lifetimeMs: 5000,
+		explosionRadiusBlocks: 0,
+		detonationTimeMs: 0,
+		explosionDurationMs: 0,
+		explosionDamage: 0,
+		detonatesOnImpact: false,
+		splitEnabled: false,
+		splitCount: 0,
+		splitTimeMs: 0,
+		splitsOnImpact: false,
+		splitSpread: 0,
+		splitChildren: [],
+		ownerId: 1,
+		team: TEAM_PLAYER,
+		variationLuckUpgrade: 0,
+		penetrationBlocks: 0,
+		remainingPenetrationBlocks: 0,
+		finishPenetratedWall: false,
+		throwable: false,
+		throwDirX: 1,
+		throwDirY: 0,
+		throwDistanceBlocks: 0,
+		throwDistanceMultiplier: 1,
+		throwTravelledBlocks: 0,
+		throwLegStartedAt: 0,
+		throwDeceleration: 1,
+		throwInitialSpeed: 0,
+		throwFlightDurationMs: 0,
+		throwComplete: true,
+		dv: 0,
+		bulletCollision: false,
+	};
+	GameState.projectiles = [projectile];
+
+	processProjectiles(100, 0.25);
+
+	assert.equal(projectile.chainTarget, nextTarget);
+	assert.ok(Math.abs(projectile.vx) < 1e-10);
+	assert.ok(projectile.vy > 3.99);
+	assert.deepEqual(
+		GameState.projectileTrailEvents.map((event) => ({
+			x: event.x,
+			y: event.y,
+			checkpoint: event.checkpoint,
+		})),
+		[
+			{ x: 0, y: 0, checkpoint: undefined },
+			{ x: 1, y: 0, checkpoint: true },
+		],
+	);
 });
