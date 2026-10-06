@@ -39,8 +39,10 @@ export function updateGame(currentTime, dt) {
 	}
 
 	const proceduralProfile = beginProfileSection();
-	updateProceduralGeneration(player.x);
-	cleanupProceduralGeneration(player.x);
+	if (GameState.proceduralLevel) {
+		updateProceduralGeneration(player.x);
+		cleanupProceduralGeneration(player.x);
+	}
 	endProfileSection("procedural", proceduralProfile);
 
 	let dx = 0;
