@@ -62,30 +62,30 @@
    </div>
    <div id="statusMessage" role="status"></div>
                 <details class="config-section"><summary>Player</summary><div class="section-content">
-                    
-                
+
+
                     <div class="config-row">
                         <label for="cfg_PLAYER_SPEED">
                             Player Speed (blocks/sec)
                         </label>
                         <input type="number" id="cfg_PLAYER_SPEED" step="0.01" />
                     </div>
-                
+
                 </div></details>
-                
+
                 <details class="config-section"><summary>Display</summary><div class="section-content">
-                    
-                
+
+
                     <div class="config-row">
                         <label for="cfg_RENDER_CANVAS_WIDTH_PX">Width (px)</label>
                         <input type="number" id="cfg_RENDER_CANVAS_WIDTH_PX" min="1" step="1" />
                     </div>
-                
+
                     <div class="config-row">
                         <label for="cfg_RENDER_CANVAS_HEIGHT_PX">Height (px)</label>
                         <input type="number" id="cfg_RENDER_CANVAS_HEIGHT_PX" min="1" step="1" />
                     </div>
-                
+
                     <div class="config-row">
                         <label for="cfg_RENDER_BLOCK_SIZE_PX">Block Size (px)</label>
                         <input type="number" id="cfg_RENDER_BLOCK_SIZE_PX" min="1" step="1" />
@@ -94,7 +94,7 @@
                             used by one world block. Default: 64.
                         </p></details>
                     </div>
-                
+
                     <div class="config-row">
                         <label for="cfg_RENDER_ZOOM">Zoom</label>
                         <input type="number" id="cfg_RENDER_ZOOM" min="0.01" step="0.05" />
@@ -103,7 +103,7 @@
                             30 × 16.875 world blocks.
                         </p></details>
                     </div>
-                
+
                     <div class="config-row">
                         <label for="cfg_RENDER_TARGET_FPS">Target FPS</label>
                         <input type="number" id="cfg_RENDER_TARGET_FPS" min="1" step="1" />
@@ -112,17 +112,17 @@
                             the browser or display cannot keep up. Default: 60.
                         </p></details>
                     </div>
-                
+
                     <div class="config-row">
                         <label for="cfg_RENDER_DISTANCE_FRONT_BLOCKS">Front Render Distance (blocks)</label>
                         <input type="number" id="cfg_RENDER_DISTANCE_FRONT_BLOCKS" min="0" step="1" />
                     </div>
-                
+
                     <div class="config-row">
                         <label for="cfg_RENDER_DISTANCE_BACK_BLOCKS">Back Render Distance (blocks)</label>
                         <input type="number" id="cfg_RENDER_DISTANCE_BACK_BLOCKS" min="0" step="1" />
                     </div>
-                
+
                     <div class="config-row">
                         <label for="cfg_RENDER_ENVIRONMENT_OVERSCAN_BLOCKS">Environment Overscan (blocks)</label>
                         <input type="number" id="cfg_RENDER_ENVIRONMENT_OVERSCAN_BLOCKS" min="0" step="1" />
@@ -130,7 +130,7 @@
                             Extra background/grid blocks drawn beyond the camera viewport.
                         </p></details>
                     </div>
-                
+
                     <div class="config-row">
                         <label for="cfg_RENDER_CLEANUP_BUFFER_BLOCKS">Cleanup Buffer (blocks)</label>
                         <input type="number" id="cfg_RENDER_CLEANUP_BUFFER_BLOCKS" min="0" step="1" />
@@ -139,13 +139,13 @@
                             generation window before entities/projectiles are unloaded.
                         </p></details>
                     </div>
-                
+
                     <div class="config-row">
                         <label for="cfg_RENDER_LASER_FLASH_DURATION_MS">Laser Flash Duration (ms)</label>
                         <input type="number" id="cfg_RENDER_LASER_FLASH_DURATION_MS" min="0" step="1" />
                     </div>
-                
-                
+
+
                     <div class="config-row">
                         <label for="cfg_RENDER_TRAIL_LENGTH_FRAMES">Trail Length (frames)</label>
                         <input type="number" id="cfg_RENDER_TRAIL_LENGTH_FRAMES" min="0" step="1" />
@@ -154,7 +154,7 @@
                             linearly from the current frame to 0 at the oldest retained frame.
                         </p></details>
                     </div>
-                
+
                     <div class="config-row">
                         <label for="cfg_RENDER_TRAIL_DETAIL">Trail Detail (frames per 60)</label>
                         <input type="number" id="cfg_RENDER_TRAIL_DETAIL" min="0" max="60" step="1" />
@@ -163,7 +163,7 @@
                             60 uses every frame; 30 uses frames 0, 2, 4, ... .
                         </p></details>
                     </div>
-                
+
                     <div class="config-row">
                         <label for="cfg_RENDER_TRAIL_QUAD_DETAIL">Quad Trail Detail (frames per 60)</label>
                         <input type="number" id="cfg_RENDER_TRAIL_QUAD_DETAIL" min="0" max="60" step="1" />
@@ -174,10 +174,10 @@
                         </p></details>
                     </div>
                 </div></details>
-                
+
                 <details class="config-section"><summary>World generation</summary><div class="section-content">
-                    
-                
+
+
                     <div class="config-row">
                         <label for="cfg_STRUCTURE_DENSITY_BLOCKS">
                             Structure Density
@@ -189,7 +189,7 @@
                         />
                     </div>
                 </div></details>
-                
+
                 <details class="config-section"><summary>Advanced</summary><div class="section-content"><details class="field-help"><summary>Reference</summary><p class="config-help">
                         <strong>BASE_PROJECTILE</strong> is the required complete global
                         projectile definition. Player weapons, enemy weapons, and split
@@ -246,34 +246,35 @@
                         <strong>3</strong> = g-bot, <strong>4</strong> = j-bot,
                         <strong>5</strong> = h-bot.
                     </p></details>
-                    
-                
-                    
-                
-                    
-                
-                    
-                
-                    
-                
-                
-                    
-                
-                    
-                
-                
-                    
-                
-                    
-                
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                     <textarea
                         id="cfg_ADVANCED"
+                        aria-label="Advanced configuration JSON"
                         rows="20"
                         spellcheck="false"
                         placeholder='{"BASE_PROJECTILE": {...}, "WEAPONS": [...], "ENEMY_TYPES": {...}}'
                     ></textarea>
                 </div></details>
-                
+
   </section>
  </main>
  <script type="module" src="js/menu.js"></script>

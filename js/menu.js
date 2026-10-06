@@ -230,6 +230,7 @@ replaySetupClearBtn?.addEventListener("click", async () => {
 
 
 window.addEventListener("hashchange", () => showTab(selectedTabFromHash(), false));
+window.addEventListener("pageshow", () => showTab(selectedTabFromHash(), false));
 
 godModeToggle.addEventListener("change", () => {
 	try {

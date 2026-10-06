@@ -13,6 +13,16 @@ let hotkeys = null;
 let selected = null;
 let capture = null;
 let dirty = false;
+let mouseFollowupUntil = 0;
+
+// Side buttons can navigate on mouseup/auxclick after the modal has closed.
+for (const type of ["mouseup", "auxclick", "contextmenu"]) {
+    window.addEventListener(type, (event) => {
+        if (performance.now() > mouseFollowupUntil) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+    }, true);
+}
 
 function showStatus(message, error = false) {
     $("statusMessage").textContent = message;
@@ -130,6 +140,7 @@ $("captureMouseArea").addEventListener("mousedown", (event) => {
     if (!capture) return;
     event.preventDefault();
     event.stopPropagation();
+    mouseFollowupUntil = performance.now() + 500;
     acceptInput(mouseEventToInputCode(event));
 });
 $("captureMouseArea").addEventListener("contextmenu", (event) => event.preventDefault());

@@ -121,3 +121,5 @@
 }
 
 .replay-player-heading a { color: #cbd0d9; text-decoration: none; font-size: 13px; }
+
+#replayStatus:empty { display: none; }
