@@ -1,294 +1,207 @@
 import {
-    HOTKEY_ACTIONS,
-    MAX_BINDINGS_PER_ACTION,
-    clearLocalHotkeys,
-    fetchDefaultHotkeys,
-    formatInputCode,
-    isKnownAction,
-    mouseEventToInputCode,
-    normalizeHotkeyConfig,
-    readLocalHotkeys,
-    saveLocalHotkeys,
-    keyboardEventToInputCode,
+    HOTKEY_ACTIONS, fetchDefaultHotkeys, formatInputCode,
+    normalizeHotkeyConfig, readLocalHotkeys, saveLocalHotkeys,
+    keyboardEventToInputCode, mouseEventToInputCode,
 } from "./hotkeys.js";
 import { readJsonObjectFile } from "./json-file.js";
+import { replaceBinding, validateImportedBindings } from "./hotkey-editing.js";
 
+const $ = (id) => document.getElementById(id);
+const dialog = $("bindingDialog");
 let defaultHotkeys = null;
 let hotkeys = null;
+let selected = null;
 let capture = null;
-
-function clone(value) {
-    return JSON.parse(JSON.stringify(value));
-}
+let dirty = false;
 
 function showStatus(message, error = false) {
-    const status = document.getElementById("statusMessage");
-    status.textContent = message;
-    status.classList.toggle("error", error);
-}
-
-function groupActions() {
-    const groups = new Map();
-
-    HOTKEY_ACTIONS.forEach((action) => {
-        if (!groups.has(action.group)) groups.set(action.group, []);
-        groups.get(action.group).push(action);
-    });
-
-    return groups;
+    $("statusMessage").textContent = message;
+    $("statusMessage").classList.toggle("error", error);
 }
 
 function stopCapture() {
-    if (!capture) return;
-
-    capture.button.classList.remove("listening");
     capture = null;
-    window.removeEventListener("keydown", handleCaptureKeyDown, true);
-    window.removeEventListener("mousedown", handleCaptureMouseDown, true);
+    window.removeEventListener("keydown", captureKey, true);
+    if (dialog.open) dialog.close();
 }
 
-function assignBinding(actionId, slot, inputCode) {
-    const bindings = [...(hotkeys.bindings[actionId] || [])];
-
-    while (bindings.length < MAX_BINDINGS_PER_ACTION) bindings.push(null);
-
-    // Do not store the exact same input twice on one action. The same input is
-    // intentionally allowed on different actions.
-    bindings.forEach((binding, index) => {
-        if (index !== slot && binding === inputCode) bindings[index] = null;
-    });
-
-    bindings[slot] = inputCode;
-    hotkeys.bindings[actionId] = bindings.filter(Boolean);
-}
-
-function handleCaptureKeyDown(event) {
-    event.preventDefault();
-    event.stopPropagation();
-
-    const { actionId, slot } = capture;
-    assignBinding(actionId, slot, keyboardEventToInputCode(event));
-    stopCapture();
-    render();
-    showStatus("Binding changed. Click Save Locally to persist it.");
-}
-
-function handleCaptureMouseDown(event) {
-    event.preventDefault();
-    event.stopPropagation();
-
-    const { actionId, slot } = capture;
-    assignBinding(actionId, slot, mouseEventToInputCode(event));
-    stopCapture();
-    render();
-    showStatus("Binding changed. Click Save Locally to persist it.");
-}
-
-function startCapture(actionId, slot, button) {
-    stopCapture();
-
-    capture = { actionId, slot, button };
-    button.classList.add("listening");
-    button.textContent = "Press key / mouse…";
-    showStatus("Waiting for an input…");
-
-    // Delay listener installation so the click that opened capture is not
-    // itself captured as Mouse0.
-    requestAnimationFrame(() => {
-        if (!capture) return;
-        window.addEventListener("keydown", handleCaptureKeyDown, true);
-        window.addEventListener("mousedown", handleCaptureMouseDown, true);
-    });
-}
-
-function clearBinding(actionId, slot) {
-    const bindings = [...(hotkeys.bindings[actionId] || [])];
-
-    if (slot < bindings.length) bindings.splice(slot, 1);
-
-    hotkeys.bindings[actionId] = bindings.slice(0, MAX_BINDINGS_PER_ACTION);
-    render();
-    showStatus("Binding cleared. Click Save Locally to persist it.");
-}
-
-function createBindingButton(actionId, slot, inputCode) {
-    const wrapper = document.createElement("div");
-    wrapper.className = "hotkey-slot";
-
-    const bindButton = document.createElement("button");
-    bindButton.type = "button";
-    bindButton.className = "hotkey-bind-btn";
-    bindButton.textContent = formatInputCode(inputCode);
-    bindButton.addEventListener("click", () =>
-        startCapture(actionId, slot, bindButton),
-    );
-
-    const clearButton = document.createElement("button");
-    clearButton.type = "button";
-    clearButton.className = "hotkey-clear-btn";
-    clearButton.textContent = "Clear";
-    clearButton.disabled = !inputCode;
-    clearButton.addEventListener("click", () => clearBinding(actionId, slot));
-
-    wrapper.append(bindButton, clearButton);
-    return wrapper;
-}
-
-function render() {
-    if (!hotkeys) return;
-
-    stopCapture();
-
-    const container = document.getElementById("hotkeyGroups");
+function render(focus = null) {
+    const container = $("hotkeyGroups");
     container.replaceChildren();
-
-    groupActions().forEach((actions, groupName) => {
-        const section = document.createElement("div");
-        section.className = "hotkey-group";
-
-        const heading = document.createElement("h3");
-        heading.textContent = groupName;
-        section.appendChild(heading);
-
-        actions.forEach((action) => {
-            const row = document.createElement("div");
-            row.className = "hotkey-row";
-
-            const label = document.createElement("div");
-            label.className = "hotkey-action-label";
-            label.textContent = action.label;
-            row.appendChild(label);
-
-            const bindings = hotkeys.bindings[action.id] || [];
-
-            for (let slot = 0; slot < MAX_BINDINGS_PER_ACTION; slot++) {
-                row.appendChild(
-                    createBindingButton(action.id, slot, bindings[slot] || null),
-                );
-            }
-
-            section.appendChild(row);
+    let section;
+    let group;
+    for (const action of HOTKEY_ACTIONS) {
+        if (action.group !== group) {
+            group = action.group;
+            section = document.createElement("section");
+            section.className = "hotkey-group";
+            const heading = document.createElement("h2");
+            heading.textContent = group;
+            section.append(heading);
+            container.append(section);
+        }
+        const row = document.createElement("div");
+        row.className = "hotkey-row";
+        const label = document.createElement("span");
+        label.className = "hotkey-action-label";
+        label.id = `label-${action.id}`;
+        label.textContent = action.label;
+        const list = document.createElement("div");
+        list.className = "hotkey-bindings";
+        list.setAttribute("role", "group");
+        list.setAttribute("aria-labelledby", label.id);
+        (hotkeys.bindings[action.id] || []).forEach((code, index) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "hotkey-bind-btn";
+            button.id = `binding-${action.id}-${index}`;
+            button.textContent = formatInputCode(code);
+            button.title = code;
+            button.setAttribute("aria-pressed", selected?.actionId === action.id && selected.index === index);
+            button.addEventListener("click", () => {
+                selected = { actionId: action.id, index };
+                render(button.id);
+            });
+            list.append(button);
         });
-
-        container.appendChild(section);
-    });
+        const add = document.createElement("button");
+        add.type = "button";
+        add.id = `add-${action.id}`;
+        add.className = "hotkey-add-btn";
+        add.textContent = "+";
+        add.setAttribute("aria-label", `Add binding for ${action.label}`);
+        add.addEventListener("click", () => startCapture(action.id));
+        list.append(add);
+        row.append(label, list);
+        if (selected?.actionId === action.id) {
+            const actions = document.createElement("div");
+            actions.className = "hotkey-selection-actions";
+            const change = document.createElement("button");
+            change.type = "button";
+            change.textContent = "Change";
+            change.addEventListener("click", () => startCapture(action.id, selected.index));
+            const remove = document.createElement("button");
+            remove.type = "button";
+            remove.textContent = "Remove";
+            remove.addEventListener("click", () => {
+                hotkeys.bindings[action.id].splice(selected.index, 1);
+                selected = null;
+                dirty = true;
+                render(add.id);
+                showStatus("Binding removed. Save to apply.");
+            });
+            actions.append(change, remove);
+            row.append(actions);
+        }
+        section.append(row);
+    }
+    if (focus) $(focus)?.focus();
 }
+
+function startCapture(actionId, index = null) {
+    stopCapture();
+    capture = { actionId, index };
+    const action = HOTKEY_ACTIONS.find((item) => item.id === actionId);
+    $("captureTitle").textContent = `${index === null ? "Add" : "Change"} · ${action.label}`;
+    dialog.showModal();
+    window.addEventListener("keydown", captureKey, true);
+}
+
+function acceptInput(code) {
+    if (!capture || !code || code === "Unidentified") return;
+    const { actionId, index } = capture;
+    hotkeys.bindings[actionId] = replaceBinding(hotkeys.bindings[actionId], index, code);
+    selected = { actionId, index: hotkeys.bindings[actionId].indexOf(code) };
+    dirty = true;
+    stopCapture();
+    render(`binding-${actionId}-${selected.index}`);
+    showStatus("Binding changed. Save to apply.");
+}
+
+function captureKey(event) {
+    if (!capture) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (!event.repeat) acceptInput(keyboardEventToInputCode(event));
+}
+
+// Mouse capture is scoped to this pad so Cancel never becomes a binding.
+$("captureMouseArea").addEventListener("mousedown", (event) => {
+    if (!capture) return;
+    event.preventDefault();
+    event.stopPropagation();
+    acceptInput(mouseEventToInputCode(event));
+});
+$("captureMouseArea").addEventListener("contextmenu", (event) => event.preventDefault());
+$("captureMouseArea").addEventListener("auxclick", (event) => event.preventDefault());
+dialog.addEventListener("cancel", (event) => event.preventDefault());
+dialog.addEventListener("close", () => { if (!dialog.open) stopCapture(); });
+$("cancelCaptureBtn").addEventListener("click", stopCapture);
 
 function save() {
+    if (!hotkeys) return;
     try {
         const normalized = normalizeHotkeyConfig(defaultHotkeys, hotkeys);
-        hotkeys = clone(normalized);
-        saveLocalHotkeys(hotkeys);
-        render();
-        showStatus("Hotkeys saved locally. Reload the game to apply them.");
+        saveLocalHotkeys(normalized);
+        hotkeys = normalized;
+        dirty = false;
+        showStatus("Saved");
     } catch (error) {
-        showStatus("Could not save hotkeys: " + error.message, true);
+        showStatus(`Could not save: ${error.message}`, true);
     }
 }
 
-function exportHotkeys() {
+$("saveHotkeysBtn").addEventListener("click", save);
+$("resetHotkeysBtn").addEventListener("click", () => {
+    if (!defaultHotkeys) return;
+    stopCapture();
+    hotkeys = normalizeHotkeyConfig(defaultHotkeys);
+    selected = null;
+    dirty = true;
+    render();
+    showStatus("Defaults restored. Save to apply.");
+});
+$("importHotkeysBtn").addEventListener("click", () => $("importHotkeysFileInput").click());
+$("importHotkeysFileInput").addEventListener("change", async () => {
+    const file = $("importHotkeysFileInput").files?.[0];
+    $("importHotkeysFileInput").value = "";
+    if (!file || !defaultHotkeys) return;
+    try {
+        const imported = await readJsonObjectFile(file, "hotkeys.json");
+        validateImportedBindings(imported.bindings);
+        hotkeys = normalizeHotkeyConfig(defaultHotkeys, imported);
+        selected = null;
+        dirty = true;
+        render();
+        showStatus(`Imported ${file.name}. Save to apply.`);
+    } catch (error) {
+        showStatus(`Could not import: ${error.message}`, true);
+    }
+});
+$("exportHotkeysBtn").addEventListener("click", () => {
+    if (!hotkeys) return;
     const normalized = normalizeHotkeyConfig(defaultHotkeys, hotkeys);
-    const blob = new Blob([JSON.stringify(normalized, null, 4)], {
-        type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
+    const url = URL.createObjectURL(new Blob([JSON.stringify(normalized, null, 4)], { type: "application/json" }));
     const link = document.createElement("a");
-
     link.href = url;
     link.download = "hotkeys.json";
-    document.body.appendChild(link);
     link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-
-    showStatus("hotkeys.json exported successfully.");
-}
-
-async function importHotkeysFile() {
-    const input = document.getElementById("importHotkeysFileInput");
-    const file = input.files?.[0];
-    input.value = "";
-    if (!file) return;
-
-    if (!defaultHotkeys) {
-        showStatus("Hotkeys have not finished loading yet.", true);
-        return;
-    }
-
-    try {
-        const importedHotkeys = await readJsonObjectFile(file, "hotkeys.json");
-        const bindings = importedHotkeys.bindings;
-
-        if (!bindings || typeof bindings !== "object" || Array.isArray(bindings)) {
-            throw new Error("hotkeys.json.bindings must be a JSON object.");
-        }
-
-        for (const [actionId, actionBindings] of Object.entries(bindings)) {
-            if (!isKnownAction(actionId)) {
-                throw new Error(`Unknown hotkey action: ${actionId}.`);
-            }
-            if (!Array.isArray(actionBindings)) {
-                throw new Error(`Bindings for ${actionId} must be an array.`);
-            }
-            if (actionBindings.length > MAX_BINDINGS_PER_ACTION) {
-                throw new Error(
-                    `${actionId} has more than ${MAX_BINDINGS_PER_ACTION} bindings.`,
-                );
-            }
-            if (
-                actionBindings.some(
-                    (binding) => typeof binding !== "string" || !binding.trim(),
-                )
-            ) {
-                throw new Error(
-                    `Every binding for ${actionId} must be a non-empty string.`,
-                );
-            }
-        }
-
-        hotkeys = clone(normalizeHotkeyConfig(defaultHotkeys, importedHotkeys));
-        saveLocalHotkeys(hotkeys);
-        render();
-        showStatus(`Imported and saved ${file.name}. Reload the game to apply it.`);
-    } catch (error) {
-        showStatus(`Could not import hotkeys.json: ${error.message}`, true);
-    }
-}
-
-function reset() {
-    if (!defaultHotkeys) return;
-
-    clearLocalHotkeys();
-    hotkeys = normalizeHotkeyConfig(defaultHotkeys);
-    render();
-    showStatus("Local hotkeys cleared. Restored hotkeys.json defaults.");
-}
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showStatus("Exported hotkeys.json");
+});
+window.addEventListener("beforeunload", (event) => {
+    if (dirty) { event.preventDefault(); event.returnValue = ""; }
+});
 
 async function init() {
     try {
         defaultHotkeys = await fetchDefaultHotkeys();
         hotkeys = normalizeHotkeyConfig(defaultHotkeys, readLocalHotkeys());
         render();
-        showStatus(
-            readLocalHotkeys()
-                ? "Locally saved hotkeys loaded."
-                : "hotkeys.json defaults loaded. No local save yet.",
-        );
+        for (const id of ["saveHotkeysBtn", "importHotkeysBtn", "exportHotkeysBtn", "resetHotkeysBtn"]) $(id).disabled = false;
+        showStatus("");
     } catch (error) {
-        showStatus(error.message, true);
+        showStatus(`Could not load controls: ${error.message}`, true);
     }
 }
-
-document.getElementById("saveHotkeysBtn").addEventListener("click", save);
-document.getElementById("importHotkeysBtn").addEventListener("click", () => {
-    document.getElementById("importHotkeysFileInput").click();
-});
-document
-    .getElementById("importHotkeysFileInput")
-    .addEventListener("change", importHotkeysFile);
-document
-    .getElementById("exportHotkeysBtn")
-    .addEventListener("click", exportHotkeys);
-document.getElementById("resetHotkeysBtn").addEventListener("click", reset);
-
 init();

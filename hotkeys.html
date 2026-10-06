@@ -1,61 +1,33 @@
 <!doctype html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Hotkey Editor</title>
-        <link rel="stylesheet" href="css/config.css" />
-    </head>
-
-    <body>
-        <main class="config-container hotkey-container">
-            <header class="config-header">
-                <h1>Hotkey Editor</h1>
-                <nav class="config-nav">
-                    <a href="menu.html#config">Game Config</a>
-                    <a href="defaults.html">Combat Defaults</a>
-                    <a href="menu.html">← Main Menu</a>
-                </nav>
-            </header>
-
-            <section class="config-actions">
-                <button id="saveHotkeysBtn" class="apply-btn">Save Locally</button>
-                <button id="importHotkeysBtn" class="export-btn" type="button">
-                    Import hotkeys.json
-                </button>
-                <input
-                    id="importHotkeysFileInput"
-                    type="file"
-                    accept=".json,application/json"
-                    hidden
-                />
-                <button id="exportHotkeysBtn" class="export-btn">Export hotkeys.json</button>
-                <button id="resetHotkeysBtn" class="reset-btn">Reset to hotkeys.json</button>
-            </section>
-
-            <div id="statusMessage"></div>
-
-            <section class="config-section">
-                <h2>Bindings</h2>
-                <p class="config-help">
-                    Every action can have up to two bindings. The same key or mouse
-                    button may also be used by multiple actions.
-                </p>
-                <p class="config-help">
-                    Click a binding slot, then press a keyboard key or mouse button.
-                    Bindings use <code>KeyboardEvent.code</code>, so they track physical
-                    key positions rather than typed characters.
-                </p>
-                <p class="config-help">
-                    <strong>Auto Fire</strong> repeatedly fires the currently selected
-                    weapon while held, respecting that weapon's <code>cooldownMs</code>.
-                    It is unbound by default.
-                </p>
-                <div id="hotkeyGroups"></div>
-            </section>
-
-        </main>
-
-        <script type="module" src="js/hotkey-editor.js"></script>
-    </body>
-</html>
+<head>
+ <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+ <title>The Game — Controls</title>
+ <link rel="stylesheet" href="css/config.css"><link rel="stylesheet" href="css/hotkeys.css">
+</head>
+<body>
+ <main class="config-container">
+  <header class="page-header"><a href="menu.html">← Menu</a><h1>Controls</h1></header>
+  <div class="config-actions">
+   <button id="saveHotkeysBtn" class="apply-btn" type="button" disabled>Save</button>
+   <button id="importHotkeysBtn" type="button" disabled>Import</button>
+   <button id="exportHotkeysBtn" type="button" disabled>Export</button>
+   <button id="resetHotkeysBtn" type="button" disabled>Reset</button>
+   <input id="importHotkeysFileInput" type="file" accept=".json,application/json" hidden>
+  </div>
+  <div id="statusMessage" role="status">Loading controls…</div>
+  <div id="hotkeyGroups"></div>
+  <details class="field-help"><summary>Help</summary>
+   <p>Add as many keys or mouse buttons as you want to each action. Select a binding to change or remove it. A key can be shared by multiple actions.</p>
+   <p>Bindings use physical key positions. Escape, Delete and modifier keys can all be assigned. Some system shortcuts are intercepted by your browser or operating system.</p>
+   <p>Auto Fire repeatedly fires the selected weapon while held.</p>
+  </details>
+ </main>
+ <dialog id="bindingDialog" aria-labelledby="captureTitle" aria-describedby="captureHint">
+  <h2 id="captureTitle">Add binding</h2>
+  <p id="captureHint">Press a key, or click below with a mouse button.</p>
+  <button id="captureMouseArea" type="button">Mouse button</button>
+  <button id="cancelCaptureBtn" type="button">Cancel</button>
+ </dialog>
+ <script type="module" src="js/hotkey-editor.js"></script>
+</body></html>
