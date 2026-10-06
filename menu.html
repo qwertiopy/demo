@@ -1,135 +1,68 @@
 <!doctype html>
 <html lang="en">
-	<head>
-		<meta charset="UTF-8" />
-		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<title>Demo — Main Menu</title>
-		<link rel="stylesheet" href="css/config.css" />
-		<link rel="stylesheet" href="css/menu.css" />
-	</head>
-	<body>
-		<main class="menu-container">
-			<header class="menu-header">
-				<div>
-					<p class="menu-kicker">DEMO</p>
-					<h1>Main Menu</h1>
-				</div>
-				<nav class="menu-tabs" aria-label="Main menu sections">
-					<button type="button" data-menu-tab="play">Play</button>
-					<button type="button" data-menu-tab="level">Level Setup</button>
-					<button type="button" data-menu-tab="replays">Replays</button>
-					<button type="button" data-menu-tab="config">Config</button>
-					<a href="editor.html">Map Editor</a>
-					<a href="hotkeys.html">Controls</a>
-					<a href="defaults.html">Combat Defaults</a>
-				</nav>
-			</header>
-
-			<section class="menu-panel" data-menu-panel="play">
-				<div class="menu-panel-heading">
-					<div>
-						<h2>Game Mode</h2>
-						<p>Select a mode, then launch using the saved level setup. Sandbox can use browser-edited inputs; Endless always uses the factory config.json and level.json.</p>
-					</div>
-				</div>
-
-				<div class="launch-summary">
-					<div>
-						<span class="summary-label">Launch options</span>
-						<span id="launchSummary">Standard level</span>
-					</div>
-					<button id="launchGameBtn" class="primary-launch" type="button">Launch Game</button>
-				</div>
-
-				<div id="gameModeList" class="game-mode-grid"></div>
-			</section>
-
-			<section class="menu-panel" data-menu-panel="level" hidden>
-				<div class="menu-panel-heading">
-					<div>
-						<h2>Level Setup</h2>
-						<p>Factory level data is loaded from <code>level.json</code>. Changes here apply to Sandbox in this browser session; Endless ignores them.</p>
-					</div>
-				</div>
-
-				<div class="menu-actions">
-					<button id="importLevelBtn" class="export-btn" type="button">Import level.json</button>
-					<button id="saveLaunchOptionsBtn" class="apply-btn" type="button">Save Launch Options</button>
-					<button id="resetLaunchOptionsBtn" class="reset-btn" type="button">Reset Level Setup</button>
-				</div>
-				<input id="importLevelFileInput" type="file" accept=".json,application/json" hidden />
-				<div id="levelStatus" class="menu-status"></div>
-
-				<label class="menu-toggle">
-					<input type="checkbox" id="menuGodModeToggle" />
-					<span>Invincibility (God Mode)</span>
-				</label>
-				<p class="config-help compact-help">
-					Stored as <code>invincibility</code> in the Level JSON below.
-					Endless uses the factory value; Sandbox uses this session edit.
-				</p>
-
-				<label for="menuLevelData" class="menu-field-label">Level JSON</label>
-				<textarea id="menuLevelData" rows="18" spellcheck="false"></textarea>
-			</section>
-
-			<section class="menu-panel" data-menu-panel="replays" hidden>
-				<div class="menu-panel-heading">
-					<div>
-						<h2>Replay Setup</h2>
-						<p>Load, save, and launch replays here. Playback runs on its own dedicated player page.</p>
-					</div>
-				</div>
-
-				<div class="replay-setup-card">
-					<div class="menu-actions replay-setup-actions">
-						<button id="replaySetupLoadBtn" class="apply-btn" type="button">Load Replay</button>
-						<button id="replaySetupSaveBtn" class="export-btn" type="button" disabled>Save Replay</button>
-						<button id="replaySetupPlayBtn" class="primary-launch" type="button" disabled>Play Replay</button>
-						<button id="replaySetupClearBtn" class="reset-btn" type="button" disabled>Clear</button>
-					</div>
-					<input id="replaySetupFileInput" type="file" accept=".replay,application/json" hidden />
-					<div id="replaySetupStatus" class="menu-status">Checking replay storage...</div>
-
-					<div class="replay-setup-summary">
-						<span class="summary-label">Active replay</span>
-						<strong id="replaySetupTitle">No replay loaded</strong>
-						<span id="replaySetupDetails">Record one in-game or load a .replay file.</span>
-					</div>
-				</div>
-			</section>
-
-			<section class="menu-panel config-host" data-menu-panel="config" hidden>
-				<div class="menu-panel-heading">
-					<div>
-						<h2>Sandbox Configuration</h2>
-						<p>Edits saved here are used by Sandbox only. Endless always loads the unedited factory <code>config.json</code>.</p>
-					</div>
-				</div>
-
-				<section class="config-actions">
-					<button id="importConfigBtn" class="export-btn" type="button">
-						Import config.json
-					</button>
-					<input id="importConfigFileInput" type="file" accept=".json,application/json" hidden />
-
-					<button id="applyConfigBtn" class="apply-btn">
-						Save Locally
-					</button>
-
-					<button id="exportConfigBtn" class="export-btn">
-						Export config.json
-					</button>
-
-					<button id="resetConfigBtn" class="reset-btn">
-						Reset to config.json
-					</button>
-				</section>
-
-				<div id="statusMessage"></div>
-
-                <section class="config-section">
-                    <h2>Player</h2>
+<head>
+ <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+ <title>The Game</title>
+ <link rel="stylesheet" href="css/config.css"><link rel="stylesheet" href="css/menu.css">
+</head>
+<body class="main-menu">
+ <header class="menu-bar">
+  <button id="backToPlay" type="button" hidden>← Back</button>
+  <select id="gameModeSelect" aria-label="Game mode" disabled></select>
+  <select id="setupSelect" aria-label="Setup and controls">
+   <option value="play">Setup / Controls</option>
+   <option value="level">Level setup</option><option value="config">Settings</option>
+   <option value="editor.html">Map editor</option><option value="hotkeys.html">Controls</option>
+   <option value="replays">Replays</option><option value="defaults.html">Combat defaults</option>
+  </select>
+ </header>
+ <main class="menu-container">
+  <section class="play-panel" data-menu-panel="play">
+   <button id="launchGameBtn" class="play-surface" type="button" disabled>
+    <span>Play</span><small id="launchSummary"></small>
+   </button>
+  </section>
+  <section class="menu-panel" data-menu-panel="level" hidden>
+   <h1>Level setup</h1><p class="muted">Sandbox only</p>
+   <div class="menu-actions">
+    <a class="button" href="editor.html">Map editor</a>
+    <button id="importLevelBtn" type="button">Open</button>
+    <button id="saveLaunchOptionsBtn" class="apply-btn" type="button">Save</button>
+    <button id="resetLaunchOptionsBtn" type="button">Reset</button>
+   </div>
+   <input id="importLevelFileInput" type="file" accept=".json,application/json" hidden>
+   <div id="levelStatus" class="menu-status" role="status"></div>
+   <label class="menu-toggle"><input type="checkbox" id="menuGodModeToggle"> Invincibility</label>
+   <details id="levelJsonDetails" class="config-section"><summary>Level data</summary>
+    <label for="menuLevelData" class="visually-hidden">Level JSON</label>
+    <textarea id="menuLevelData" rows="18" spellcheck="false"></textarea>
+   </details>
+  </section>
+  <section class="menu-panel" data-menu-panel="replays" hidden>
+   <h1>Replays</h1>
+   <div class="menu-actions">
+    <button id="replaySetupLoadBtn" type="button">Open</button>
+    <button id="replaySetupSaveBtn" type="button" disabled>Export</button>
+    <button id="replaySetupPlayBtn" class="apply-btn" type="button" disabled>Play</button>
+    <button id="replaySetupClearBtn" type="button" disabled>Clear</button>
+   </div>
+   <input id="replaySetupFileInput" type="file" accept=".replay,application/json" hidden>
+   <div id="replaySetupStatus" class="menu-status" role="status"></div>
+   <p id="replaySetupTitle">No replay loaded</p>
+   <details class="field-help"><summary>Details</summary><p id="replaySetupDetails"></p></details>
+  </section>
+  <section class="menu-panel config-host" data-menu-panel="config" hidden>
+   <h1>Settings</h1><p class="muted">Sandbox only</p>
+   <div class="config-actions">
+    <button id="applyConfigBtn" class="apply-btn" type="button">Save</button>
+    <button id="importConfigBtn" type="button">Import</button>
+    <input id="importConfigFileInput" type="file" accept=".json,application/json" hidden>
+    <button id="exportConfigBtn" type="button">Export</button>
+    <button id="resetConfigBtn" type="button">Reset</button>
+   </div>
+   <div id="statusMessage" role="status"></div>
+                <details class="config-section"><summary>Player</summary><div class="section-content">
+                    
                 
                     <div class="config-row">
                         <label for="cfg_PLAYER_SPEED">
@@ -138,46 +71,46 @@
                         <input type="number" id="cfg_PLAYER_SPEED" step="0.01" />
                     </div>
                 
-                </section>
+                </div></details>
                 
-                <section class="config-section">
-                    <h2>Rendering</h2>
+                <details class="config-section"><summary>Display</summary><div class="section-content">
+                    
                 
                     <div class="config-row">
-                        <label for="cfg_RENDER_CANVAS_WIDTH_PX">Canvas Width (px)</label>
+                        <label for="cfg_RENDER_CANVAS_WIDTH_PX">Width (px)</label>
                         <input type="number" id="cfg_RENDER_CANVAS_WIDTH_PX" min="1" step="1" />
                     </div>
                 
                     <div class="config-row">
-                        <label for="cfg_RENDER_CANVAS_HEIGHT_PX">Canvas Height (px)</label>
+                        <label for="cfg_RENDER_CANVAS_HEIGHT_PX">Height (px)</label>
                         <input type="number" id="cfg_RENDER_CANVAS_HEIGHT_PX" min="1" step="1" />
                     </div>
                 
                     <div class="config-row">
                         <label for="cfg_RENDER_BLOCK_SIZE_PX">Block Size (px)</label>
                         <input type="number" id="cfg_RENDER_BLOCK_SIZE_PX" min="1" step="1" />
-                        <p class="config-help compact-help">
+                        <details class="field-help"><summary>Help</summary><p>
                             At zoom 1, this is the true number of internal canvas pixels
                             used by one world block. Default: 64.
-                        </p>
+                        </p></details>
                     </div>
                 
                     <div class="config-row">
-                        <label for="cfg_RENDER_ZOOM">Render Zoom</label>
+                        <label for="cfg_RENDER_ZOOM">Zoom</label>
                         <input type="number" id="cfg_RENDER_ZOOM" min="0.01" step="0.05" />
-                        <p class="config-help compact-help">
+                        <details class="field-help"><summary>Help</summary><p>
                             With the default 1920×1080 canvas and 64 px blocks, 1x shows
                             30 × 16.875 world blocks.
-                        </p>
+                        </p></details>
                     </div>
                 
                     <div class="config-row">
                         <label for="cfg_RENDER_TARGET_FPS">Target FPS</label>
                         <input type="number" id="cfg_RENDER_TARGET_FPS" min="1" step="1" />
-                        <p class="config-help compact-help">
+                        <details class="field-help"><summary>Help</summary><p>
                             Target simulation/render tick rate. Actual FPS can be lower if
                             the browser or display cannot keep up. Default: 60.
-                        </p>
+                        </p></details>
                     </div>
                 
                     <div class="config-row">
@@ -193,18 +126,18 @@
                     <div class="config-row">
                         <label for="cfg_RENDER_ENVIRONMENT_OVERSCAN_BLOCKS">Environment Overscan (blocks)</label>
                         <input type="number" id="cfg_RENDER_ENVIRONMENT_OVERSCAN_BLOCKS" min="0" step="1" />
-                        <p class="config-help compact-help">
+                        <details class="field-help"><summary>Help</summary><p>
                             Extra background/grid blocks drawn beyond the camera viewport.
-                        </p>
+                        </p></details>
                     </div>
                 
                     <div class="config-row">
                         <label for="cfg_RENDER_CLEANUP_BUFFER_BLOCKS">Cleanup Buffer (blocks)</label>
                         <input type="number" id="cfg_RENDER_CLEANUP_BUFFER_BLOCKS" min="0" step="1" />
-                        <p class="config-help compact-help">
+                        <details class="field-help"><summary>Help</summary><p>
                             Extra horizontal distance retained outside the procedural
                             generation window before entities/projectiles are unloaded.
-                        </p>
+                        </p></details>
                     </div>
                 
                     <div class="config-row">
@@ -216,34 +149,34 @@
                     <div class="config-row">
                         <label for="cfg_RENDER_TRAIL_LENGTH_FRAMES">Trail Length (frames)</label>
                         <input type="number" id="cfg_RENDER_TRAIL_LENGTH_FRAMES" min="0" step="1" />
-                        <p class="config-help compact-help">
+                        <details class="field-help"><summary>Help</summary><p>
                             Number of rendered frames retained for trails. Opacity fades
                             linearly from the current frame to 0 at the oldest retained frame.
-                        </p>
+                        </p></details>
                     </div>
                 
                     <div class="config-row">
                         <label for="cfg_RENDER_TRAIL_DETAIL">Trail Detail (frames per 60)</label>
                         <input type="number" id="cfg_RENDER_TRAIL_DETAIL" min="0" max="60" step="1" />
-                        <p class="config-help compact-help">
+                        <details class="field-help"><summary>Help</summary><p>
                             Sampling density used by the straight-projectile fast path.
                             60 uses every frame; 30 uses frames 0, 2, 4, ... .
-                        </p>
+                        </p></details>
                     </div>
                 
                     <div class="config-row">
                         <label for="cfg_RENDER_TRAIL_QUAD_DETAIL">Quad Trail Detail (frames per 60)</label>
                         <input type="number" id="cfg_RENDER_TRAIL_QUAD_DETAIL" min="0" max="60" step="1" />
-                        <p class="config-help compact-help">
+                        <details class="field-help"><summary>Help</summary><p>
                             Sampling density for ribbon quads: player/enemy trails and
                             projectiles that continuously turn between sampled frames.
                             Bounces/boomerangs use straight strips; 30 samples every second frame.
-                        </p>
+                        </p></details>
                     </div>
-                </section>
+                </div></details>
                 
-                <section class="config-section">
-                    <h2>World</h2>
+                <details class="config-section"><summary>World generation</summary><div class="section-content">
+                    
                 
                     <div class="config-row">
                         <label for="cfg_STRUCTURE_DENSITY_BLOCKS">
@@ -255,33 +188,24 @@
                             step="1"
                         />
                     </div>
-                </section>
+                </div></details>
                 
-                <section class="config-section">
-                    <h2>Advanced Configuration</h2>
-                
-                    <p class="config-help">
+                <details class="config-section"><summary>Advanced</summary><div class="section-content"><details class="field-help"><summary>Reference</summary><p class="config-help">
                         <strong>BASE_PROJECTILE</strong> is the required complete global
                         projectile definition. Player weapons, enemy weapons, and split
                         children are partial overlays on that base. Modifiers use nested
                         objects with an <code>enabled</code> flag.
-                    </p>
-                
-                    <p class="config-help">
+                    </p><p class="config-help">
                         Spread: <strong>spread</strong> is a random total angular cone
                         width in radians. Every shot samples a random offset from
                         -spread/2 to +spread/2, including player bullets, enemy bullets,
                         and lasers.
-                    </p>
-                
-                    <p class="config-help">
+                    </p><p class="config-help">
                         Explosives: <strong>detonationTimeMs = 0</strong> disables
                         the timed fuse. If <strong>detonatesOnImpact</strong> is
                         true, the projectile detonates when a wall collision would
                         exceed maxBounces. Explosion radius is measured in blocks.
-                    </p>
-                
-                    <p class="config-help">
+                    </p><p class="config-help">
                         Throwables: set <strong>throwable = true</strong>. Normal
                         projectile speed is ignored. Throw distance is the shooter-to-aim
                         distance multiplied by <strong>throwDistanceMultiplier</strong>.
@@ -292,10 +216,7 @@
                         speed. For throwables, <strong>maxBounces</strong> controls
                         boomerang reversals at the end of each throw leg; wall bounces
                         themselves are unlimited.
-                    </p>
-                
-                
-                    <p class="config-help">
+                    </p><p class="config-help">
                         Lasers: set <strong>laser = true</strong>. Firing starts a
                         warmup for <strong>laserWarmupMs</strong>, then resolves an
                         instantaneous beam. <strong>cooldownMs</strong> applies to every
@@ -304,9 +225,7 @@
                         warmup. Cooldowns are tracked separately per weapon. Laser aim
                         is locked when the shot is started. <strong>maxBounces</strong>
                         also controls laser wall reflections.
-                    </p>
-                
-                    <p class="config-help">
+                    </p><p class="config-help">
                         Penetration: <strong>penetrationBlocks</strong> is one total
                         wall-travel budget. Moving bullets subtract their intended
                         substep distance while overlapping walls; enemies never consume
@@ -314,24 +233,38 @@
                         bullet that exhausts penetration inside a wall finishes exiting
                         that wall before its next wall collision can bounce. Laser
                         hitscan consumes the same wall-distance budget along its ray.
-                    </p>
-                
-                
-                    <p class="config-help">
+                    </p><p class="config-help">
                         Projectile collision: set <strong>bulletCollision = true</strong>
                         to make that projectile physically collide with every other
                         player or enemy projectile on every simulation frame. Only one
                         projectile in a pair needs the flag enabled for the pair to
                         collide. Projectile/projectile contact does not deal damage or
                         consume wall penetration.
-                    </p>
-                
-                    <p class="config-help">
+                    </p><p class="config-help">
                         Structure grid flags: <strong>0</strong> = empty,
                         <strong>1</strong> = wall, <strong>2</strong> = random enemy,
                         <strong>3</strong> = g-bot, <strong>4</strong> = j-bot,
                         <strong>5</strong> = h-bot.
-                    </p>
+                    </p></details>
+                    
+                
+                    
+                
+                    
+                
+                    
+                
+                    
+                
+                
+                    
+                
+                    
+                
+                
+                    
+                
+                    
                 
                     <textarea
                         id="cfg_ADVANCED"
@@ -339,12 +272,10 @@
                         spellcheck="false"
                         placeholder='{"BASE_PROJECTILE": {...}, "WEAPONS": [...], "ENEMY_TYPES": {...}}'
                     ></textarea>
-                </section>
+                </div></details>
                 
-			</section>
-		</main>
-
-		<script type="module" src="js/menu.js"></script>
-		<script type="module" src="js/config-editor.js"></script>
-	</body>
-</html>
+  </section>
+ </main>
+ <script type="module" src="js/menu.js"></script>
+ <script type="module" src="js/config-editor.js"></script>
+</body></html>

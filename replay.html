@@ -3,7 +3,7 @@
 	<head>
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<title>Demo — Replay Player</title>
+		<title>The Game — Replay</title>
 		<link rel="stylesheet" href="css/style.css" />
 		<link rel="stylesheet" href="css/replay-player.css" />
 	</head>
@@ -13,9 +13,9 @@
 
 		<div id="replayPlayerControls" class="replay-player-controls">
 			<div class="replay-player-heading">
-				<strong>Replay Player</strong>
+				<a href="menu.html#replays">← Replays</a>
 				<div class="replay-player-readout">
-					<span id="replayPlayerFrame">Frame -- / --</span>
+					<span id="replayPlayerFrame" hidden>Frame -- / --</span>
 					<span id="replayPlayerTime">0:00.0 / 0:00.0</span>
 				</div>
 			</div>
@@ -53,7 +53,7 @@
 				</label>
 
 				<button id="replayHideUiBtn" type="button">Hide UI (H)</button>
-				<a href="menu.html#replays">Replay Setup</a>
+				
 			</div>
 			<div id="replayStatus">Loading replay...</div>
 		</div>

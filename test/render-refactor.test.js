@@ -174,17 +174,9 @@ test("game-over overlay remains a canvas concern after DOM UI extraction", () =>
 	render.draw(makeSnapshot({ hp: 0 }));
 
 	assert.ok(drawCalls.some((entry) => entry[0] === "fillText" && entry[1] === "GAME OVER"));
-	assert.ok(
-		drawCalls.some(
-			(entry) => entry[0] === "fillText" && entry[1] === "config.json: UNEDITED",
-		),
-	);
-	assert.ok(
-		drawCalls.some(
-			(entry) =>
-				entry[0] === "fillText" && entry[1] === "level.json: SESSION EDITABLE",
-		),
-	);
+	const labels = drawCalls.filter((entry) => entry[0] === "fillText").map((entry) => entry[1]);
+	assert.ok(labels.some((label) => label.startsWith("Max Distance:")));
+	assert.ok(labels.every((label) => !label.includes(".json:")));
 });
 
 test("respawn button synchronization is explicit and preserves live/replay semantics", () => {
