@@ -51,6 +51,7 @@ canvas.onpointerdown=e=>{
   if(selected(p)){copy();gesture.data=structuredClone(clipboard);gesture.selection={...selection};gesture.kind='move';}
   else selection={x:p.x,y:p.y,w:1,h:1};
  }else if(kind==='pencil'||kind==='eraser')brush(p.x,p.y,value);
+ else if(['line','rectangle','ellipse'].includes(kind))canvas.onpointermove(e);
  render();
 };
 canvas.onpointermove=e=>{
