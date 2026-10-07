@@ -54,3 +54,16 @@ The main menu is a viewport-sized Play target below the top bar. The centered se
 The controls editor shows each action's configured bindings as buttons with an Add (+) button. Select an existing binding to reveal Change/Remove. Add/Change opens input capture: all delivered keyboard codes (including Escape, Tab, Delete, modifiers, and function keys) are assignable. Mouse bindings are captured on the modal's mouse pad; Cancel does not bind a mouse button. There is no binding-count limit. Save applies edits; imports and Reset can be reviewed before saving. Keys may be shared between actions, while duplicates within one action are collapsed.
 
 Automated tests cover long binding lists through normalization/storage/runtime lookup, editor input events, selection/edit/removal/cancel/import/reset, menu dropdown navigation, and Sandbox/Endless launch isolation. The DOM event tests use a lightweight test fixture, not a browser renderer. Manually check desktop/narrow layouts, native dropdowns, actual keyboard and side-mouse capture, and browser-reserved shortcuts. Chromium was unavailable in this execution environment, so visual browser checks remain outstanding.
+
+
+### Enemy bounce shot priority
+
+In Setup → Combat defaults, set `ENEMY_BOUNCE_SHOT_PRIORITY`:
+- `-1`: prefer a clear LOS shot; fall back to a valid bounce route.
+- `0`: choose randomly among all valid direct and bounce routes (default).
+- `1`: prefer a valid bounce route; fall back to LOS.
+
+Applies when the enemy weapon has `maxBounces > 1`. With no valid routes,
+wait for a route. Priority chooses among bounce routes randomly. Debug mode
+shows bounce paths in green and highlights the selected angle. Save combat
+defaults and start Sandbox to use local overrides; Endless uses factory defaults.

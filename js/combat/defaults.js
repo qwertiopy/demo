@@ -32,7 +32,12 @@ function validateDefaults(value) {
 		if (!(key in value)) throw new Error(`${key} is required.`);
 	}
 
+	const bouncePriority = Number(value.ENEMY_BOUNCE_SHOT_PRIORITY ?? 0);
+	if (![-1, 0, 1].includes(bouncePriority)) {
+		throw new Error("ENEMY_BOUNCE_SHOT_PRIORITY must be -1 (LOS), 0 (random), or 1 (bounce).");
+	}
 	for (const [key, rawValue] of Object.entries(value)) {
+		if (key === "ENEMY_BOUNCE_SHOT_PRIORITY") continue;
 		if (!Number.isFinite(Number(rawValue)) || Number(rawValue) < 0) {
 			throw new Error(`${key} must be a non-negative finite number.`);
 		}
@@ -53,7 +58,7 @@ function validateDefaults(value) {
 		);
 	}
 
-	return value;
+	return { ...value, ENEMY_BOUNCE_SHOT_PRIORITY: bouncePriority };
 }
 
 export async function loadFactoryCombatDefaults() {

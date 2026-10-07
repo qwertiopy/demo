@@ -1,6 +1,7 @@
 // Enemy spawning, aiming/firing orchestration, and movement updates.
 
 import { canAimBounce, findEnemyShotPaths, chooseEnemyShotPath } from "./bounce-aim.js";
+import { CombatDefaults } from "../defaults.js";
 import { Config } from "../../config.js";
 import { GameState, player } from "../../state.js";
 import { calculateInterceptAim, calculateMaximumFleeInterceptDistance, calculateMaximumLeadHalfAngle } from "../targeting.js";
@@ -66,7 +67,7 @@ export function updateEnemies(currentTime, dt) {
 			}
 			e.debugBouncePaths = e.bounceAimPaths;
 			if (ready) {
-				const path = chooseEnemyShotPath(e.bounceAimPaths);
+				const path = chooseEnemyShotPath(e.bounceAimPaths, Number(CombatDefaults.ENEMY_BOUNCE_SHOT_PRIORITY ?? 0));
 				e.debugSelectedBouncePath = path;
 				if (path) {
 					fireEnemyProjectile(e, eCenterX, eCenterY, pCenterX, pCenterY,

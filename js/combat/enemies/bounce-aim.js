@@ -72,6 +72,10 @@ export function findEnemyShotPaths(origin, target, weapon) {
 	return paths;
 }
 
-export function chooseEnemyShotPath(paths, random = Math.random) {
-	return paths.length ? paths[Math.min(paths.length - 1, Math.floor(random() * paths.length))] : null;
+// Priority prefers a route type, falling back when that type is unavailable.
+export function chooseEnemyShotPath(paths, priority = 0, random = Math.random) {
+	const preferred = priority === -1 ? paths.filter(path => !path.bounce)
+		: priority === 1 ? paths.filter(path => path.bounce) : paths;
+	const choices = preferred.length ? preferred : paths;
+	return choices.length ? choices[Math.min(choices.length - 1, Math.floor(random() * choices.length))] : null;
 }
