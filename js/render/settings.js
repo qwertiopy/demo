@@ -30,6 +30,7 @@ export function normalizedDebugSettings(snapshot) {
 			source.DRAW_ENEMY_AIM_VISIBLE_INTERVAL !== false,
 		DRAW_ENEMY_AIM_BOUNDARY_POINTS:
 			source.DRAW_ENEMY_AIM_BOUNDARY_POINTS !== false,
+		DRAW_ENEMY_AIM_BOUNCE_ANGLE: source.DRAW_ENEMY_AIM_BOUNCE_ANGLE !== false,
 		DRAW_ENEMY_AIM_LEAD_ANGLE:
 			source.DRAW_ENEMY_AIM_LEAD_ANGLE !== false,
 		DRAW_ENEMY_AIM_CACHED_CORNER:

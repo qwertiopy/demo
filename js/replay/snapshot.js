@@ -83,6 +83,7 @@ function debugSnapshot() {
 			source.DRAW_ENEMY_AIM_VISIBLE_INTERVAL !== false,
 		DRAW_ENEMY_AIM_BOUNDARY_POINTS:
 			source.DRAW_ENEMY_AIM_BOUNDARY_POINTS !== false,
+		DRAW_ENEMY_AIM_BOUNCE_ANGLE: source.DRAW_ENEMY_AIM_BOUNCE_ANGLE !== false,
 		DRAW_ENEMY_AIM_LEAD_ANGLE:
 			source.DRAW_ENEMY_AIM_LEAD_ANGLE !== false,
 		DRAW_ENEMY_AIM_CACHED_CORNER:
@@ -154,6 +155,11 @@ function captureEnemyAimDebugSnapshot(enemy, debug) {
 		originY: Number.isFinite(enemy.debugAimOriginY)
 			? enemy.debugAimOriginY
 			: enemy.y + enemy.size / 2,
+		bouncePaths: debug.DRAW_ENEMY_AIM_BOUNCE_ANGLE
+			? (enemy.debugBouncePaths || []).filter(path => path.bounce).map(path => ({
+				angle: path.angle, origin: { ...path.origin }, bounce: { ...path.bounce }, target: { ...path.target },
+				selected: Math.abs(path.angle - (enemy.debugSelectedBouncePath?.angle ?? Infinity)) < 1e-6,
+			})) : [],
 		leadAngle:
 			debug.DRAW_ENEMY_AIM_LEAD_ANGLE &&
 			Number.isFinite(enemy.currentPredictedShotAngle)
@@ -189,6 +195,7 @@ export function captureVisualSnapshot(currentTime) {
 			debug.DRAW_ENEMY_AIM_VISIBILITY_REGION ||
 			debug.DRAW_ENEMY_AIM_VISIBLE_INTERVAL ||
 			debug.DRAW_ENEMY_AIM_BOUNDARY_POINTS ||
+			debug.DRAW_ENEMY_AIM_BOUNCE_ANGLE ||
 			debug.DRAW_ENEMY_AIM_LEAD_ANGLE ||
 			debug.DRAW_ENEMY_AIM_CACHED_CORNER
 		);
