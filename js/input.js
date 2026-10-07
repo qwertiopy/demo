@@ -163,6 +163,7 @@ export function loadLevel(levelDefinition = null) {
 			spawn: data.playerSpawn,
 		};
 		const proceduralLevel = data.seed !== undefined;
+		GameState.proceduralLevel = proceduralLevel;
 		if (proceduralLevel) {
 			GameState.levelSeed = data.seed;
 			GameState.currentSeed = data.seed;

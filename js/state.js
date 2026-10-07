@@ -5,6 +5,7 @@ import { Config } from "./config.js";
 // Mutable game-wide state: physical inputs, entities, procedural-generation
 // bookkeeping, timing, gameplay toggles, aiming, and active weapon selection.
 export const GameState = {
+	proceduralLevel: true,
 	pressedInputs: new Set(),
 	mouseClientX: null,
 	mouseClientY: null,
