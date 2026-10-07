@@ -3,7 +3,7 @@
 	<head>
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<title>Demo — Replay Player</title>
+		<title>The Game — Replay</title>
 		<link rel="stylesheet" href="css/style.css" />
 		<link rel="stylesheet" href="css/replay-player.css" />
 	</head>
@@ -13,9 +13,9 @@
 
 		<div id="replayPlayerControls" class="replay-player-controls">
 			<div class="replay-player-heading">
-				<strong>Replay Player</strong>
+				<a href="menu.html#replays">← Replays</a>
 				<div class="replay-player-readout">
-					<span id="replayPlayerFrame">Frame -- / --</span>
+					<span id="replayPlayerFrame" hidden>Frame -- / --</span>
 					<span id="replayPlayerTime">0:00.0 / 0:00.0</span>
 				</div>
 			</div>
@@ -34,9 +34,9 @@
 			</div>
 
 			<div class="replay-player-buttons">
-				<button id="replayRewindBtn" type="button" disabled>−5s</button>
-				<button id="replayPlayPauseBtn" type="button" disabled>Play</button>
-				<button id="replaySkipBtn" type="button" disabled>+5s</button>
+				<button title="Back 5 seconds (Left arrow)" id="replayRewindBtn" type="button" disabled>−5s</button>
+				<button title="Play or pause (Space)" id="replayPlayPauseBtn" type="button" disabled>Play</button>
+				<button title="Forward 5 seconds (Right arrow)" id="replaySkipBtn" type="button" disabled>+5s</button>
 				<button id="replayStopBtn" type="button" disabled>Stop</button>
 
 				<label class="replay-speed-control" for="replaySpeedSelect">
@@ -53,7 +53,7 @@
 				</label>
 
 				<button id="replayHideUiBtn" type="button">Hide UI (H)</button>
-				<a href="menu.html#replays">Replay Setup</a>
+
 			</div>
 			<div id="replayStatus">Loading replay...</div>
 		</div>

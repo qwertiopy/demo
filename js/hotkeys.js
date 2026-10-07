@@ -1,7 +1,6 @@
 // Hotkey definitions, local persistence, input-code helpers, and action lookup.
 
 export const HOTKEY_STORAGE_KEY = "demoGameHotkeys";
-export const MAX_BINDINGS_PER_ACTION = 2;
 
 export const HOTKEY_ACTIONS = [
 	{ id: "moveUp", label: "Move Up", group: "Movement" },
@@ -47,14 +46,15 @@ export function normalizeBindings(bindings, defaults = {}) {
 				: [];
 
 		normalized[id] = [];
+		const seen = new Set();
 
 		for (const binding of source) {
 			if (typeof binding !== "string" || binding.length === 0) continue;
-			if (normalized[id].includes(binding)) continue;
+			if (seen.has(binding)) continue;
+			seen.add(binding);
 
 			normalized[id].push(binding);
 
-			if (normalized[id].length >= MAX_BINDINGS_PER_ACTION) break;
 		}
 	});
 

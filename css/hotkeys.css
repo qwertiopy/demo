@@ -1,0 +1,16 @@
+.hotkey-group { border-top: 1px solid var(--border); padding: 18px 0; }
+.hotkey-group h2 { color: var(--muted); font-size: 12px; margin: 0 0 10px; }
+.hotkey-row { display: grid; grid-template-columns: 160px 1fr; align-items: start; gap: 8px 20px; padding: 7px 0; }
+.hotkey-action-label { padding-top: 7px; }
+.hotkey-bindings { display: flex; flex-wrap: wrap; gap: 6px; }
+.hotkey-bind-btn { min-width: 40px; }
+.hotkey-bind-btn[aria-pressed=true] { border-color: #83afe9; background: #334359; color: #edf4ff; }
+.hotkey-add-btn { background: transparent; border-style: dashed; color: var(--muted); }
+.hotkey-selection-actions { grid-column: 2; display: flex; gap: 6px; }
+.hotkey-selection-actions button { font-size: 12px; padding: 5px 10px; }
+dialog { width: min(420px, calc(100% - 32px)); padding: 24px; color: #cbd0d9; background: #202329; border: 1px solid #414955; border-radius: 8px; }
+dialog::backdrop { background: #0009; }
+dialog h2 { margin-top: 0; font-size: 18px; }
+dialog p { color: var(--muted); }
+#captureMouseArea { display: block; width: 100%; min-height: 90px; margin: 18px 0; }
+@media (max-width: 550px) { .hotkey-row { grid-template-columns: 110px 1fr; gap: 8px 12px; } }

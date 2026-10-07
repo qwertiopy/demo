@@ -38,13 +38,13 @@ canvas {
 #respawnBtn {
 	position: fixed;
 	left: 50%;
-	top: calc(50% + 145px);
+	top: calc(50% + 100px);
 	transform: translateX(-50%);
 	padding: 10px 22px;
 	cursor: pointer;
 	background: #444;
 	color: white;
-	border: 1px solid cyan;
+	border: 1px solid #495364;
 	border-radius: 4px;
 	font: 18px monospace;
 	z-index: 20;
@@ -110,7 +110,7 @@ canvas {
 }
 
 .debug-runtime-controls button:hover:not(:disabled) {
-	border-color: cyan;
+	border-color: #83afe9;
 }
 
 .debug-runtime-controls button:disabled {
@@ -128,7 +128,7 @@ canvas {
 .debug-menu-link {
 	display: block;
 	margin-top: 8px;
-	color: cyan;
+	color: #a9bdd8;
 	text-align: right;
 	text-decoration: none;
 }
@@ -136,3 +136,10 @@ canvas {
 .debug-menu-link:hover {
 	text-decoration: underline;
 }
+
+[hidden] { display: none !important; }
+.runtime-details summary { cursor: pointer; color: #959fac; font-size: 12px; text-align: right; }
+.runtime-details[open] summary { margin-bottom: 8px; }
+.debug-ui { background: #202329f2; border: 1px solid #343941; min-width: 220px; }
+.debug-runtime-controls strong { font-weight: 500; }
+button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid #83afe9; outline-offset: 3px; }
