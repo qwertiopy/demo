@@ -430,7 +430,7 @@ async function init() {
 					showStatus("Local config upgraded to the latest schema.");
 				} else {
 					config = mergeConfig(defaultConfig, savedConfig);
-					showStatus("Locally saved configuration loaded.");
+					showStatus("");
 				}
 			} catch (error) {
 				config = cloneConfig(defaultConfig);
@@ -442,7 +442,7 @@ async function init() {
 			}
 		} else {
 			config = cloneConfig(defaultConfig);
-			showStatus("config.json defaults loaded. No local save yet.");
+			showStatus("");
 		}
 
 		config.WEAPONS = normalizeWeaponOptionalStatsList(config.WEAPONS);

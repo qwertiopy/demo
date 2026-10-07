@@ -192,7 +192,7 @@ async function initReplayPlayer() {
 		skipBtn.disabled = false;
 		speedSelect.disabled = false;
 		timeline.disabled = false;
-		status.textContent = "Playing replay. Space: play/pause · ←/→: rewind/skip 5s · H: hide UI.";
+		status.textContent = "";
 		requestAnimationFrame(renderLoop);
 	} catch (error) {
 		console.error("Could not start replay player:", error);

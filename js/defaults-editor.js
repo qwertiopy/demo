@@ -41,7 +41,7 @@ async function init() {
 		const saved = localStorage.getItem(COMBAT_DEFAULTS_STORAGE_KEY);
 		const loaded = saved ? validateCombatDefaults(JSON.parse(saved)) : factoryDefaults;
 		data.value = JSON.stringify(loaded, null, 4);
-		showStatus(saved ? "Local Sandbox defaults loaded." : "Factory defaults loaded.");
+		showStatus("");
 	} catch (error) {
 		showStatus(`Could not load defaults: ${error.message}`, true);
 	}

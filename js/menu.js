@@ -11,9 +11,10 @@ import { readJsonObjectFile } from "./json-file.js";
 import { downloadReplay, readReplayFile, validateReplayData } from "./replay-file.js";
 import { clearActiveReplay, loadActiveReplay, saveActiveReplay } from "./replay-store.js";
 
-const tabButtons = Array.from(document.querySelectorAll("[data-menu-tab]"));
+const setupSelect = document.getElementById("setupSelect");
+const backToPlay = document.getElementById("backToPlay");
 const panels = Array.from(document.querySelectorAll("[data-menu-panel]"));
-const gameModeList = document.getElementById("gameModeList");
+const gameModeSelect = document.getElementById("gameModeSelect");
 const launchGameBtn = document.getElementById("launchGameBtn");
 const launchSummary = document.getElementById("launchSummary");
 const levelStatus = document.getElementById("levelStatus");
@@ -54,52 +55,42 @@ function showTab(tabId, updateHash = true) {
 		panel.hidden = panel.dataset.menuPanel !== tabId;
 	}
 
-	for (const button of tabButtons) {
-		const active = button.dataset.menuTab === tabId;
-		button.classList.toggle("active", active);
-		button.setAttribute("aria-current", active ? "page" : "false");
-	}
+	setupSelect.value = tabId;
+	backToPlay.hidden = tabId === "play";
+	document.body.classList.toggle("showing-setup", tabId !== "play");
 
 	if (updateHash) history.replaceState(null, "", `#${tabId}`);
 }
 
 function renderGameModes() {
-	gameModeList.textContent = "";
-
-	for (const mode of getGameModes()) {
-		const label = document.createElement("label");
-		label.className = "game-mode-card";
-		if (!mode.available) label.classList.add("disabled");
-
-		const input = document.createElement("input");
-		input.type = "radio";
-		input.name = "gameMode";
-		input.value = mode.id;
-		input.disabled = !mode.available;
-		input.checked = getGameMode(launchOptions.gameModeId).id === mode.id;
-		input.addEventListener("change", () => {
-			launchOptions.gameModeId = mode.id;
-			writeLaunchOptions(launchOptions);
-			updateLaunchSummary();
-		});
-
-		const copy = document.createElement("span");
-		copy.className = "game-mode-copy";
-		const title = document.createElement("strong");
-		title.textContent = mode.label;
-		const description = document.createElement("span");
-		description.textContent = mode.description;
-		copy.append(title, description);
-		label.append(input, copy);
-		gameModeList.append(label);
+	gameModeSelect.replaceChildren();
+	for (const mode of getGameModes().filter((mode) => mode.available)) {
+		const option = document.createElement("option");
+		option.value = mode.id;
+		option.textContent = mode.label;
+		gameModeSelect.append(option);
 	}
-
-	const architectureCard = document.createElement("div");
-	architectureCard.className = "game-mode-card architecture-card";
-	architectureCard.innerHTML =
-		'<span class="mode-plus">+</span><span class="game-mode-copy"><strong>Future modes</strong><span>Add definitions in js/game-modes.js; the menu and runtime resolve them through the same registry.</span></span>';
-	gameModeList.append(architectureCard);
+	gameModeSelect.value = getGameMode(launchOptions.gameModeId).id;
 }
+
+gameModeSelect.addEventListener("change", () => {
+	try {
+		launchOptions = writeLaunchOptions({ ...launchOptions, gameModeId: gameModeSelect.value });
+		updateLaunchSummary();
+	} catch (error) {
+		setStatus(levelStatus, error.message, true);
+		showTab("level");
+	}
+});
+setupSelect.addEventListener("change", () => {
+	const destination = setupSelect.value;
+	if (["editor.html", "hotkeys.html", "defaults.html"].includes(destination)) {
+		window.location.href = destination;
+	} else {
+		showTab(destination);
+	}
+});
+backToPlay.addEventListener("click", () => showTab("play"));
 
 function syncLaunchOptionsToUi() {
 	godModeToggle.checked = launchOptions.level?.invincibility === true;
@@ -121,7 +112,7 @@ function readLaunchOptionsFromUi() {
 		throw new Error("Level JSON must contain one object.");
 	}
 
-	const selectedMode = document.querySelector('input[name="gameMode"]:checked');
+	const selectedMode = gameModeSelect;
 	launchOptions = {
 		gameModeId: selectedMode?.value || launchOptions.gameModeId || "sandbox",
 		level: parsedLevel,
@@ -133,16 +124,8 @@ function readLaunchOptionsFromUi() {
 
 function updateLaunchSummary() {
 	const mode = getGameMode(launchOptions.gameModeId);
-	const effectiveLevel = mode.allowsEditedLevel
-		? launchOptions.level
-		: factoryLevelDefinition;
-	const seed = effectiveLevel?.seed;
-	const seedText = seed === undefined
-		? "explicit level"
-		: mode.id === "endless"
-			? "new random seed per run"
-			: `seed ${seed}`;
-	launchSummary.textContent = `${mode.label} · ${seedText}${effectiveLevel?.invincibility === true ? " · Invincible" : ""}`;
+	const level = mode.allowsEditedLevel ? launchOptions.level : factoryLevelDefinition;
+	launchSummary.textContent = level?.invincibility === true ? "Invincibility on" : "";
 }
 
 function replayDurationMs(replay) {
@@ -180,7 +163,7 @@ function syncReplaySetupUi(message = "") {
 		replaySetupDetails.textContent = `Mode: ${mode} · Created: ${activeReplay.createdAt || "unknown"}`;
 	}
 
-	replaySetupStatus.textContent = message || (hasReplay ? "Replay ready." : "No active replay.");
+	replaySetupStatus.textContent = message || (hasReplay ? "" : "");
 	replaySetupStatus.classList.remove("error");
 }
 
@@ -196,7 +179,7 @@ async function initReplaySetup() {
 			validateReplayData(stored);
 			activeReplay = stored;
 		}
-		syncReplaySetupUi(activeReplay ? "Active replay loaded from browser storage." : "No active replay.");
+		syncReplaySetupUi(activeReplay ? "" : "");
 	} catch (error) {
 		console.error("Could not initialize replay setup:", error);
 		setReplaySetupError(`Replay storage failed: ${error.message}`);
@@ -245,11 +228,9 @@ replaySetupClearBtn?.addEventListener("click", async () => {
 	}
 });
 
-for (const button of tabButtons) {
-	button.addEventListener("click", () => showTab(button.dataset.menuTab));
-}
 
 window.addEventListener("hashchange", () => showTab(selectedTabFromHash(), false));
+window.addEventListener("pageshow", () => showTab(selectedTabFromHash(), false));
 
 godModeToggle.addEventListener("change", () => {
 	try {
@@ -321,11 +302,14 @@ importLevelFileInput.addEventListener("change", async () => {
 
 launchGameBtn.addEventListener("click", () => {
 	try {
-		const options = readLaunchOptionsFromUi();
+		const options = getGameMode(gameModeSelect.value).allowsEditedLevel
+			? readLaunchOptionsFromUi()
+			: writeLaunchOptions({ ...launchOptions, gameModeId: gameModeSelect.value });
 		window.location.href = `index.html?mode=${encodeURIComponent(options.gameModeId)}`;
 	} catch (error) {
 		setStatus(levelStatus, error.message, true);
 		showTab("level");
+		document.getElementById("levelJsonDetails").open = true;
 	}
 });
 
@@ -340,6 +324,8 @@ async function initMenu() {
 		renderGameModes();
 		syncLaunchOptionsToUi();
 		showTab(selectedTabFromHash(), false);
+		launchGameBtn.disabled = false;
+		gameModeSelect.disabled = false;
 	} catch (error) {
 		console.error("Could not initialize level setup:", error);
 		showTab("level", false);

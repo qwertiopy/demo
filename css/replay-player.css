@@ -7,7 +7,7 @@
 	padding: 12px 14px;
 	border: 1px solid #41484d;
 	border-radius: 8px;
-	background: rgba(0, 0, 0, 0.88);
+	background: #202329f2;
 	color: white;
 	font-family: sans-serif;
 	z-index: 30;
@@ -88,8 +88,8 @@
 .replay-player-buttons button:hover:not(:disabled),
 .replay-player-buttons a:hover,
 .replay-speed-control select:hover:not(:disabled) {
-	border-color: cyan;
-	color: cyan;
+	border-color: #83afe9;
+	color: #83afe9;
 }
 
 .replay-player-buttons button:disabled,
@@ -119,3 +119,7 @@
 		justify-content: space-between;
 	}
 }
+
+.replay-player-heading a { color: #cbd0d9; text-decoration: none; font-size: 13px; }
+
+#replayStatus:empty { display: none; }

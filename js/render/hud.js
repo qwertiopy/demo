@@ -17,7 +17,7 @@ export function drawWeaponHud(snapshot) {
 
 	ctx.fillStyle = "rgba(0, 0, 0, 0.72)";
 	ctx.fillRect(x, y, width, height);
-	ctx.strokeStyle = "cyan";
+	ctx.strokeStyle = "#343941";
 	ctx.lineWidth = 1;
 	ctx.strokeRect(x, y, width, height);
 	ctx.fillStyle = "white";
@@ -27,18 +27,11 @@ export function drawWeaponHud(snapshot) {
 export function drawGameOverOverlay(snapshot) {
 	if (snapshot.player.hp > 0) return;
 
-	const sourceStatus = (source) =>
-		source === "factory"
-			? "UNEDITED"
-			: source === "session"
-				? "SESSION EDITABLE"
-				: "UNKNOWN";
-
 	ctx.save();
 	ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
 	ctx.fillRect(0, 0, canvas.width, canvas.height);
 	ctx.textAlign = "center";
-	ctx.fillStyle = "red";
+	ctx.fillStyle = "#e0e5ed";
 	ctx.font = "40px sans-serif";
 	ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2);
 	ctx.fillStyle = "white";
@@ -47,17 +40,6 @@ export function drawGameOverOverlay(snapshot) {
 		`Max Distance: ${Math.floor(snapshot.maxDistance)}`,
 		canvas.width / 2,
 		canvas.height / 2 + 40,
-	);
-	ctx.font = "20px monospace";
-	ctx.fillText(
-		`config.json: ${sourceStatus(snapshot.configSource)}`,
-		canvas.width / 2,
-		canvas.height / 2 + 75,
-	);
-	ctx.fillText(
-		`level.json: ${sourceStatus(snapshot.levelSource)}`,
-		canvas.width / 2,
-		canvas.height / 2 + 105,
 	);
 	ctx.restore();
 }

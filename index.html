@@ -4,17 +4,18 @@
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-		<title>Demo</title>
+		<title>The Game</title>
 
 		<link rel="stylesheet" href="css/style.css" />
 	</head>
 
 	<body>
 		<canvas id="gameCanvas" width="1920" height="1080"></canvas>
-		<button id="respawnBtn" type="button" hidden>Respawn?</button>
+		<button id="respawnBtn" type="button" hidden>Respawn</button>
 
 		<!-- DEBUG UI -->
 		<div id="debugUI" class="debug-ui" hidden>
+			<details class="runtime-details"><summary>Performance</summary>
 			<div id="performanceStats" class="performance-stats">
 				<span id="performanceFps">FPS: --</span>
 				<span id="performanceTargetFps">Target FPS: 60</span>
@@ -24,11 +25,12 @@
 				<span id="performanceBulletCount">Bullets: -- (Player: -- / Enemy: --)</span>
 			</div>
 
+			</details>
 			<div class="debug-runtime-controls">
-				<strong>Replay Recording</strong>
+				<strong>Replay</strong>
 				<div class="debug-button-row">
-					<button id="replayRecordBtn" type="button">Start Recording</button>
-					<button id="replayStopRecordingBtn" type="button" disabled>Stop Recording</button>
+					<button id="replayRecordBtn" type="button">Record</button>
+					<button id="replayStopRecordingBtn" type="button" disabled>Stop</button>
 				</div>
 				<div id="replayStatus">Replay recording idle.</div>
 				<a class="debug-menu-link" href="menu.html#replays">Replay Setup</a>
