@@ -52,7 +52,7 @@ export function findEnemyShotPaths(origin, target, weapon) {
 			const t = (face.plane - origin[axis]) / (mirrored - origin[axis]);
 			const along = origin[other] + t * (target[other] - origin[other]);
 			// Rounded corners are not planar reflectors.
-			if (along < face.min + EPSILON || along > face.max - EPSILON) continue;
+			if (along < face.min - EPSILON || along > face.max + EPSILON) continue;
 			const bounce = { [axis]: face.plane, [other]: along };
 			const mx = bounce.x - origin.x, my = bounce.y - origin.y;
 			const length = Math.hypot(mx, my) + Math.hypot(target.x - bounce.x, target.y - bounce.y);

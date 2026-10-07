@@ -57,7 +57,7 @@ export function updateEnemies(currentTime, dt) {
 		if (canAimBounce(e.typeStats.weapon)) {
 			const ready = currentTime - e.lastShot > e.shootCooldown;
 			// Revalidate at firing time; previews refresh at 10 Hz, not every tick.
-			if (ready || !e.bounceAimPaths || currentTime - e.bounceAimTime >= 100 ||
+			if ((ready && e.bounceAimPaths?.length) || !e.bounceAimPaths || currentTime - e.bounceAimTime >= 100 ||
 				e.bounceAimRevision !== GameState.environmentRevision) {
 				e.bounceAimPaths = findEnemyShotPaths(
 					{ x: eCenterX, y: eCenterY }, { x: pCenterX, y: pCenterY }, e.typeStats.weapon);

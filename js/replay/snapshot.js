@@ -158,7 +158,7 @@ function captureEnemyAimDebugSnapshot(enemy, debug) {
 		bouncePaths: debug.DRAW_ENEMY_AIM_BOUNCE_ANGLE
 			? (enemy.debugBouncePaths || []).filter(path => path.bounce).map(path => ({
 				angle: path.angle, origin: { ...path.origin }, bounce: { ...path.bounce }, target: { ...path.target },
-				selected: path === enemy.debugSelectedBouncePath,
+				selected: Math.abs(path.angle - (enemy.debugSelectedBouncePath?.angle ?? Infinity)) < 1e-6,
 			})) : [],
 		leadAngle:
 			debug.DRAW_ENEMY_AIM_LEAD_ANGLE &&

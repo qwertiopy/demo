@@ -575,3 +575,21 @@ test("trail scratch compositing overwrites self-overlap before scene compositing
 	assert.equal(drawImageIndexes.length, 1);
 	assert.ok(destinationOutIndexes.at(-1) < drawImageIndexes[0]);
 });
+
+test("bounce debug draws both legs and honors visibility and draw budget", async () => {
+	const { drawEnemyAimDebug } = await import('../js/render/actors.js');
+	const { resetDebugDrawBudget } = await import('../js/render/settings.js');
+	const settings = { DRAW_ENEMY_AIM_BOUNCE_ANGLE: true, MAX_DRAWS_PER_FRAME: 1 };
+	const enemy = { aimDebug: { bouncePaths: [{ origin: { x: 0, y: 0 },
+		bounce: { x: 2, y: 3 }, target: { x: 4, y: 0 }, selected: true }] } };
+	resetDrawCalls();
+	resetDebugDrawBudget({ showEditorHelpers: true }, settings);
+	drawEnemyAimDebug(enemy, 10, settings);
+	assert.deepEqual(drawCalls.filter(call => call[0] === 'lineTo'), [['lineTo', 20, 30], ['lineTo', 40, 0]]);
+	resetDrawCalls();
+	drawEnemyAimDebug(enemy, 10, settings);
+	assert.equal(drawCalls.filter(call => call[0] === 'stroke').length, 0);
+	resetDebugDrawBudget({ showEditorHelpers: false }, settings);
+	drawEnemyAimDebug(enemy, 10, settings);
+	assert.equal(drawCalls.filter(call => call[0] === 'stroke').length, 0);
+});
