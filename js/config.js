@@ -40,6 +40,7 @@ export const Config = {
         DRAW_ENEMY_AIM_VISIBLE_INTERVAL: true,
         DRAW_ENEMY_AIM_BOUNDARY_POINTS: true,
         DRAW_ENEMY_AIM_LEAD_ANGLE: true,
+        DRAW_ENEMY_AIM_BOUNCE_ANGLE: true,
         DRAW_ENEMY_AIM_CACHED_CORNER: true,
     },
     PLAYER_SIZE_BLOCKS: 0.5,

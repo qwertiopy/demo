@@ -1,5 +1,6 @@
 // Enemy spawning, aiming/firing orchestration, and movement updates.
 
+import { canAimBounce, findEnemyShotPaths, chooseEnemyShotPath } from "./bounce-aim.js";
 import { Config } from "../../config.js";
 import { GameState, player } from "../../state.js";
 import { calculateInterceptAim, calculateMaximumFleeInterceptDistance, calculateMaximumLeadHalfAngle } from "../targeting.js";
@@ -53,6 +54,37 @@ export function updateEnemies(currentTime, dt) {
 		// reset velocity before calculating
 		e.vx = 0;
 		e.vy = 0;
+		if (canAimBounce(e.typeStats.weapon)) {
+			const ready = currentTime - e.lastShot > e.shootCooldown;
+			// Revalidate at firing time; previews refresh at 10 Hz, not every tick.
+			if (ready || !e.bounceAimPaths || currentTime - e.bounceAimTime >= 100 ||
+				e.bounceAimRevision !== GameState.environmentRevision) {
+				e.bounceAimPaths = findEnemyShotPaths(
+					{ x: eCenterX, y: eCenterY }, { x: pCenterX, y: pCenterY }, e.typeStats.weapon);
+				e.bounceAimTime = currentTime;
+				e.bounceAimRevision = GameState.environmentRevision;
+			}
+			e.debugBouncePaths = e.bounceAimPaths;
+			if (ready) {
+				const path = chooseEnemyShotPath(e.bounceAimPaths);
+				e.debugSelectedBouncePath = path;
+				if (path) {
+					fireEnemyProjectile(e, eCenterX, eCenterY, pCenterX, pCenterY,
+						currentTime, path.angle, 0, getSingleAngleInterval(path.angle));
+				}
+			}
+			if (los || e.bounceAimPaths.length) {
+				e.hasAimTarget = true;
+				e.lastSeenX = pCenterX;
+				e.lastSeenY = pCenterY;
+			}
+			if (hasAimTarget || e.hasAimTarget) {
+				updateAggressiveEnemyMovement(e, los, pCenterX, pCenterY, eCenterX, eCenterY, dt);
+			}
+			return true;
+		}
+		e.debugBouncePaths = null;
+		e.debugSelectedBouncePath = null;
 		if (!hasAimTarget) return true;
 
 		e.debugAimOriginX = eCenterX;

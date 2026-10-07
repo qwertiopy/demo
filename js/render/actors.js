@@ -55,6 +55,20 @@ export function drawEnemyAimDebug(enemy, blockSizePx, settings) {
 		: "rgba(0, 255, 255, 0.08)";
 
 	ctx.save();
+	if (settings.DRAW_ENEMY_AIM_BOUNCE_ANGLE) {
+		for (const path of debug.bouncePaths || []) {
+			if (!consumeDebugDrawBudget()) break;
+			ctx.setLineDash(path.selected ? [] : [4, 4]);
+			ctx.strokeStyle = path.selected ? "rgba(80, 255, 120, 1)" : "rgba(80, 255, 120, 0.35)";
+			ctx.lineWidth = path.selected ? 2 : 1;
+			ctx.beginPath();
+			ctx.moveTo(path.origin.x * blockSizePx, path.origin.y * blockSizePx);
+			ctx.lineTo(path.bounce.x * blockSizePx, path.bounce.y * blockSizePx);
+			ctx.lineTo(path.target.x * blockSizePx, path.target.y * blockSizePx);
+			ctx.stroke();
+		}
+	}
+
 
 	// Draw the projectile-speed limit first so the wall-clipped visible region
 	// remains legible as the more specific interval on top of it.
